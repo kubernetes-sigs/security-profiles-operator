@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
@@ -79,6 +80,17 @@ func (p *Converter) Run() error {
 			return fmt.Errorf(
 				"profile has no name, set its metadata.name or pass --%s",
 				FlagProgramName,
+			)
+		}
+
+		// The profile may be converted for another host, so a relative
+		// path is not resolved against the working directory like spoc
+		// install does.
+		if programName != "" && !filepath.IsAbs(programName) {
+			log.Printf(
+				"WARNING: --%s %s is no absolute path, the profile does not attach to an executable",
+				FlagProgramName,
+				programName,
 			)
 		}
 

@@ -87,7 +87,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(t *testing.T, options *Options, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorContains(t, err, "too many arguments")
 			},
 		},
 	} {

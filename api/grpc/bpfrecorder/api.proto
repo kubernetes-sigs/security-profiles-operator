@@ -41,6 +41,17 @@ message RecordingRequest {
   // request does not affect the recordings of other clients. Requests without
   // an id are counted, every Start needs its own Stop.
   string id = 1;
+  // profiles are the profiles which the recording of a pod with the UID id
+  // records for its containers. Only the recording annotations of the pod
+  // which name one of them are trusted, any pod can carry the annotation of
+  // another one. Without them, every recording annotation of the pod is.
+  repeated RecordedProfile profiles = 2;
+}
+
+// RecordedProfile is a profile which gets recorded for a container.
+message RecordedProfile {
+  string container = 1;
+  string profile = 2;
 }
 
 message ProfileRequest {

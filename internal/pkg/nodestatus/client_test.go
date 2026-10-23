@@ -1285,3 +1285,232 @@ func TestCreatedStatusReadsThroughAPIReaderUntilCached(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists)
 }
+
+// A state which goes back to the one the cache still has, like Installed
+// right after an Error the cache has not seen yet, is written: the daemon
+// knows the state it wrote last.
+func TestSetNodeStatusAfterOwnWriteWithStaleCache(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	stale := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	base := newFakeClient(t, sp.DeepCopy(), stale.DeepCopy())
+
+	staleCache := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if status, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+				stale.DeepCopyInto(status)
+
+				return nil
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	sc := newStatusClient(t, sp, staleCache)
+	sc.written = &WrittenStates{}
+	ctx := context.Background()
+
+	require.NoError(t, sc.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError, "cannot write the profile",
+	))
+
+	matches, err := sc.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
+	require.NoError(t, err)
+	require.False(t, matches, "the cache still has the state from before the error")
+
+	require.NoError(t, sc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled))
+
+	status, err := nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
+	require.Empty(t, status.Status.Message)
+	require.Equal(t,
+		string(secprofnodestatusapi.ProfileStateInstalled),
+		status.Labels[secprofnodestatusapi.StatusStateLabel],
+	)
+}
+
+// A status left over from a deleted profile of the same name loses the
+// annotations the daemon wrote for that profile.
+func TestCreateAdoptsLeftoverStatusWithoutAnnotations(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.UID = "new-profile"
+	leftover := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	leftover.Annotations = map[string]string{
+		"spo.x-k8s.io/apparmor-profile-installed": "true",
+		"example.com/other":                       "kept",
+	}
+	leftover.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: seccompprofile.GroupVersion.String(),
+		Kind:       "SeccompProfile",
+		Name:       sp.GetName(),
+		UID:        "deleted-profile",
+		Controller: new(true),
+	}}
+
+	c := newFakeClient(t, sp.DeepCopy(), leftover)
+	sc := newStatusClient(t, sp, c)
+
+	_, err := sc.Create(context.Background())
+	require.NoError(t, err)
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"example.com/other": "kept"}, status.Annotations)
+}
+
+// A profile which got its partial label removed still carries the finalizer
+// shared by all nodes for partial profiles, which goes along with the one of
+// the node.
+func TestRemoveFinalizerOfPromotedPartialProfile(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Finalizers = []string{
+		partialProfileFinalizer,
+		util.GetFinalizerNodeString(testNode),
+		util.GetFinalizerNodeString("worker-2"),
+	}
+	c := newFakeClient(t, sp.DeepCopy())
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.removeFinalizer(context.Background()))
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-2")},
+		storedProfile(t, c, sp.GetName()).Finalizers,
+	)
+}
+
+// A profile which the API reader does not find either is gone, so adding the
+// finalizer is not retried any further.
+func TestCreateFinalizerAndLabelStopsForDeletedProfile(t *testing.T) {
+	t.Parallel()
+
+	sp := regularSeccompProfile()
+	base := newFakeClient(t)
+
+	reads := 0
+	reader := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			reads++
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	sc := newStatusClient(t, sp, base)
+	sc.WithAPIReader(reader)
+
+	err := sc.createFinalizerAndLabel(context.Background())
+	require.True(t, kerrors.IsNotFound(err), err)
+	require.Equal(t, 1, reads, "a single read through the API reader")
+}
+
+// A status write which fails may still have been applied, like on a timeout,
+// so the state written before does not count any more.
+func TestSetNodeStatusFailureForgetsWrittenState(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	base := newFakeClient(t, sp.DeepCopy(), existing)
+
+	failing := interceptor.NewClient(base, interceptor.Funcs{
+		SubResourcePatch: func(
+			context.Context, client.Client, string, client.Object,
+			client.Patch, ...client.SubResourcePatchOption,
+		) error {
+			return errors.New("timeout")
+		},
+	})
+
+	sc := newStatusClient(t, sp, failing)
+	sc.written = &WrittenStates{}
+	sc.recordWritten(secprofnodestatusapi.ProfileStateInstalled, "")
+
+	require.Error(t, sc.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateError))
+
+	_, ok := sc.written.states.Load(sc.writtenKey())
+	require.False(t, ok)
+}
+
+// The states written for a profile which is gone are forgotten by its name,
+// its UID is unknown then.
+func TestWrittenStatesForget(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sc := newStatusClient(t, sp, nil)
+	sc.written = &WrittenStates{}
+	sc.recordWritten(secprofnodestatusapi.ProfileStateInstalled, "")
+
+	other := preparedProfile()
+	other.Name = "other-profile"
+	otherClient := newStatusClient(t, other, nil)
+	otherClient.written = sc.written
+	otherClient.recordWritten(secprofnodestatusapi.ProfileStateInstalled, "")
+
+	sc.written.Forget(util.NamespacedName(sp.GetName(), sp.GetNamespace()))
+
+	_, ok := sc.written.states.Load(sc.writtenKey())
+	require.False(t, ok)
+
+	_, ok = sc.written.states.Load(otherClient.writtenKey())
+	require.True(t, ok)
+}
+
+// A profile which got deleted right after its partial label got removed,
+// before any node added its own finalizer, is released.
+func TestReleasePartialFinalizer(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Finalizers = []string{partialProfileFinalizer, "example.com/other"}
+	c := newFakeClient(t, sp.DeepCopy())
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.ReleasePartialFinalizer(context.Background()))
+	require.Equal(t, []string{"example.com/other"}, storedProfile(t, c, sp.GetName()).Finalizers)
+
+	// A partial profile keeps it.
+	partial := recordedPartialProfile("partial-profile")
+	c = newFakeClient(t, partial.DeepCopy())
+	sc = newStatusClient(t, partial, c)
+
+	require.NoError(t, sc.ReleasePartialFinalizer(context.Background()))
+	require.Equal(t,
+		[]string{partialProfileFinalizer}, storedProfile(t, c, partial.GetName()).Finalizers,
+	)
+}
+
+// A status without an owner, like one of unknown origin, loses the
+// annotations of the daemon as well when it gets adopted.
+func TestCreateAdoptsStatusWithoutOwner(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.UID = "new-profile"
+	leftover := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	leftover.Annotations = map[string]string{"spo.x-k8s.io/apparmor-profile-installed": "true"}
+
+	c := newFakeClient(t, sp.DeepCopy(), leftover)
+	sc := newStatusClient(t, sp, c)
+
+	_, err := sc.Create(context.Background())
+	require.NoError(t, err)
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.Empty(t, status.Annotations)
+	require.Equal(t, sp.GetUID(), status.OwnerReferences[0].UID)
+}

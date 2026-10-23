@@ -331,6 +331,71 @@ func TestCacheProfilesOfPod(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestCacheProfilesOfPodWithSessions asserts that only the pods the recording
+// runs for get recorded once a client tells them: any pod can carry the
+// recording annotations of another pod.
+func TestCacheProfilesOfPodWithSessions(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, false)
+	p := podWithContainer(
+		map[string]string{config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile},
+	)
+	p.UID = "copied-annotations"
+
+	sut.startMu.Lock()
+	sut.sessions["recorded-pod"] = struct{}{}
+	sut.updateStartRequests()
+	sut.startMu.Unlock()
+
+	require.False(t, sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load()))
+
+	_, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.False(t, ok)
+
+	p.UID = "recorded-pod"
+	require.True(t, sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load()))
+
+	got, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok)
+	require.Equal(t, profile, got)
+}
+
+// TestCacheProfilesOfPodWithSessionProfiles asserts that a recorded pod which
+// carries the recording annotation of another pod on one of its containers
+// does not record for the profile of the other pod: only the profiles of the
+// session are trusted.
+func TestCacheProfilesOfPodWithSessionProfiles(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, false)
+	p := podWithContainer(
+		map[string]string{config.SeccompProfileRecordBpfAnnotationKey + "ctr": "copied-profile"},
+	)
+	p.UID = "recorded-pod"
+
+	sut.startMu.Lock()
+	sut.sessions[string(p.UID)] = struct{}{}
+	sut.addSessionProfiles(
+		string(p.UID),
+		[]*api.RecordedProfile{{Container: "ctr", Profile: profile}},
+	)
+	sut.updateStartRequests()
+	sut.startMu.Unlock()
+
+	sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load())
+
+	_, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.False(t, ok)
+
+	p.Annotations[config.SeccompProfileRecordBpfAnnotationKey+"ctr"] = profile
+	sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load())
+
+	got, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok)
+	require.Equal(t, profile, got)
+}
+
 // TestCacheProfilesOfPodForgetsCollectedProfile asserts that a collected
 // profile gets recorded again for a new container, like the one of a pod
 // created again with the same recording annotation, but not for the

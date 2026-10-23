@@ -43,8 +43,9 @@ import (
 
 // verifySignature verifies the signature of the subject against the signer
 // constraints of the options. Sigstore signature bundles attached as OCI
-// referrers are verified if present, otherwise the legacy cosign signature
-// tag, which keeps artifacts signed by older versions working. One valid
+// referrers are verified if present, and the legacy cosign signature tag if
+// none of them is valid or there are none, which keeps artifacts signed by
+// older versions and by the promoter of registry.k8s.io working. One valid
 // signature is enough.
 func (a *Artifact) verifySignature(
 	ctx context.Context, originalImage string, repo *remote.Repository, subject *v1.Descriptor,
@@ -113,39 +114,81 @@ func (a *Artifact) verifySignatureOf(
 		return err
 	}
 
-	errs := make([]error, 0, len(candidates))
+	errs, verified := a.verifyCandidates(
+		ctx, repo, candidates, legacy, subject.Digest, material, identity, nil,
+	)
+	if verified {
+		return nil
+	}
 
+	// The bundles may be from another signer than the one the verification
+	// is constrained to, like the bundle of the staging build of a profile
+	// next to the legacy signature of its promotion, so the legacy
+	// signatures are verified as well.
+	var lookupErr error
+
+	if !legacy {
+		legacyCandidates, legacyErr := a.legacySignatureLayers(ctx, repo, subject.Digest)
+		if legacyErr != nil {
+			// A failed lookup may have hidden a valid signature, so it is
+			// not summarized away with the invalid ones.
+			lookupErr = fmt.Errorf("looking up legacy signatures failed: %w", legacyErr)
+		} else if errs, verified = a.verifyCandidates(
+			ctx, repo, legacyCandidates, true, subject.Digest, material, identity, errs,
+		); verified {
+			return nil
+		}
+	}
+
+	err = summarizeErrors(errs)
+	if lookupErr != nil {
+		err = errors.Join(err, lookupErr)
+	}
+
+	// A registry error may have hidden a valid signature bundle.
+	if referrersErr != nil {
+		return fmt.Errorf(
+			"%w, looking up signature bundles failed as well: %w", err, referrersErr,
+		)
+	}
+
+	return err
+}
+
+// verifyCandidates verifies the signatures until one of them is valid, which
+// it reports. The errors of the invalid ones are appended to errs.
+func (a *Artifact) verifyCandidates(
+	ctx context.Context,
+	repo *remote.Repository,
+	candidates []v1.Descriptor,
+	legacy bool,
+	subject digest.Digest,
+	material root.TrustedMaterial,
+	identity *verify.CertificateIdentity,
+	errs []error,
+) ([]error, bool) {
 	for i := range candidates {
 		candidate := &candidates[i]
 
-		err := a.verifyCandidate(ctx, repo, candidate, legacy, subject.Digest, material, identity)
+		err := a.verifyCandidate(ctx, repo, candidate, legacy, subject, material, identity)
 		if err == nil {
 			a.logger.Info(
 				"Verified signature",
 				"digest",
-				subject.Digest,
+				subject,
 				"signature",
 				candidate.Digest,
 				"legacy",
 				legacy,
 			)
 
-			return nil
+			return errs, true
 		}
 
 		errs = append(errs, fmt.Errorf("signature %s: %w", candidate.Digest, err))
 	}
 
-	// A registry error may have hidden a valid signature bundle.
-	if referrersErr != nil {
-		return fmt.Errorf(
-			"%w, looking up signature bundles failed as well: %w",
-			summarizeErrors(errs),
-			referrersErr,
-		)
-	}
-
-	return summarizeErrors(errs)
+	return errs, false
 }
 
 // verificationMaterial returns the trusted material the signatures are
@@ -199,11 +242,12 @@ func summarizeErrors(errs []error) error {
 
 // signatureCandidates returns the referrer manifests of the signature
 // bundles of the subject, or the layers of its legacy signature tag if there
-// are no bundles. Attestations like SLSA provenance or promotion records are
-// bundles with other predicate types, which do not count as signature. A
-// failed lookup of the bundles is part of the error if no legacy signature
-// is found either, and returned as referrersErr next to the legacy
-// signatures otherwise.
+// are no bundles. The legacy signatures are verified as well if none of the
+// bundles is valid, see verifySignatureOf. Attestations like SLSA provenance
+// or promotion records are bundles with other predicate types, which do not
+// count as signature. A failed lookup of the bundles is part of the error if
+// no legacy signature is found either, and returned as referrersErr next to
+// the legacy signatures otherwise.
 func (a *Artifact) signatureCandidates(
 	ctx context.Context, repo *remote.Repository, subject *v1.Descriptor,
 ) (candidates []v1.Descriptor, legacy bool, referrersErr, err error) {

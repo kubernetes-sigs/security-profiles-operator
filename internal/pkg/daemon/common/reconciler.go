@@ -107,6 +107,12 @@ func ReconcileDeletion(
 	// do. The node status alone is not a reliable signal: a foreground
 	// deletion removes the owned node statuses before the profile.
 	if !nsc.FinalizerExists() {
+		// A profile which got deleted right after its partial label got
+		// removed may only carry the finalizer of the partial profiles.
+		if err := nsc.ReleasePartialFinalizer(ctx); err != nil {
+			return ctrl.Result{}, fmt.Errorf("releasing the partial profile finalizer: %w", err)
+		}
+
 		return ctrl.Result{}, nil
 	}
 

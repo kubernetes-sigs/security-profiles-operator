@@ -34,15 +34,15 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-// staleTempFileAge is the age after which a temporary file of an atomic write
+// StaleTempFileAge is the age after which a temporary file of an atomic write
 // is considered left behind by a daemon which died while writing it.
-const staleTempFileAge = time.Minute
+const StaleTempFileAge = time.Minute
 
 // RemoveStaleTempFiles removes the temporary files which interrupted atomic
 // writes left behind in dir. Failures are only logged, the files are hidden
 // and do not keep anything from working.
 func RemoveStaleTempFiles(log logr.Logger, dir string) {
-	removed, err := util.RemoveStaleTempFiles(dir, staleTempFileAge)
+	removed, err := util.RemoveStaleTempFiles(dir, StaleTempFileAge)
 	for _, name := range removed {
 		log.Info("Removed stale temporary file", "path", name)
 	}
@@ -50,6 +50,16 @@ func RemoveStaleTempFiles(log logr.Logger, dir string) {
 	if err != nil {
 		log.Error(err, "Cannot remove stale temporary files", "dir", dir)
 	}
+}
+
+// RemoveStaleTempFilesOnStart removes the stale temporary files of dir like
+// RemoveStaleTempFiles, and once more after StaleTempFileAge: a daemon which
+// crashed right before this one started leaves files which are too young for
+// the first pass.
+func RemoveStaleTempFilesOnStart(log logr.Logger, dir string) {
+	RemoveStaleTempFiles(log, dir)
+
+	time.AfterFunc(StaleTempFileAge, func() { RemoveStaleTempFiles(log, dir) })
 }
 
 // GetSPODName returns the name of the SPOD instance we're currently running

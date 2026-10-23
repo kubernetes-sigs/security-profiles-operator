@@ -270,14 +270,24 @@ func TestPush(t *testing.T) {
 			},
 		},
 		{
+			// An invalid reference fails before the sign in, which may be
+			// interactive.
 			name: "failure on ParseReferenceReturns",
-			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
+			prepare: func(t *testing.T, mock *artifactfakes.FakeImpl) {
+				t.Helper()
+
 				mock.ParseReferenceReturns(nil, errTest)
+				mock.IDTokenStub = func(context.Context, string, bool) (string, error) {
+					t.Error("signed in for an invalid reference")
+
+					return "", errTest
+				}
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
 				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "parse reference")
 			},
 		},
 		{

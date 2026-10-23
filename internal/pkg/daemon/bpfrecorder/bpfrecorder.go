@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -215,6 +216,13 @@ type BpfRecorder struct {
 	// sessions holds the IDs of the clients the recording runs for, see
 	// api.RecordingRequest. Guarded by startMu.
 	sessions map[string]struct{}
+	// sessionProfiles holds per session the container and profile pairs it
+	// records, see api.RecordingRequest. A session without them trusts every
+	// recording annotation of its pod. Guarded by startMu.
+	sessionProfiles map[string]map[string]struct{}
+	// recordedPods is a copy of sessionProfiles with a key per session, which
+	// the lookups of the profiles read without taking startMu, see recordsPod.
+	recordedPods atomic.Pointer[map[string]map[string]struct{}]
 	// anonymousStarts counts the starts without ID which were not stopped
 	// yet. Guarded by startMu.
 	anonymousStarts int64
@@ -456,6 +464,7 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 		),
 		staleKeys:           map[uint64]int{},
 		sessions:            map[string]struct{}{},
+		sessionProfiles:     map[string]map[string]struct{}{},
 		now:                 time.Now,
 		attachUnattachMutex: sync.RWMutex{},
 		programName:         programName,
@@ -473,8 +482,8 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 	}
 }
 
-// Syscalls returns the bpf map containing the PID (key) to syscalls (value)
-// data.
+// Syscalls returns the bpf map of the syscalls recorded per recording key, see
+// get_key in recorder.bpf.c.
 func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 	return b.Seccomp.syscalls
 }
@@ -691,6 +700,23 @@ func Dial() (*grpc.ClientConn, error) {
 func (b *BpfRecorder) Start(
 	_ context.Context, r *api.RecordingRequest,
 ) (*api.EmptyResponse, error) {
+	res, err := b.start(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// The containers of the pod may have recorded already while the
+	// recording ran for another pod, before their pod had a session. Their
+	// data would be swept as the one of unknown workloads otherwise.
+	if r.GetId() != "" {
+		b.cacheProfilesOfUnresolvedContainers()
+	}
+
+	return res, nil
+}
+
+// start is Start without resolving the containers of the session.
+func (b *BpfRecorder) start(r *api.RecordingRequest) (*api.EmptyResponse, error) {
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
 
@@ -699,6 +725,8 @@ func (b *BpfRecorder) Start(
 	id := r.GetId()
 	if _, running := b.sessions[id]; running && id != "" && !b.stopFailed {
 		b.logger.Info("bpf recorder already running for session", "session", id)
+		b.addSessionProfiles(id, r.GetProfiles())
+		b.updateStartRequests()
 
 		return &api.EmptyResponse{}, nil
 	}
@@ -721,6 +749,7 @@ func (b *BpfRecorder) Start(
 		b.anonymousStarts++
 	} else {
 		b.sessions[id] = struct{}{}
+		b.addSessionProfiles(id, r.GetProfiles())
 	}
 
 	b.updateStartRequests()
@@ -769,6 +798,7 @@ func (b *BpfRecorder) Stop(
 		b.anonymousStarts--
 	} else {
 		delete(b.sessions, id)
+		delete(b.sessionProfiles, id)
 	}
 
 	b.updateStartRequests()
@@ -789,6 +819,71 @@ func (b *BpfRecorder) stopRecording() error {
 // recording to run. It has to be called with startMu held.
 func (b *BpfRecorder) updateStartRequests() {
 	atomic.StoreInt64(&b.startRequests, b.anonymousStarts+int64(len(b.sessions)))
+
+	recordedPods := make(map[string]map[string]struct{}, len(b.sessions))
+	for id := range b.sessions {
+		recordedPods[id] = maps.Clone(b.sessionProfiles[id])
+	}
+
+	b.recordedPods.Store(&recordedPods)
+}
+
+// addSessionProfiles adds the profiles to the ones the session records. It
+// has to be called with startMu held.
+func (b *BpfRecorder) addSessionProfiles(id string, profiles []*api.RecordedProfile) {
+	if len(profiles) == 0 {
+		return
+	}
+
+	recorded, ok := b.sessionProfiles[id]
+	if !ok {
+		recorded = map[string]struct{}{}
+		b.sessionProfiles[id] = recorded
+	}
+
+	for _, p := range profiles {
+		recorded[sessionProfileKey(p.GetContainer(), p.GetProfile())] = struct{}{}
+	}
+}
+
+// sessionProfileKey returns the key of a container and its profile in the
+// profiles of a session.
+func sessionProfileKey(container, profile string) string {
+	return container + "/" + profile
+}
+
+// recordsPod reports whether the recording runs for the pod, and the profile
+// of which of its containers it records. The profile recorder of the daemon
+// starts the recording with the UID of the pod and the profiles it authorized
+// for its containers, see api.RecordingRequest. Only those recording
+// annotations are trusted then: any pod can carry the annotations of another
+// one, which would add its data to the profile recorded for the other pod.
+// Without any session every recording annotation is trusted, and without
+// profiles every one of the pod of the session.
+func (b *BpfRecorder) recordsPod(
+	pod *v1.Pod,
+) (recorded bool, trusted func(container, profile string) bool) {
+	trustAll := func(string, string) bool { return true }
+
+	recordedPods := b.recordedPods.Load()
+	if recordedPods == nil || len(*recordedPods) == 0 {
+		return true, trustAll
+	}
+
+	profiles, ok := (*recordedPods)[string(pod.UID)]
+	if !ok {
+		return false, nil
+	}
+
+	if len(profiles) == 0 {
+		return true, trustAll
+	}
+
+	return true, func(container, profile string) bool {
+		_, ok := profiles[sessionProfileKey(container, profile)]
+
+		return ok
+	}
 }
 
 // SyscallsForProfile returns the syscall names for the provided profile name.
@@ -1162,26 +1257,11 @@ func (b *BpfRecorder) initGlobals(module *bpf.Module) error {
 	return nil
 }
 
-// Load loads the BPF code, does relocations, and gets references to the programs we want to attach.
-// We try to front load as much work as possible so that starting a recording is quick.
-// Recorder start races with container initialization, so we can't spend too much time then.
-//
-// Close unloads it again.
-func (b *BpfRecorder) Load() (err error) {
-	var module *bpf.Module
-
-	b.logger.Info("Loading bpf module...")
-
-	if err := b.findBtfPath(); err != nil {
-		return fmt.Errorf("find btf: %w", err)
-	}
-
-	bpfObject, err := bpfObjectForArch(runtime.GOARCH)
-	if err != nil {
-		return err
-	}
-
-	module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
+// loadModule creates the module of the BPF object and loads it, with the
+// AppArmor programs if withAppArmor is set. The module is kept in b.module
+// even if loading it fails, so that the caller releases it.
+func (b *BpfRecorder) loadModule(bpfObject []byte, withAppArmor bool) error {
+	module, err := b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
 		BPFObjBuff: bpfObject,
 		BPFObjName: "recorder.bpf.o",
 	})
@@ -1190,14 +1270,6 @@ func (b *BpfRecorder) Load() (err error) {
 	}
 
 	b.module = module
-
-	// Nothing is started before the end, so a failure releases everything
-	// which got loaded until then.
-	defer func() {
-		if err != nil {
-			b.releaseModule()
-		}
-	}()
 
 	if b.programName != "" {
 		programName := []byte(filepath.Base(b.programName))
@@ -1220,19 +1292,9 @@ func (b *BpfRecorder) Load() (err error) {
 		return err
 	}
 
-	wanted := baseHooks
-
-	switch {
-	case b.wantAppArmor():
-		wanted = slices.Concat(baseHooks, appArmorHooks)
-	case b.AppArmor != nil:
-		// Only logged, AppArmor recording is enabled by default and there
-		// are distributions without the BPF LSM, see
-		// https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
-		b.logger.Info(
-			"BPF LSM is not enabled for this kernel, AppArmor profiles cannot be recorded",
-		)
-		b.AppArmor.disable(errBPFLSMDisabled)
+	wanted := b.recorderHooks()
+	if withAppArmor {
+		wanted = slices.Concat(wanted, appArmorHooks)
 	}
 
 	if err := b.disableProgramsExcept(module, wanted); err != nil {
@@ -1242,8 +1304,72 @@ func (b *BpfRecorder) Load() (err error) {
 	b.logger.Info("Loading bpf object from module")
 
 	if err := b.BPFLoadObject(module); err != nil {
-		return fmt.Errorf("load bpf object: %w", err)
+		return fmt.Errorf("%w: %w", errLoadObject, err)
 	}
+
+	return nil
+}
+
+// errLoadObject is returned by loadModule if the kernel rejected the object.
+var errLoadObject = errors.New("load bpf object")
+
+// Load loads the BPF code, does relocations, and gets references to the programs we want to attach.
+// We try to front load as much work as possible so that starting a recording is quick.
+// Recorder start races with container initialization, so we can't spend too much time then.
+//
+// Close unloads it again.
+func (b *BpfRecorder) Load() (err error) {
+	var module *bpf.Module
+
+	b.logger.Info("Loading bpf module...")
+
+	if err := b.findBtfPath(); err != nil {
+		return fmt.Errorf("find btf: %w", err)
+	}
+
+	bpfObject, err := bpfObjectForArch(runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	// Nothing is started before the end, so a failure releases everything
+	// which got loaded until then.
+	defer func() {
+		if err != nil {
+			b.releaseModule()
+		}
+	}()
+
+	withAppArmor := b.wantAppArmor()
+	if !withAppArmor && b.AppArmor != nil {
+		// Only logged, AppArmor recording is enabled by default and there
+		// are distributions without the BPF LSM, see
+		// https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
+		b.logger.Info(
+			"BPF LSM is not enabled for this kernel, AppArmor profiles cannot be recorded",
+		)
+		b.AppArmor.disable(errBPFLSMDisabled)
+	}
+
+	err = b.loadModule(bpfObject, withAppArmor)
+	if withAppArmor && errors.Is(err, errLoadObject) {
+		// A kernel which rejects one of the AppArmor programs rejects the
+		// whole object, which would break seccomp recording as well. An
+		// object can only be loaded once, so it gets loaded again.
+		b.logger.Error(err, "The kernel rejected the bpf object with the AppArmor programs, "+
+			"loading it without them, AppArmor profiles cannot be recorded")
+		b.releaseModule()
+		b.AppArmor.disable(err)
+
+		withAppArmor = false
+		err = b.loadModule(bpfObject, false)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	module = b.module
 
 	if b.excludeMountNamespace != 0 {
 		excludeMntns, err := b.GetMap(module, mapExcludeMntns)
@@ -1262,11 +1388,11 @@ func (b *BpfRecorder) Load() (err error) {
 		b.logger.Info("Excluding mount namespace", "mntns", b.excludeMountNamespace)
 	}
 
-	if err := b.loadPrograms(baseHooks); err != nil {
+	if err := b.loadPrograms(b.recorderHooks()); err != nil {
 		return fmt.Errorf("loading base hooks: %w", err)
 	}
 
-	if b.wantAppArmor() {
+	if withAppArmor {
 		if err := b.AppArmor.Load(b); err != nil {
 			// Only logged, so that seccomp profiles can still be recorded
 			// if a single AppArmor hook cannot be attached on this kernel.
@@ -1508,6 +1634,17 @@ func bpfObjectForArch(arch string) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("architecture %s is currently unsupported", arch)
 	}
+}
+
+// recorderHooks returns the programs the recorder attaches in any case. The
+// children of a program are only tracked with a program name filter, without
+// one the hooks would run on every fork and exec of the node for nothing.
+func (b *BpfRecorder) recorderHooks() []string {
+	if b.programName == "" {
+		return baseHooks
+	}
+
+	return slices.Concat(baseHooks, filterHooks)
 }
 
 func (b *BpfRecorder) loadPrograms(programNames []string) error {
@@ -1950,6 +2087,13 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 			return
 		}
 
+		if errors.Is(err, errPodNotRecorded) {
+			b.logger.V(config.VerboseLevel).Info("Pod of container not recorded yet",
+				"id", containerID, "pid", pid, "mntns", mntns)
+
+			return
+		}
+
 		// Containers which are not managed by Kubernetes are reported with
 		// every process they start.
 		if errors.Is(err, errContainerNotInCluster) {
@@ -2264,6 +2408,11 @@ func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
 var (
 	errNoProfileForContainer = errors.New("container has no recording annotation")
 
+	// errPodNotRecorded is returned for a container of a pod which carries
+	// recording annotations, but which the recording does not run for, at
+	// least not yet, see recordsPod.
+	errPodNotRecorded = errors.New("the recording does not run for the pod of the container")
+
 	// errContainerNotInCluster is returned if no pod of the node has the
 	// container.
 	errContainerNotInCluster = errors.New("container ID not found in cluster")
@@ -2336,7 +2485,12 @@ func (b *BpfRecorder) lookupProfileForContainerID(id string, generation uint64) 
 		return "", errRecordingEnded
 	}
 
-	b.cacheProfilesOfPod(pod, generation)
+	if !b.cacheProfilesOfPod(pod, generation) {
+		// The recording for the pod may start after its containers did.
+		// The container gets looked up again then, see
+		// cacheProfilesOfUnresolvedContainers.
+		return "", errPodNotRecorded
+	}
 
 	if profile, ok := b.containerIDToProfileMap.Get(id); ok {
 		b.logger.Info(
@@ -2414,8 +2568,19 @@ func (b *BpfRecorder) cacheProfilesOfUnresolvedContainers() {
 }
 
 // cacheProfilesOfPod caches the profiles recorded for the containers of the
-// pod by the recording of the generation.
-func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) {
+// pod by the recording of the generation. It returns false for a pod with
+// recording annotations which the recording does not run for, see recordsPod.
+func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) bool {
+	recorded, trusted := b.recordsPod(pod)
+	if hasBpfRecordingAnnotation(pod) && !recorded {
+		b.logger.V(config.VerboseLevel).Info(
+			"Not recording pod without a recording session",
+			"podName", pod.Name, "podUID", pod.UID,
+		)
+
+		return false
+	}
+
 	for _, containerID := range podindex.ContainerIDs(pod) {
 		containerName, _ := podindex.ContainerName(pod, containerID)
 
@@ -2424,6 +2589,15 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) {
 			config.ApparmorProfileRecordBpfAnnotationKey,
 		} {
 			profile, ok := pod.Annotations[annotation+containerName]
+			if ok && profile != "" && trusted != nil && !trusted(containerName, profile) {
+				b.logger.Info(
+					"Not recording a profile which the recording session does not record",
+					"profile", profile, "podName", pod.Name, "containerName", containerName,
+				)
+
+				continue
+			}
+
 			if ok && profile != "" {
 				b.logger.Info(
 					"Cache this profile found in cluster",
@@ -2439,6 +2613,8 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) {
 			}
 		}
 	}
+
+	return true
 }
 
 // forgetCollected forgets that the profile got collected if the container is

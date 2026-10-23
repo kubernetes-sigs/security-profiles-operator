@@ -75,14 +75,14 @@ func TestDispatchSeccompLineSkipsCompatSyscalls(t *testing.T) {
 	sut.dispatchSeccompLine(node, &types.AuditLine{
 		AuditType: types.AuditTypeSeccomp, SystemCallID: 102, Arch: "40000003",
 	}, info)
-	_, found := sut.syscalls.get("profile", false)
+	_, found := sut.syscalls.get("profile", "", false)
 	require.False(t, found)
 
 	sut.dispatchSeccompLine(node, &types.AuditLine{
 		AuditType: types.AuditTypeSeccomp, SystemCallID: 0, Arch: nativeAuditArches[runtime.GOARCH],
 	}, info)
 
-	recorded, found := sut.syscalls.get("profile", false)
+	recorded, found := sut.syscalls.get("profile", "", false)
 	require.True(t, found)
 	require.Len(t, recorded, 1)
 }

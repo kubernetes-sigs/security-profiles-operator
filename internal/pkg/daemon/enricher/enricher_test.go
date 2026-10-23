@@ -485,7 +485,7 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	waitForCallCount(t, mock.ContainerIDForPIDCallCount, 4)
 	waitForCallCount(t, mock.SendMetricCallCount, 3)
 
-	recorded, found := sut.syscalls.get(recordProfile, false)
+	recorded, found := sut.syscalls.get(recordProfile, "", false)
 	require.True(t, found)
 	require.ElementsMatch(t, names, recorded)
 
@@ -517,6 +517,46 @@ func TestContainerIDForProcessForgetsReusedPID(t *testing.T) {
 
 	_, err = sut.lookup.containerIDForProcess(sut.impl, 42, time.Time{})
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestContainerIDForProcessWithReusingHostProcess asserts that the line of an
+// exited container process keeps its container if a process outside of any
+// container reused its PID after the line got logged.
+func TestContainerIDForProcessWithReusingHostProcess(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+	mock.UptimeReturns(time.Hour, nil)
+	// The container process started a minute ago.
+	mock.ContainerIDForPIDReturnsOnCall(0, containerID, time.Hour-time.Minute, nil)
+	// The host process started ten seconds ago.
+	mock.ContainerIDForPIDReturnsOnCall(
+		1,
+		"",
+		time.Hour-10*time.Second,
+		util.ErrContainerIDNotFound,
+	)
+	mock.ContainerIDForPIDReturnsOnCall(
+		2,
+		"",
+		time.Hour-10*time.Second,
+		util.ErrContainerIDNotFound,
+	)
+
+	lookup := newContainerLookup(logr.Discard())
+
+	cID, err := lookup.containerIDForProcess(mock, 42, time.Now().Add(-30*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-30*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// A line the host process logged is its own.
+	_, err = lookup.containerIDForProcess(mock, 42, time.Now())
+	require.ErrorIs(t, err, util.ErrContainerIDNotFound)
+	require.Nil(t, lookup.processContainers.Get(42))
 }
 
 // TestContainerIDForProcessWithESRCH asserts that a process which exits while
@@ -875,7 +915,7 @@ func TestBacklogIsDispatchedPerContainer(t *testing.T) {
 	sut.dispatchBacklog(node, info)
 
 	require.Equal(t, 1, sut.auditLineCache.Len(), "only the other container is left")
-	_, found := sut.syscalls.get("profile", false)
+	_, found := sut.syscalls.get("profile", "", false)
 	require.True(t, found)
 }
 

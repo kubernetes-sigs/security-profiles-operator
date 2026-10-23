@@ -51,11 +51,6 @@ func newContainerProfiles() *containerProfiles {
 	}
 }
 
-// Insert records that profile is being recorded for containerID.
-func (c *containerProfiles) Insert(containerID, profile string) {
-	c.InsertAt(containerID, profile, 0)
-}
-
 // InsertAt records that profile is being recorded for containerID by the
 // recording of the generation.
 func (c *containerProfiles) InsertAt(containerID, profile string, generation uint64) {
@@ -94,8 +89,9 @@ func (c *containerProfiles) Containers(profile string) []string {
 	return slices.Clone(c.byProfile[profile])
 }
 
-// DeleteAt is Delete if the latest recording which cached the container is
-// the one of the generation.
+// DeleteAt forgets a container and drops it from every profile recorded for
+// it, if the latest recording which cached the container is the one of the
+// generation.
 func (c *containerProfiles) DeleteAt(containerID string, generation uint64) {
 	c.l.Lock()
 	defer c.l.Unlock()
@@ -107,15 +103,8 @@ func (c *containerProfiles) DeleteAt(containerID string, generation uint64) {
 	c.delete(containerID)
 }
 
-// Delete forgets a container and drops it from every profile recorded for it.
-func (c *containerProfiles) Delete(containerID string) {
-	c.l.Lock()
-	defer c.l.Unlock()
-
-	c.delete(containerID)
-}
-
-// delete is Delete for callers holding the lock.
+// delete forgets a container and drops it from every profile recorded for
+// it, for callers holding the lock.
 func (c *containerProfiles) delete(containerID string) {
 	for _, profile := range c.byContainer[containerID] {
 		c.byProfile[profile] = without(c.byProfile[profile], containerID)

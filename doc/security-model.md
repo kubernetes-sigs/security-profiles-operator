@@ -359,8 +359,8 @@ For the most up-to-date rbac requirements refer to the materialised [role.yaml](
 
 Base profiles can be distributed as OCI artifacts and are signature verified on
 pull. Sigstore bundles attached through the OCI referrers API are verified if
-present, otherwise legacy cosign signature tags. Verification is controlled
-through the `spod` resource:
+present, and legacy cosign signature tags if none of the bundles is valid or
+there are none. Verification is controlled through the `spod` resource:
 
 ```yaml
 spec:

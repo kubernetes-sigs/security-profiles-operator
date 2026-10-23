@@ -41,6 +41,7 @@ type impl interface {
 	GetGroupIDs(uid uint32) ([]uint32, error)
 	ForegroundProcessGroup() (int, error)
 	ProcessGroup(pid int) (int, error)
+	Geteuid() int
 }
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
@@ -103,4 +104,8 @@ func (*defaultImpl) ForegroundProcessGroup() (int, error) {
 // ProcessGroup returns the process group of the process.
 func (*defaultImpl) ProcessGroup(pid int) (int, error) {
 	return unix.Getpgid(pid)
+}
+
+func (*defaultImpl) Geteuid() int {
+	return os.Geteuid()
 }

@@ -41,7 +41,11 @@ import (
 )
 
 // allPrograms are the programs of the compiled object.
-var allPrograms = slices.Concat(baseHooks, appArmorHooks)
+var allPrograms = slices.Concat(baseHooks, filterHooks, execHooks, appArmorHooks)
+
+// unusedRecorderPrograms are the programs the recorder does not load without a
+// program name filter.
+var unusedRecorderPrograms = slices.Concat(filterHooks, execHooks)
 
 // fakePrograms makes the fake hand out a distinct program per name and returns
 // a function which tells the names of the programs SetAutoload disabled.
@@ -86,9 +90,24 @@ func TestLoadDisablesUnusedPrograms(t *testing.T) {
 		lsmEnabled     bool
 		wantDisabled   []string
 	}{
-		{name: "no BPF LSM", recordAppArmor: true, lsmEnabled: false, wantDisabled: appArmorHooks},
-		{name: "AppArmor not recorded", recordAppArmor: false, lsmEnabled: true, wantDisabled: appArmorHooks},
-		{name: "AppArmor recorded", recordAppArmor: true, lsmEnabled: true},
+		{
+			name:           "no BPF LSM",
+			recordAppArmor: true,
+			lsmEnabled:     false,
+			wantDisabled:   slices.Concat(unusedRecorderPrograms, appArmorHooks),
+		},
+		{
+			name:           "AppArmor not recorded",
+			recordAppArmor: false,
+			lsmEnabled:     true,
+			wantDisabled:   slices.Concat(unusedRecorderPrograms, appArmorHooks),
+		},
+		{
+			name:           "AppArmor recorded",
+			recordAppArmor: true,
+			lsmEnabled:     true,
+			wantDisabled:   unusedRecorderPrograms,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -108,8 +127,8 @@ func TestLoadDisablesUnusedPrograms(t *testing.T) {
 			require.Equal(t, 1, mock.BPFLoadObjectCallCount())
 
 			attached := mock.AttachGenericCallCount()
-			if tc.wantDisabled == nil {
-				require.Equal(t, len(allPrograms), attached)
+			if tc.recordAppArmor && tc.lsmEnabled {
+				require.Equal(t, len(baseHooks)+len(appArmorHooks), attached)
 				require.True(t, sut.AppArmor.loaded)
 
 				return
@@ -123,6 +142,23 @@ func TestLoadDisablesUnusedPrograms(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLoadWithProgramNameAttachesFilterHooks asserts that the children of a
+// program are only tracked with a program name filter.
+func TestLoadWithProgramNameAttachesFilterHooks(t *testing.T) {
+	t.Parallel()
+
+	sut := New("/bin/app", logr.Discard(), true, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	sut.impl = mock
+
+	disabled := fakePrograms(mock)
+
+	require.NoError(t, sut.Load())
+	require.ElementsMatch(t, slices.Concat(execHooks, appArmorHooks), disabled())
+	require.Equal(t, len(baseHooks)+len(filterHooks), mock.AttachGenericCallCount())
 }
 
 func TestLoadFailsIfProgramCannotBeDisabled(t *testing.T) {
@@ -720,4 +756,62 @@ func TestInitGlobalsKeyMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestStatNeedsNoRule asserts that a stat grants the read it needs without a
+// read only rule, which would deny the writes the abstractions allow, like
+// the ones of an inherited /dev/null.
+func TestStatNeedsNoRule(t *testing.T) {
+	t.Parallel()
+
+	sut := newAppArmorRecorder(logr.Discard(), "")
+	sut.recordedFiles[0] = map[string]*fileAccess{
+		"/dev/null":     {stat: true},
+		"/data/log":     {stat: true, write: true},
+		"/data/config":  {stat: true, read: true},
+		"/data/written": {write: true},
+	}
+
+	processed, found := sut.processExecFsEvents([]uint64{0})
+	require.True(t, found)
+	require.Equal(t, []string{"/data/config"}, processed.ReadOnlyPaths)
+	require.Equal(t, []string{"/data/written"}, processed.WriteOnlyPaths)
+	require.Equal(t, []string{"/data/log"}, processed.ReadWritePaths)
+}
+
+// TestLoadRetriesWithoutAppArmor asserts that a kernel which rejects the
+// object with the AppArmor programs still records seccomp profiles.
+func TestLoadRetriesWithoutAppArmor(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	mock.BPFLSMEnabledReturns(true)
+	mock.BPFLoadObjectReturnsOnCall(0, errTest)
+	sut.impl = mock
+
+	fakePrograms(mock)
+
+	require.NoError(t, sut.Load())
+	require.Equal(t, 2, mock.NewModuleFromBufferArgsCallCount())
+	require.Equal(t, 2, mock.BPFLoadObjectCallCount())
+	require.Equal(t, 1, mock.CloseModuleCallCount(), "the rejected object is released")
+	require.Equal(t, len(baseHooks), mock.AttachGenericCallCount())
+	require.False(t, sut.AppArmor.loaded)
+	require.ErrorIs(t, sut.AppArmor.StartRecording(sut), ErrStartBeforeLoad)
+
+	// Other failures are not retried.
+	sut = New("", logr.Discard(), true, true)
+	mock = &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	mock.BPFLSMEnabledReturns(true)
+	mock.InitGlobalVariableReturns(errTest)
+	sut.impl = mock
+
+	fakePrograms(mock)
+
+	require.ErrorIs(t, sut.Load(), errTest)
+	require.Equal(t, 1, mock.NewModuleFromBufferArgsCallCount())
+	require.Zero(t, mock.BPFLoadObjectCallCount())
 }

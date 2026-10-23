@@ -51,7 +51,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorContains(t, err, "no profile provided")
 			},
 		},
 		{
@@ -66,7 +66,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorContains(t, err, "no filename provided")
 			},
 		},
 	} {

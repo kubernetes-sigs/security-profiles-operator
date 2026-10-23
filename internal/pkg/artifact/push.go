@@ -49,12 +49,16 @@ func (a *Artifact) Push(
 		opts = &PushOptions{}
 	}
 
-	// The digest of the artifact is only known after the push, the
-	// reference needs a tag instead. An invalid reference fails later on.
-	if ref, err := a.ParseReference(to); err == nil {
-		if _, isDigest := ref.(ggcrname.Digest); isDigest {
-			return fmt.Errorf("%w: %s", ErrDigestReference, to)
-		}
+	// An invalid reference fails before the sign in, which may be
+	// interactive. The digest of the artifact is only known after the push,
+	// the reference needs a tag instead.
+	ref, err := a.ParseReference(to)
+	if err != nil {
+		return fmt.Errorf("parse reference: %w", err)
+	}
+
+	if _, isDigest := ref.(ggcrname.Digest); isDigest {
+		return fmt.Errorf("%w: %s", ErrDigestReference, to)
 	}
 
 	dir, err := a.MkdirTemp("", "push-")

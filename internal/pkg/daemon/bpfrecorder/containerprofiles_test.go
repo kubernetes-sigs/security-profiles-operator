@@ -153,3 +153,16 @@ func (c *containerProfiles) getAll(containerID string) []string {
 
 	return slices.Clone(c.byContainer[containerID])
 }
+
+// Insert records that profile is being recorded for containerID.
+func (c *containerProfiles) Insert(containerID, profile string) {
+	c.InsertAt(containerID, profile, 0)
+}
+
+// Delete forgets a container and drops it from every profile recorded for it.
+func (c *containerProfiles) Delete(containerID string) {
+	c.l.Lock()
+	defer c.l.Unlock()
+
+	c.delete(containerID)
+}

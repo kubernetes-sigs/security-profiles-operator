@@ -116,6 +116,7 @@ func containerInfoOf(pod *v1.Pod, containerID string) *types.ContainerInfo {
 
 	return &types.ContainerInfo{
 		PodName:              pod.Name,
+		PodUID:               string(pod.UID),
 		ContainerName:        containerName,
 		Namespace:            pod.Namespace,
 		ContainerID:          containerID,

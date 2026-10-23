@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,13 +81,8 @@ func TestRun(t *testing.T) {
 		assert  func(*testing.T, error)
 	}{
 		{
-			name: "success",
-			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
-				t.Helper()
-
-				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
-				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
-			},
+			name:    "success",
+			prepare: func(*testing.T, *bpfrecorderfakes.FakeImpl) {},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
@@ -103,7 +99,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -116,7 +112,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -129,7 +125,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -142,7 +138,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -155,7 +151,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -168,7 +164,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -176,14 +172,13 @@ func TestRun(t *testing.T) {
 			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
 				t.Helper()
 
-				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 				mock.CloseGRPCReturns(errTest)
 				mock.BpfIncClientReturns(nil, errTest)
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -196,7 +191,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -209,7 +204,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, strconv.ErrSyntax)
 			},
 		},
 		{
@@ -218,8 +213,6 @@ func TestRun(t *testing.T) {
 			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
 				t.Helper()
 
-				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
-				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 				mock.ServeReturns(errTest)
 			},
 			assert: func(t *testing.T, err error) {
@@ -238,7 +231,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -251,7 +244,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -264,7 +257,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -277,7 +270,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -290,7 +283,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -303,7 +296,7 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 
@@ -317,16 +310,20 @@ func TestRun(t *testing.T) {
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Every case starts from the setup which succeeds, so that the
+			// failure it injects is the one Run returns.
 			mock := &bpfrecorderfakes.FakeImpl{}
 			mock.ReadlinkReturns("mnt:[4026531841]", nil)
 			mock.PodListerWatcherReturns(podindextest.New())
+			mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+			mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 
 			listener := &fakeListener{}
 			listened := false
@@ -376,9 +373,11 @@ func TestRunWithoutNodeName(t *testing.T) {
 	t.Setenv(config.NodeNameEnvKey, "")
 
 	sut := New("test", logr.Discard(), true, false)
-	sut.impl = &bpfrecorderfakes.FakeImpl{}
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
 
-	require.Error(t, sut.Run())
+	require.ErrorContains(t, sut.Run(), config.NodeNameEnvKey)
+	require.Zero(t, mock.InClusterConfigCallCount())
 }
 
 func TestBpfObjectForArch(t *testing.T) {

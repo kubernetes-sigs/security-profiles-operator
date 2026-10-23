@@ -97,6 +97,9 @@ type Reconciler struct {
 	// loaded, like the ones which conflict with a profile of the host or of
 	// a container runtime.
 	rejected common.Reports[rejection]
+
+	// writtenStates keeps the node status states this node wrote.
+	writtenStates nodestatus.WrittenStates
 }
 
 // rejection is a conflict of a profile which got reported.
@@ -234,7 +237,7 @@ func (r *Reconciler) Reconcile(
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
 		return reconcile.Result{}, common.ReleaseUnsupported(
-			ctx, r.client, r.reader, profile, r.nodeName,
+			ctx, r.client, r.reader, profile, r.nodeName, &r.writtenStates,
 		)
 	}
 
@@ -242,6 +245,7 @@ func (r *Reconciler) Reconcile(
 	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, appArmorProfile); !found {
 		if err == nil {
 			r.forgetProfile(req.NamespacedName)
+			r.writtenStates.Forget(req.NamespacedName)
 			// The error series of a profile which is gone would stay
 			// around for the lifetime of the daemon otherwise.
 			r.metrics.DeleteAppArmorProfileErrors(req.Name)
@@ -262,6 +266,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	}
 
 	nodeStatus.WithAPIReader(r.reader)
+	nodeStatus.WithWrittenStates(&r.writtenStates)
 
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
 		r.forgetProfile(client.ObjectKeyFromObject(sp))

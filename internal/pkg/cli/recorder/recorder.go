@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -308,14 +309,7 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 		return fmt.Errorf("find mntns %d in bpf data map", mntns)
 	}
 
-	// map -> slice
-	syscalls := make([]string, len(syscallsMap))
-	i := 0
-
-	for k := range syscallsMap {
-		syscalls[i] = k
-		i++
-	}
+	syscalls := slices.Sorted(maps.Keys(syscallsMap))
 
 	log.Printf("Got syscalls: %s", strings.Join(syscalls, ", "))
 
@@ -346,6 +340,10 @@ func (r *Recorder) generateAppArmorProfile(
 	}), found
 }
 
+// errNothingRecorded is returned if no process of the recorded program got
+// recorded, like with --no-proc-start before it ran.
+var errNothingRecorded = errors.New("no process recorded for")
+
 func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 	var spec apparmorprofileapi.AppArmorProfileSpec
 
@@ -363,6 +361,12 @@ func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 	} else {
 		// Special case of CLI recording with --no-proc: We span all mount namespaces.
 		mountNamespaces := r.bpfRecorder.AppArmor.GetKnownKeys()
+		if len(mountNamespaces) == 0 {
+			return fmt.Errorf(
+				"%w: %s", errNothingRecorded, filepath.Base(r.options.commandOptions.Command()),
+			)
+		}
+
 		parts := make([]client.Object, 0, len(mountNamespaces))
 
 		for _, mntns := range mountNamespaces {
@@ -409,7 +413,9 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 			}
 		}
 
-		log.Printf("Adding base syscalls: %s", strings.Join(diff, ", "))
+		if len(diff) > 0 {
+			log.Printf("Adding base syscalls: %s", strings.Join(diff, ", "))
+		}
 	}
 
 	slices.Sort(names)

@@ -133,10 +133,10 @@ func TestDispatchSelinuxLine(t *testing.T) {
 	require.Nil(t, req.GetSeccompReq())
 
 	// Every permission is recorded on its own, for the SELinux profile only.
-	_, found := sut.syscalls.get("seccomp-profile", false)
+	_, found := sut.syscalls.get("seccomp-profile", "", false)
 	require.False(t, found)
 
-	avcs, found := sut.avcs.get("profile", false)
+	avcs, found := sut.avcs.get("profile", "", false)
 	require.True(t, found)
 
 	perms := make([]string, 0, len(avcs))
@@ -174,7 +174,7 @@ func TestDispatchSelinuxLineFiltered(t *testing.T) {
 		Namespace: namespace, SelinuxRecordProfile: "profile",
 	})
 
-	_, found := sut.avcs.get("profile", false)
+	_, found := sut.avcs.get("profile", "", false)
 	require.True(t, found)
 	require.Never(t, func() bool {
 		return mock.SendMetricCallCount() > 0
@@ -269,22 +269,22 @@ func TestDispatchRecordsPerKind(t *testing.T) {
 	require.NoError(t, sut.dispatchAuditLine(node, seccompLine, info))
 	require.NoError(t, sut.dispatchAuditLine(node, selinuxTestLine(), info))
 
-	syscalls, found := sut.syscalls.get("seccomp-profile", false)
+	syscalls, found := sut.syscalls.get("seccomp-profile", "", false)
 	require.True(t, found)
 	require.Len(t, syscalls, 1)
 
-	avcs, found := sut.avcs.get("selinux-profile", false)
+	avcs, found := sut.avcs.get("selinux-profile", "", false)
 	require.True(t, found)
 	require.Len(t, avcs, 2)
 
-	_, found = sut.syscalls.get("selinux-profile", false)
+	_, found = sut.syscalls.get("selinux-profile", "", false)
 	require.False(t, found)
 
-	_, found = sut.avcs.get("seccomp-profile", false)
+	_, found = sut.avcs.get("seccomp-profile", "", false)
 	require.False(t, found)
 
-	sut.syscalls.reset("seccomp-profile")
-	sut.avcs.reset("selinux-profile")
+	sut.syscalls.reset("seccomp-profile", "")
+	sut.avcs.reset("selinux-profile", "")
 
 	require.NoError(t, sut.dispatchAuditLine(node, seccompLine, info))
 	require.NoError(t, sut.dispatchAuditLine(node, selinuxTestLine(), info))

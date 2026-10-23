@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -41,7 +42,32 @@ import (
 
 const (
 	partialProfileFinalizer = "spo.x-k8s.io/partial-profile-finalizer"
+
+	// annotationPrefix is the prefix of the annotations which the daemon
+	// keeps on the node status, like whether it installed the profile.
+	annotationPrefix = "spo.x-k8s.io/"
 )
+
+// writtenState is the state and message which the daemon wrote last to a
+// node status.
+type writtenState struct {
+	state   secprofnodestatusapi.ProfileState
+	message string
+	// profile is the profile of the node status, see WrittenStates.Forget.
+	profile types.NamespacedName
+}
+
+// WrittenStates keeps the state which the daemon wrote last to each node
+// status, keyed by the UID of the profile and the name of the status. Only the
+// daemon of a node writes the state of its node status, so the state it wrote
+// last is the stored one, while the cache can still return an earlier one.
+// Without it, a state which goes back to the one the cache still has, like
+// Installed right after an Error, would not be written, see
+// SetNodeStatusWithMessage. The zero value is ready to use, see
+// WithWrittenStates.
+type WrittenStates struct {
+	states sync.Map
+}
 
 type StatusClient struct {
 	pol             profilebase.SecurityProfileBase
@@ -64,6 +90,10 @@ type StatusClient struct {
 	// and labels do not depend on the TypeMeta of pol, which is empty for
 	// objects decoded by the uncached typed client.
 	kind string
+
+	// written keeps the state this daemon wrote last, see WrittenStates. The
+	// state read from the client is used without it.
+	written *WrittenStates
 }
 
 // ErrNoNodeName is returned if the node name cannot be determined.
@@ -100,6 +130,24 @@ func (nsf *StatusClient) WithAPIReader(reader client.Reader) {
 	nsf.reader = reader
 }
 
+// Forget drops the states written for the profile, which is gone. The
+// UID of a profile which is not found is unknown, which is part of the key.
+func (w *WrittenStates) Forget(profile types.NamespacedName) {
+	w.states.Range(func(key, value any) bool {
+		if written, ok := value.(writtenState); ok && written.profile == profile {
+			w.states.Delete(key)
+		}
+
+		return true
+	})
+}
+
+// WithWrittenStates sets the store of the states which the daemon wrote,
+// which a controller keeps for all of its profiles, see WrittenStates.
+func (nsf *StatusClient) WithWrittenStates(written *WrittenStates) {
+	nsf.written = written
+}
+
 // profileKind returns the kind of the profile. It falls back to the scheme if
 // the TypeMeta is empty, which is the case for objects decoded by the uncached
 // typed client.
@@ -133,6 +181,52 @@ func (nsf *StatusClient) perNodeStatusName() string {
 
 func (nsf *StatusClient) perNodeStatusNamespacedName() types.NamespacedName {
 	return util.NamespacedName(nsf.perNodeStatusName(), nsf.pol.GetNamespace())
+}
+
+// writtenKey is the key of the node status in the WrittenStates.
+func (nsf *StatusClient) writtenKey() string {
+	return string(nsf.pol.GetUID()) + "/" + nsf.perNodeStatusNamespacedName().String()
+}
+
+// recordWritten records the state which got written to the node status.
+func (nsf *StatusClient) recordWritten(
+	state secprofnodestatusapi.ProfileState, message string,
+) {
+	if nsf.written != nil {
+		nsf.written.states.Store(nsf.writtenKey(), writtenState{
+			state: state, message: message, profile: client.ObjectKeyFromObject(nsf.pol),
+		})
+	}
+}
+
+// forgetWritten drops the state written to the node status, which is gone.
+func (nsf *StatusClient) forgetWritten() {
+	if nsf.written != nil {
+		nsf.written.states.Delete(nsf.writtenKey())
+	}
+}
+
+// currentState returns the state and message of the status, or the ones this
+// daemon wrote last, which the cache may not have yet.
+func (nsf *StatusClient) currentState(
+	status *secprofnodestatusapi.SecurityProfileNodeStatus,
+) (state secprofnodestatusapi.ProfileState, message, label string) {
+	state = status.Status.Status
+	message = status.Status.Message
+	label = status.Labels[secprofnodestatusapi.StatusStateLabel]
+
+	if nsf.written == nil {
+		return state, message, label
+	}
+
+	if value, ok := nsf.written.states.Load(nsf.writtenKey()); ok {
+		written, ok := value.(writtenState)
+		if ok {
+			return written.state, written.message, string(written.state)
+		}
+	}
+
+	return state, message, label
 }
 
 func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
@@ -219,7 +313,29 @@ func (nsf *StatusClient) removeLegacyNodeStatus(
 func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
 	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
 		return util.AddFinalizer(ctx, c, nsf.pol, nsf.finalizerString)
-	}, util.IsNotFoundOrConflict)
+	}, nsf.retryFinalizerWrite())
+}
+
+// retryFinalizerWrite returns the retry condition of a finalizer write, which
+// retries a conflict. A profile which is not found gets read once more
+// through the API reader, the cache can lag behind. A profile the API reader
+// does not find either is gone, so retrying it only holds up the worker.
+func (nsf *StatusClient) retryFinalizerWrite() func(error) bool {
+	notFoundRetried := false
+
+	return func(err error) bool {
+		if kerrors.IsConflict(err) {
+			return true
+		}
+
+		if kerrors.IsNotFound(err) && nsf.reader != nil && !notFoundRetried {
+			notFoundRetried = true
+
+			return true
+		}
+
+		return false
+	}
 }
 
 // createFinalizerAndLabel adds the finalizer of this node and the label of
@@ -240,7 +356,7 @@ func (nsf *StatusClient) createFinalizerAndLabel(ctx context.Context) error {
 			secprofnodestatusapi.StatusToProfLabel,
 			nsf.profileID(),
 		)
-	}, util.IsNotFoundOrConflict)
+	}, nsf.retryFinalizerWrite())
 }
 
 func (nsf *StatusClient) statusObj(
@@ -299,8 +415,15 @@ func (nsf *StatusClient) createNodeStatus(
 	}
 
 	if kerrors.IsAlreadyExists(err) {
+		// The cache may not have the status which the API server has, so it
+		// is read through the API reader if there is one.
+		var reader client.Reader = nsf.client
+		if nsf.reader != nil {
+			reader = nsf.reader
+		}
+
 		existing := &secprofnodestatusapi.SecurityProfileNodeStatus{}
-		if getErr := nsf.client.Get(
+		if getErr := reader.Get(
 			ctx,
 			nsf.perNodeStatusNamespacedName(),
 			existing,
@@ -319,6 +442,16 @@ func (nsf *StatusClient) createNodeStatus(
 				existing.Labels = map[string]string{}
 			}
 
+			// The annotations of the deleted profile, like the one which
+			// tells that the daemon installed its AppArmor policy, do not
+			// hold for this one, and neither do the ones of a status of
+			// unknown origin.
+			if !ownedByProfile(existing, nsf.pol.GetUID()) {
+				maps.DeleteFunc(existing.Annotations, func(key, _ string) bool {
+					return strings.HasPrefix(key, annotationPrefix)
+				})
+			}
+
 			maps.Copy(existing.Labels, s.Labels)
 			existing.OwnerReferences = s.OwnerReferences
 
@@ -335,6 +468,8 @@ func (nsf *StatusClient) createNodeStatus(
 	}
 
 	if s.Status.Status == initialStatus && s.Status.Message == "" {
+		nsf.recordWritten(initialStatus, "")
+
 		return nil
 	}
 
@@ -343,10 +478,24 @@ func (nsf *StatusClient) createNodeStatus(
 	s.Status.Message = ""
 
 	if patchErr := nsf.client.Status().Patch(ctx, s, client.MergeFrom(base)); patchErr != nil {
+		nsf.forgetWritten()
+
 		return fmt.Errorf("setting initial node status: %w", patchErr)
 	}
 
+	nsf.recordWritten(initialStatus, "")
+
 	return nil
+}
+
+// ownedByProfile returns true if the controller of the status is the profile
+// with the UID.
+func ownedByProfile(
+	status *secprofnodestatusapi.SecurityProfileNodeStatus, uid types.UID,
+) bool {
+	owner := metav1.GetControllerOf(status)
+
+	return owner != nil && owner.UID == uid
 }
 
 func (nsf *StatusClient) initialStatus() secprofnodestatusapi.ProfileState {
@@ -415,11 +564,41 @@ func (nsf *StatusClient) MigrateLegacyFinalizer(ctx context.Context) error {
 // which got removed last, like the one shared by all nodes for a partial
 // profile, lets it go away while the other nodes still reconcile its
 // deletion.
+//
+// A profile which was partial and got its partial label removed still
+// carries the finalizer shared by all nodes for partial profiles, next to
+// the ones the nodes added since. Nothing else removes it, so it goes along
+// with the finalizer of this node. The finalizers of the other nodes keep the
+// profile until they removed it. Like for the legacy finalizer, a node which
+// did not add its own finalizer since the promotion yet does not hold the
+// profile any more then, so it can go away before that node removed it. A
+// profile which gets deleted before any node added its own finalizer is
+// released by ReleasePartialFinalizer.
 func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
+	finalizers := []string{nsf.finalizerString, nsf.legacyFinalizerString}
+	if !nsf.pol.IsPartial() {
+		finalizers = append(finalizers, partialProfileFinalizer)
+	}
+
 	err := util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
-		return util.RemoveFinalizers(
-			ctx, c, nsf.pol, nsf.finalizerString, nsf.legacyFinalizerString,
-		)
+		return util.RemoveFinalizers(ctx, c, nsf.pol, finalizers...)
+	}, kerrors.IsConflict)
+
+	return client.IgnoreNotFound(err)
+}
+
+// ReleasePartialFinalizer removes the finalizer shared by all nodes for partial
+// profiles from a profile which got its partial label removed, see
+// removeFinalizer. A profile which gets deleted before any node added its own
+// finalizer since would keep it forever otherwise. A partial profile is never
+// installed, so nothing on the nodes depends on it.
+func (nsf *StatusClient) ReleasePartialFinalizer(ctx context.Context) error {
+	if nsf.pol.IsPartial() || !controllerutil.ContainsFinalizer(nsf.pol, partialProfileFinalizer) {
+		return nil
+	}
+
+	err := util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
+		return util.RemoveFinalizers(ctx, c, nsf.pol, partialProfileFinalizer)
 	}, kerrors.IsConflict)
 
 	return client.IgnoreNotFound(err)
@@ -431,6 +610,8 @@ func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) 
 	if err != nil && !kerrors.IsNotFound(err) {
 		return fmt.Errorf("deleting node status: %w", err)
 	}
+
+	nsf.forgetWritten()
 
 	return nil
 }
@@ -480,7 +661,8 @@ func (nsf *StatusClient) SetNodeStatus(
 // status are written with patches which do not carry the resource version.
 // They cannot conflict, and the status does not depend on the resource
 // version which the label write returns. Nothing gets written if the state
-// and the message are set already.
+// and the message are set already, which the state this daemon wrote last
+// tells, see WrittenStates, or else the status read from the cache.
 func (nsf *StatusClient) SetNodeStatusWithMessage(
 	ctx context.Context,
 	polState secprofnodestatusapi.ProfileState,
@@ -498,21 +680,34 @@ func (nsf *StatusClient) SetNodeStatusWithMessage(
 		return fmt.Errorf("retrieving the current status: %w", err)
 	}
 
-	if status.Labels[secprofnodestatusapi.StatusStateLabel] != string(polState) {
-		base := status.DeepCopy()
+	currentState, currentMessage, currentLabel := nsf.currentState(status)
 
-		if status.Labels == nil {
-			status.Labels = map[string]string{}
+	if currentLabel != string(polState) {
+		// The cached labels can lag behind as well, so the patch sets the
+		// label instead of the difference to them.
+		labelPatch, err := json.Marshal(map[string]any{
+			"metadata": map[string]any{
+				"labels": map[string]string{
+					secprofnodestatusapi.StatusStateLabel: string(polState),
+				},
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("marshaling node status label patch: %w", err)
 		}
 
-		status.Labels[secprofnodestatusapi.StatusStateLabel] = string(polState)
+		if err := nsf.client.Patch(
+			ctx, status, client.RawPatch(types.MergePatchType, labelPatch),
+		); err != nil {
+			// The API server may have applied the patch, like on a
+			// timeout, so the state written last is unknown now.
+			nsf.forgetWritten()
 
-		if err := nsf.client.Patch(ctx, status, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("updating node status labels: %w", err)
 		}
 	}
 
-	if status.Status.Status == polState && status.Status.Message == message {
+	if currentState == polState && currentMessage == message {
 		return nil
 	}
 
@@ -534,8 +729,12 @@ func (nsf *StatusClient) SetNodeStatusWithMessage(
 	if err := nsf.client.Status().Patch(
 		ctx, status, client.RawPatch(types.MergePatchType, patch),
 	); err != nil {
+		nsf.forgetWritten()
+
 		return fmt.Errorf("updating node status: %w", err)
 	}
+
+	nsf.recordWritten(polState, message)
 
 	return nil
 }
@@ -616,7 +815,9 @@ func (nsf *StatusClient) State(ctx context.Context) (secprofnodestatusapi.Profil
 		return "", fmt.Errorf("getting node status: %w", err)
 	}
 
-	return status.Status.Status, nil
+	state, _, _ := nsf.currentState(&status)
+
+	return state, nil
 }
 
 func (nsf *StatusClient) Matches(
@@ -632,7 +833,9 @@ func (nsf *StatusClient) Matches(
 		return false, fmt.Errorf("getting node status for matching: %w", err)
 	}
 
-	return status.Status.Status == polState, nil
+	state, _, _ := nsf.currentState(&status)
+
+	return state == polState, nil
 }
 
 func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) string {

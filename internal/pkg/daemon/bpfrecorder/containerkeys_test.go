@@ -120,3 +120,11 @@ func TestContainerKeysLimitsKeysPerContainer(t *testing.T) {
 	require.True(t, sut.Insert(4, "a"))
 	require.Equal(t, []uint64{2, 4}, sut.Keys("a"))
 }
+
+// Size returns the number of known keys.
+func (c *containerKeys) Size() int {
+	c.l.RLock()
+	defer c.l.RUnlock()
+
+	return len(c.byKey)
+}

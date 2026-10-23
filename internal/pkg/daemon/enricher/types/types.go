@@ -64,7 +64,9 @@ type AuditLine struct {
 }
 
 type ContainerInfo struct {
-	PodName       string
+	PodName string
+	// PodUID tells the pod apart from another one of the same name.
+	PodUID        string
 	ContainerName string
 	Namespace     string
 	ContainerID   string

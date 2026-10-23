@@ -33,6 +33,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 )
 
 // runMaintenance periodically drops what nobody is going to collect while a
@@ -51,9 +52,50 @@ func (b *BpfRecorder) runMaintenance(ctx context.Context) {
 			}
 
 			b.sweepStaleKeys()
+			b.forgetGoneContainers()
 			b.releaseAbandonedRecording()
 		}
 	}
+}
+
+// forgetGoneContainers forgets the collected profiles and the containers
+// warned about which are not on the node any more. Both are only cleared when
+// the recording stops otherwise, which may never happen on a node which always
+// records something.
+func (b *BpfRecorder) forgetGoneContainers() {
+	if b.pods == nil || !b.pods.HasSynced() {
+		return
+	}
+
+	onNode := map[string]struct{}{}
+
+	for _, pod := range b.pods.Pods() {
+		for _, id := range podindex.ContainerIDs(pod) {
+			onNode[id] = struct{}{}
+		}
+	}
+
+	present := func(id string) bool {
+		_, ok := onNode[id]
+
+		return ok
+	}
+
+	b.collectedProfiles.Range(func(profile, value any) bool {
+		if containerIDs, ok := value.([]string); ok && !slices.ContainsFunc(containerIDs, present) {
+			b.collectedProfiles.Delete(profile)
+		}
+
+		return true
+	})
+
+	b.keyLimitWarned.Range(func(containerID, _ any) bool {
+		if id, ok := containerID.(string); ok && !present(id) {
+			b.keyLimitWarned.Delete(containerID)
+		}
+
+		return true
+	})
 }
 
 // sweepStaleKeys drops the data recorded under keys which no recorded container
@@ -365,7 +407,15 @@ func (b *BpfRecorder) releaseAbandonedRecording() {
 		return
 	}
 
-	recorded := slices.ContainsFunc(b.pods.Pods(), recordsBpf)
+	recorded := slices.ContainsFunc(b.pods.Pods(), func(pod *v1.Pod) bool {
+		if !recordsBpf(pod) {
+			return false
+		}
+
+		recorded, _ := b.recordsPod(pod)
+
+		return recorded
+	})
 
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
@@ -415,6 +465,7 @@ func (b *BpfRecorder) releaseAbandonedRecording() {
 	// A later Stop of these clients finds nothing to stop, so it cannot end
 	// the recording of a client which starts one afterwards.
 	clear(b.sessions)
+	clear(b.sessionProfiles)
 	b.anonymousStarts = 0
 	b.updateStartRequests()
 }
@@ -426,6 +477,12 @@ func recordsBpf(pod *v1.Pod) bool {
 		return false
 	}
 
+	return hasBpfRecordingAnnotation(pod)
+}
+
+// hasBpfRecordingAnnotation reports whether a pod carries an annotation which
+// names the profile the BPF recorder records a container for.
+func hasBpfRecordingAnnotation(pod *v1.Pod) bool {
 	for key, value := range pod.Annotations {
 		if value == "" {
 			continue

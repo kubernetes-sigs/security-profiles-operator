@@ -31,6 +31,9 @@
 #define FLAG_WRITE 0x2
 #define FLAG_EXEC 0x4
 #define FLAG_SPAWN 0x8
+// The file got its attributes read. AppArmor checks read access for it, which
+// does not need a rule of its own, see classifyFileAccess.
+#define FLAG_STAT 0x10
 
 #define FMODE_READ 0x1
 #define FMODE_WRITE 0x2
@@ -42,6 +45,8 @@
 #define PROT_NONE 0x0
 
 #define MAP_PRIVATE 0x02 /* Changes are private.  */
+
+#define VM_SHARED 0x00000008
 
 #define S_IFMT 0170000
 #define S_IFIFO 0010000
@@ -122,9 +127,9 @@ struct {
 
 static volatile bool _is_recording_cached = false;
 
-// Keep track of all mount namespaces that should be (temporarily) excluded from
-// recording. When running in Kubernetes, we generally ignore the host mntns.
-// Additionally, we exclude individual containers during startup.
+// The mount namespaces which are not recorded. When running in Kubernetes,
+// the mount namespace of the host is excluded, see exclude_keys for the
+// excluded workloads.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
@@ -513,10 +518,10 @@ static __always_inline u32 clear_apparmor(u32 mntns, u64 key)
     }
     trace_hook("clear_apparmor key=%llu", key);
     if (submit_event(EVENT_TYPE_CLEAR_MNTNS, mntns, key, 0) != 0) {
-        // Try again with the next hook call.
-        if (unique_keys()) {
-            bpf_map_delete_elem(&apparmor_initialized, &key);
-        }
+        // The exec goes ahead, and the init process does not exec again, so
+        // the files of the runtime setup stay in the recorded data. The loss
+        // is counted. The key stays marked as initialized: a later exec into
+        // the running container must not drop what got recorded since.
         return -1;
     }
     // The userspace drops what it recorded, so the capabilities, sockets and
@@ -842,18 +847,17 @@ static __always_inline void register_fs_event_locked(
     bpf_map_update_elem(&last_file_event, &tid, &state, BPF_ANY);
 }
 
-static __always_inline int register_fs_event(struct path * filename,
-                                             umode_t i_mode, u64 flags,
-                                             bool custom_bpf_d_path)
+// register_fs_event_of sends a file event of a process which records under
+// mntns, see get_mntns.
+static __always_inline int register_fs_event_of(struct path * filename,
+                                                umode_t i_mode, u64 flags,
+                                                bool custom_bpf_d_path,
+                                                u32 mntns)
 {
     // ignore unix pipes
     if ((i_mode & S_IFMT) == S_IFIFO) {
         return 0;
     }
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
 
     struct inode * inode = BPF_CORE_READ(filename, dentry, d_inode);
     u64 inode_number = BPF_CORE_READ(inode, i_ino);
@@ -884,6 +888,23 @@ static __always_inline int register_fs_event(struct path * filename,
 
     __sync_fetch_and_add(busy, -1);
     return 0;
+}
+
+static __always_inline int register_fs_event(struct path * filename,
+                                             umode_t i_mode, u64 flags,
+                                             bool custom_bpf_d_path)
+{
+    // ignore unix pipes
+    if ((i_mode & S_IFMT) == S_IFIFO) {
+        return 0;
+    }
+
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+
+    return register_fs_event_of(filename, i_mode, flags, custom_bpf_d_path,
+                                mntns);
 }
 
 static __always_inline int register_file_event(struct file * file, u64 flags)
@@ -997,6 +1018,156 @@ int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
     trace_hook("path_unlink");
     struct path path = make_path(dentry, dir);
     return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
+}
+
+SEC("lsm/path_rmdir")
+int BPF_PROG(path_rmdir, struct path * dir, struct dentry * dentry)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_rmdir");
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, S_IFDIR, FLAG_READ | FLAG_WRITE, true);
+}
+
+// AppArmor checks read and write access on the old path, which goes away, and
+// write access on the new one, see apparmor_path_rename. An exchange, see
+// RENAME_EXCHANGE, checks read and write access on the new path as well. Not
+// every supported kernel passes the rename flags to the hook, so the new path
+// is recorded with write access alone: an exchanged file is usually read
+// through its new path afterwards, which records the read.
+SEC("lsm/path_rename")
+int BPF_PROG(path_rename, struct path * old_dir, struct dentry * old_dentry,
+             struct path * new_dir, struct dentry * new_dentry)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_rename");
+    umode_t mode = BPF_CORE_READ(old_dentry, d_inode, i_mode) & S_IFMT;
+    struct path old_path = make_path(old_dentry, old_dir);
+    register_fs_event(&old_path, mode, FLAG_READ | FLAG_WRITE, true);
+    struct path new_path = make_path(new_dentry, new_dir);
+    return register_fs_event(&new_path, mode, FLAG_WRITE, true);
+}
+
+// AppArmor allows a hard link only if the permissions of the link are a subset
+// of the ones of its target, see aa_path_link. The link gets read and write
+// access to the file it names, and the target the same, it is on the same
+// mount.
+SEC("lsm/path_link")
+int BPF_PROG(path_link, struct dentry * old_dentry, struct path * new_dir,
+             struct dentry * new_dentry)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_link");
+    struct path target = make_path(old_dentry, new_dir);
+    register_fs_event(&target, 0, FLAG_READ | FLAG_WRITE, true);
+    struct path path = make_path(new_dentry, new_dir);
+    return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
+}
+
+SEC("lsm/path_symlink")
+int BPF_PROG(path_symlink, struct path * dir, struct dentry * dentry)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_symlink");
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, FLAG_WRITE, true);
+}
+
+// register_path_event sends a file event for a path the hook got, which,
+// unlike the path of an open file, cannot be resolved with bpf_d_path in
+// every hook. The processes which are not recorded are filtered out first,
+// some of the hooks run very often.
+static __always_inline int register_path_event(struct path * path, u64 flags)
+{
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+
+    struct path copy = {
+        .mnt = BPF_CORE_READ(path, mnt),
+        .dentry = BPF_CORE_READ(path, dentry),
+    };
+    umode_t mode = BPF_CORE_READ(path, dentry, d_inode, i_mode);
+    return register_fs_event_of(&copy, mode, flags, true, mntns);
+}
+
+SEC("lsm/path_truncate")
+int BPF_PROG(path_truncate, struct path * path)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_truncate");
+    return register_path_event(path, FLAG_WRITE);
+}
+
+SEC("lsm/path_chmod")
+int BPF_PROG(path_chmod, struct path * path)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_chmod");
+    return register_path_event(path, FLAG_WRITE);
+}
+
+SEC("lsm/path_chown")
+int BPF_PROG(path_chown, struct path * path)
+{
+    if (!_is_recording_cached)
+        return 0;
+    trace_hook("path_chown");
+    return register_path_event(path, FLAG_WRITE);
+}
+
+// AppArmor checks read access for a stat of a file, including the stat of an
+// open file. It runs very often, the repeated stats of a thread are discarded
+// along with the other repeated accesses, see register_fs_event_locked.
+SEC("lsm/inode_getattr")
+int BPF_PROG(inode_getattr, struct path * path)
+{
+    if (!_is_recording_cached)
+        return 0;
+    // very noisy
+    // trace_hook("inode_getattr");
+    return register_path_event(path, FLAG_STAT);
+}
+
+// mprotect checks the mapped file like mmap_file, see apparmor_file_mprotect.
+SEC("lsm/file_mprotect")
+int BPF_PROG(file_mprotect, struct vm_area_struct * vma, unsigned long reqprot,
+             unsigned long prot)
+{
+    if (!_is_recording_cached)
+        return 0;
+    struct file * file = BPF_CORE_READ(vma, vm_file);
+    if (!file)
+        return 0;
+    trace_hook("file_mprotect");
+    u64 file_flags = 0;
+    if (prot & PROT_READ) {
+        file_flags |= FLAG_READ;
+    }
+    // vm_flags is const in newer kernels, which BPF_CORE_READ cannot read
+    // into, and next to the writable __vm_flags in a union. A kernel which
+    // has only one of them still loads the program.
+    unsigned long vm_flags = 0;
+    if (bpf_core_field_exists(vma->vm_flags)) {
+        bpf_core_read(&vm_flags, sizeof(vm_flags), &vma->vm_flags);
+    } else if (bpf_core_field_exists(vma->__vm_flags)) {
+        bpf_core_read(&vm_flags, sizeof(vm_flags), &vma->__vm_flags);
+    }
+    if ((prot & PROT_WRITE) && (vm_flags & VM_SHARED)) {
+        file_flags |= FLAG_WRITE;
+    }
+    if (prot & PROT_EXEC) {
+        file_flags |= FLAG_EXEC;
+    }
+    if (!file_flags)
+        return 0;
+    return register_path_event(&file->f_path, file_flags);
 }
 
 // The per syscall tracepoints, like syscalls/sys_enter_socket, pass a struct

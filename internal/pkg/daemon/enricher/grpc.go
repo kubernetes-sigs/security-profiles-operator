@@ -41,7 +41,7 @@ const (
 func (e *Enricher) Syscalls(
 	_ context.Context, r *api.SyscallsRequest,
 ) (*api.SyscallsResponse, error) {
-	syscalls, found := e.syscalls.get(r.GetProfile(), r.GetCollect())
+	syscalls, found := e.syscalls.get(r.GetProfile(), r.GetPodUid(), r.GetCollect())
 	if !found {
 		st := status.New(codes.NotFound, ErrorNoSyscalls)
 
@@ -60,7 +60,7 @@ func (e *Enricher) Syscalls(
 func (e *Enricher) ResetSyscalls(
 	_ context.Context, r *api.SyscallsRequest,
 ) (*api.EmptyResponse, error) {
-	e.syscalls.reset(r.GetProfile())
+	e.syscalls.reset(r.GetProfile(), r.GetPodUid())
 
 	return &api.EmptyResponse{}, nil
 }
@@ -71,7 +71,7 @@ func (e *Enricher) ResetSyscalls(
 func (e *Enricher) Avcs(
 	_ context.Context, r *api.AvcRequest,
 ) (*api.AvcResponse, error) {
-	jsonList, found := e.avcs.get(r.GetProfile(), r.GetCollect())
+	jsonList, found := e.avcs.get(r.GetProfile(), r.GetPodUid(), r.GetCollect())
 	if !found {
 		st := status.New(codes.NotFound, ErrorNoAvcs)
 
@@ -99,7 +99,7 @@ func (e *Enricher) Avcs(
 func (e *Enricher) ResetAvcs(
 	_ context.Context, r *api.AvcRequest,
 ) (*api.EmptyResponse, error) {
-	e.avcs.reset(r.GetProfile())
+	e.avcs.reset(r.GetProfile(), r.GetPodUid())
 
 	return &api.EmptyResponse{}, nil
 }
