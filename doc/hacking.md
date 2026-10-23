@@ -225,7 +225,10 @@ so fixed OS packages need no change in the repository. Local builds reuse the
 cached update layer, build without cache to get the latest packages there. If
 the scan of the job still fails on an OS package, the vulnerability database
 knows of a fix the UBI repositories don't ship yet. Assess it as described
-below, or wait for the fixed package.
+below, or wait for the fixed package. To not block all pull requests while
+waiting, add the vulnerability with an expiry date to
+[`.trivyignore`](../.trivyignore), which only the image scan reads, and
+remove it once the fixed package is available.
 
 When a check fails, update the affected module or image to the fixed version.
 Only if the vulnerability doesn't affect the operator, for example because the
