@@ -694,8 +694,13 @@ on a high level, this needs to be done:
    but instead lets the user of the test suite to provision the cluster. In
    comparison, the `kind` test driver uses `docker` to execute commands on
    "nodes" and waits for all pods in all namespaces before running the tests.
-   Set `nodeCommand` next to `execNode`, the failure diagnostics use it to
-   collect the node journals without failing the test.
+   Set `nodeCommand` next to `execNode`. It runs the command with its
+   arguments unchanged on the node and returns the output without printing
+   it or failing the test. The failure diagnostics use it to collect the node
+   journals. Set `readNodeLogFiles` as well if it can read the container log
+   files of the kubelet as root and quickly: the enricher and BPF recorder
+   tests then read the lines of the `spod` containers which the kubelet
+   rotated, which `kubectl logs` misses.
  - Instantiate the structure in the switch-case statement in `TestSuite`.
 
 ## Building the operator image with support for AppArmor

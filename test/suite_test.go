@@ -170,9 +170,13 @@ type e2e struct {
 	artifactsDir        string
 	logger              logr.Logger
 	execNode            func(node string, args ...string) string
-	// nodeCommand runs a command on the node like execNode, but returns
-	// the error instead of failing the test, for the diagnostics.
-	nodeCommand       func(node string, args ...string) (string, error)
+	// nodeCommand runs a command with its arguments unchanged on the node,
+	// unlike execNode, and returns its output without printing it, or the
+	// error instead of failing the test.
+	nodeCommand func(node string, args ...string) (string, error)
+	// readNodeLogFiles is set if nodeCommand can read the container log
+	// files of the kubelet, and fast enough to do so on every poll.
+	readNodeLogFiles  bool
 	waitForReadyPods  func()
 	deployCertManager func()
 	setupRecordingSa  func(namespace string)
@@ -215,6 +219,9 @@ type openShifte2e struct {
 
 type vanilla struct {
 	e2e
+	// nodeSudo is set if the node commands run with sudo, since the suite
+	// does not run as root.
+	nodeSudo bool
 }
 
 // We're unable to use parallel tests because of our usage of testify/suite.
@@ -362,7 +369,7 @@ func TestSuite(t *testing.T) {
 		}
 
 		suite.Run(t, &vanilla{
-			e2e{
+			e2e: e2e{
 				logger:              textlogger.NewLogger(textlogger.NewConfig()),
 				pullPolicy:          "Never",
 				testImage:           testImage,
@@ -397,6 +404,7 @@ func (e *kinde2e) SetupSuite() {
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeKind
 	e.nodeCommand = e.nodeCommandKind
+	e.readNodeLogFiles = true
 	e.waitForReadyPods = e.waitForReadyPodsKind
 	e.deployCertManager = e.deployCertManagerKind
 	e.setupRecordingSa = e.deployRecordingSa
@@ -542,7 +550,7 @@ func (e *kinde2e) execNodeKind(node string, args ...string) string {
 }
 
 func (e *kinde2e) nodeCommandKind(node string, args ...string) (string, error) {
-	return e.runCommand(containerRuntime, append([]string{"exec", node}, args...)...)
+	return e.runSilentCommand(containerRuntime, append([]string{"exec", node}, args...)...)
 }
 
 func (e *e2e) waitForReadyPodsKind() {
@@ -654,11 +662,18 @@ func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 	)
 }
 
+// nodeCommandOCP quotes the arguments for the shell of the node, so that they
+// get passed on unchanged like with the other cluster types.
 func (e *openShifte2e) nodeCommandOCP(node string, args ...string) (string, error) {
-	return e.kubectlCommand(
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
+	}
+
+	return e.kubectlSilentCommand(
 		"debug", "-q", "node/"+node, "--",
 		"chroot", "/host", "/bin/bash", "-c",
-		strings.Join(args, " "),
+		strings.Join(quoted, " "),
 	)
 }
 
@@ -690,6 +705,9 @@ func (e *vanilla) SetupSuite() {
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeVanilla
 	e.nodeCommand = e.nodeCommandVanilla
+	// The container log files belong to root.
+	e.nodeSudo = os.Geteuid() != 0 && command.New("sudo", "-n", "true").RunSilentSuccess() == nil
+	e.readNodeLogFiles = os.Geteuid() == 0 || e.nodeSudo
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.deployCertManager = e.deployCertManagerVanilla
@@ -717,8 +735,14 @@ func (e *vanilla) execNodeVanilla(_ string, args ...string) string {
 	return e.run(args[0], args[1:]...)
 }
 
+// nodeCommandVanilla runs the command on the local node, with sudo if the
+// suite does not run as root and sudo needs no password.
 func (e *vanilla) nodeCommandVanilla(_ string, args ...string) (string, error) {
-	return e.runCommand(args[0], args[1:]...)
+	if e.nodeSudo {
+		return e.runSilentCommand("sudo", append([]string{"-n"}, args...)...)
+	}
+
+	return e.runSilentCommand(args[0], args[1:]...)
 }
 
 func (e *e2e) waitForReadyPodsVanilla() {
@@ -770,7 +794,16 @@ func (e *e2e) run(cmd string, args ...string) string {
 }
 
 func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
-	output, err := command.New(cmd, args...).RunSuccessOutput()
+	return commandOutput(command.New(cmd, args...).RunSuccessOutput())
+}
+
+// runSilentCommand is runCommand without printing the output, for the
+// commands whose output is large, like logs, or which go to the diagnostics.
+func (e *e2e) runSilentCommand(cmd string, args ...string) (string, error) {
+	return commandOutput(command.New(cmd, args...).RunSilentSuccessOutput())
+}
+
+func commandOutput(output *command.Stream, err error) (string, error) {
 	if err != nil {
 		return "", err
 	}
@@ -849,6 +882,11 @@ func withDeleteTimeout(args []string) []string {
 
 func (e *e2e) kubectlCommand(args ...string) (string, error) {
 	return e.runCommand(e.kubectlPath, args...)
+}
+
+// kubectlSilentCommand is kubectlCommand without printing the output.
+func (e *e2e) kubectlSilentCommand(args ...string) (string, error) {
+	return e.runSilentCommand(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {

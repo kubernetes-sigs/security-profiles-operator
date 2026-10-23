@@ -21,7 +21,13 @@ swapoff -a
 modprobe br_netfilter
 sysctl -w net.ipv4.ip_forward=1
 echo "Number of CPUs: $(nproc)"
-kubeadm init --apiserver-cert-extra-sans="$IP"
+# The log enricher writes more than the default 10Mi of logs within a minute,
+# and the e2e tests read them, see spodContainerLogs in
+# test/tc_profilerecordings_test.go.
+PATCHES=$(mktemp -d)
+echo "containerLogMaxSize: 50Mi" >"$PATCHES/kubeletconfiguration+merge.yaml"
+kubeadm init --apiserver-cert-extra-sans="$IP" --patches "$PATCHES"
+rm -rf "$PATCHES"
 
 # Setup kubectl
 USER=vagrant
