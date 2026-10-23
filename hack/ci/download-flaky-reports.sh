@@ -33,8 +33,9 @@ LIMIT=$5
 
 mkdir -p "$DEST"
 
-# gh lists the newest run first.
-mapfile -t RUNS < <(
+# gh lists the newest run first. The list is read on its own, so that a
+# failure of gh fails the script instead of giving no runs.
+runs=$(
     gh run list \
         --workflow "$WORKFLOW" \
         --branch "$BRANCH" \
@@ -44,11 +45,23 @@ mapfile -t RUNS < <(
         --json databaseId \
         --jq '.[].databaseId'
 )
+RUNS=()
+if [[ -n "$runs" ]]; then
+    mapfile -t RUNS <<<"$runs"
+fi
 
 for ((i = ${#RUNS[@]} - 1; i >= 0; i--)); do
     run=${RUNS[i]}
     dir="$DEST/$run"
-    if ! gh run download "$run" --pattern 'junit-flaky-*' --dir "$dir" >&2; then
+    # gh fails like this when the run has no matching artifacts, because it
+    # skipped the e2e jobs, they expired or the run only has other artifacts.
+    # Any other error fails the script.
+    if ! err=$(gh run download "$run" --pattern 'junit-flaky-*' --dir "$dir" 2>&1); then
+        if [[ "$err" != *"no valid artifacts found to download"* &&
+            "$err" != *"no artifact matches any of the names or patterns provided"* ]]; then
+            echo "Unable to download the reports of run $run: $err" >&2
+            exit 1
+        fi
         echo "No flaky test reports in run $run, skipping it" >&2
         continue
     fi

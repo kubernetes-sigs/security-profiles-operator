@@ -435,20 +435,6 @@ dependencies:
       - path: hack/ci/build-selinuxd-fedora.sh
         match: ^SELINUXD_COMMIT=
 
-  - name: debian-base-digest
-    version: sha256:bb933ac3606ff3f69854a7eba5da1eaef5064ef62d83f3cb0e4be40eb53522e0
-    refPaths:
-    - path: Dockerfile.build-image
-      match: registry.k8s.io/build-image/debian-base
-
-  # The tag of debian-base-digest above, which only the comment next to the
-  # digest names. Bump both together.
-  - name: debian-base
-    version: bookworm-v1.0.8
-    refPaths:
-    - path: Dockerfile.build-image
-      match: "hash below relates to tag:"
-
   - name: build-image
     version: sha256:dc669ccf589a45079e01d3b7d0ed58a68e60492f62a2caf7acb25a7ca5cf412f
     refPaths:
@@ -916,16 +902,6 @@ dependencies:
       - path: Makefile
         match: "^GOTESTSUM_VERSION"
 
-  # setup-envtest of make test-integration is released together with
-  # controller-runtime, keep both at the same version.
-  - name: setup-envtest
-    version: v0.25.2
-    refPaths:
-      - path: Makefile
-        match: "^SETUP_ENVTEST_VERSION"
-      - path: go.mod
-        match: "sigs.k8s.io/controller-runtime v"
-
   - name: python for chart-testing
     version: 3.13
     refPaths:
@@ -1174,18 +1150,3 @@ dependencies:
         match: "value: quay.io/security-profiles-operator/selinuxd-fedora@"
       - path: deploy/helm/values.yaml
         match: "# quay.io/security-profiles-operator/selinuxd-fedora:latest$"
-
-  # The UBI base of Dockerfile.ubi, the go-toolset image only provides the C
-  # toolchain there.
-  - name: ubi9-go-toolset-digest
-    version: sha256:edb9452603fa48e9882063f001ecd7d322add20f1564a4f05f38f6683be5ea94
-    refPaths:
-      - path: Dockerfile.ubi
-        match: "^FROM registry.access.redhat.com/ubi9/go-toolset@"
-
-  # The UBI base of the final stage of Dockerfile.ubi.
-  - name: ubi9-ubi-minimal-digest
-    version: sha256:c4c285d42941ebb2bd4da878479008e1e4536bb599aad1dbe568f89de9053661
-    refPaths:
-      - path: Dockerfile.ubi
-        match: "^FROM registry.access.redhat.com/ubi9/ubi-minimal@"

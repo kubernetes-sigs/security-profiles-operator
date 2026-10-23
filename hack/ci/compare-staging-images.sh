@@ -56,8 +56,11 @@ deadline=$((SECONDS + STAGING_WAIT))
 while true; do
     # A registry error fails here, instead of passing as a missing image.
     tags=$(registry_get security-profiles-operator/tags/list)
-    mapfile -t TAGS < <(staging_tags "$tags")
-    if [[ ${#TAGS[@]} -gt 0 ]]; then
+    # Not a process substitution, a jq failure on an unexpected response has
+    # to fail here too.
+    staging=$(staging_tags "$tags")
+    if [[ -n "$staging" ]]; then
+        mapfile -t TAGS <<<"$staging"
         break
     fi
     if [[ $SECONDS -ge $deadline ]]; then

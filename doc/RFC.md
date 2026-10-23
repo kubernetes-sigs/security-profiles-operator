@@ -7,15 +7,11 @@ context. For current usage and configuration, refer to the [installation](instal
 
 # Summary
 
-[summary]: #summary
-
 The main target is to simplify the usage of seccomp profiles in Kubernetes by
 still providing high security standards and enough flexibility for further
 additions.
 
 # Motivation
-
-[motivation]: #motivation
 
 The seccomp feature of Kubernetes will [graduate to General Availability (GA)][0] in
 one of the upcoming releases. Non-goals of this Kubernetes Enhancement Proposal
@@ -35,8 +31,6 @@ seccomp in Kubernetes to provide on one hand a better user experience and on
 the other hand a more secure Kubernetes installation.
 
 ## Explanation
-
-[explanation]: #explanation
 
 The overall enhancement can be split-up into multiple features:
 
@@ -94,16 +88,12 @@ The overall enhancement can be split-up into multiple features:
 
 # Drawbacks
 
-[drawbacks]: #drawbacks
-
 This will add additional maintenance overhead to the cluster operator and
 enforces users to understand what the usage of seccomp implies for their
 business. It will increase the complexity if the user has not used seccomp
 before.
 
 # Alternatives
-
-[alternatives]: #alternatives
 
 We could alternatively stick to the classic approach in providing seccomp
 profiles for containers via RPM packaging. This would still mean that users have

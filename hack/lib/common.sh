@@ -340,7 +340,7 @@ image_binaries() {
 # operator images their SBOM directory, into a directory once and prints the
 # directory.
 extract_binaries() {
-  local ref="$1" dir
+  local ref="$1" dir crane
   local -a paths
 
   read -ra paths <<<"$(image_binaries "$ref")"
@@ -350,10 +350,18 @@ extract_binaries() {
 
   dir="$BUILD_DIR/binaries/$(image_name "$ref")"
   if [[ ! -d "$dir" ]]; then
-    mkdir -p "$dir.extract"
-    "$(crane_bin)" export "$ref" - |
-      tar -xf - -C "$dir.extract" "${paths[@]}"
-    mv "$dir.extract" "$dir"
+    # The callers run it in a command substitution, where errexit is off, so
+    # every step returns on failure. A partial extraction must not be cached.
+    rm -rf "$dir.extract"
+    mkdir -p "$dir.extract" || return 1
+    crane="$(crane_bin)" || return 1
+    if ! "$crane" export "$ref" - |
+      tar -xf - -C "$dir.extract" "${paths[@]}"; then
+      rm -rf "$dir.extract"
+      echo "Unable to extract ${paths[*]} of $ref" >&2
+      return 1
+    fi
+    mv "$dir.extract" "$dir" || return 1
   fi
 
   echo "$dir"
@@ -454,6 +462,26 @@ attest_profile() {
     "$(dirname "${BASH_SOURCE[0]}")/../sign-published.sh" "$digest" || return 1
   fi
   "$(dirname "${BASH_SOURCE[0]}")/../attest-artifact.sh" "$digest" "$file" profile.json
+}
+
+# Pulls the profile of REF without verifying it into OUTPUT, with the further
+# spoc pull arguments. Returns 1 only when the registry reports that REF does
+# not exist, and 2 for other errors, like rate limits or server errors, so that
+# a transient failure never gets a taken tag pushed over. SPOC is the spoc
+# binary.
+pull_profile() {
+  local output="$1" ref="$2" err
+  shift 2
+
+  if err="$("${SPOC:-$BUILD_DIR/spoc}" pull "$@" -s -o "$output" "$ref" 2>&1)"; then
+    return 0
+  fi
+  # spoc exits with its error as the last line, the lines before are logs.
+  if tail -n1 <<<"$err" | grep -qiE 'not found|(manifest|name)[ _]unknown'; then
+    return 1
+  fi
+  echo "Unable to pull $ref: $err" >&2
+  return 2
 }
 
 # The empty config descriptor of OCI referrers, see attach_bundle.

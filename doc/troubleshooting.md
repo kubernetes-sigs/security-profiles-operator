@@ -128,18 +128,26 @@ adjusting the `enableProfiling` value:
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
-The containers of the daemon should now indicate that it's serving the profiling
-endpoint, where every container is using a different port:
+The containers of the daemon should now indicate that they serve the
+profiling endpoint. Every container uses a different port, `6060` plus the
+index of the container in the `spod` pod. The containers depend on the enabled
+features, so the port of a container can differ between clusters. The
+`SPO_PROFILING_PORT` of the containers lists them, here with SELinux and the
+log enricher enabled:
 
 ```
-> kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
+> kubectl -n security-profiles-operator get ds spod -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{" "}{.env[?(@.name=="SPO_PROFILING_PORT")].value}{"\n"}{end}'
+security-profiles-operator 6060
+selinuxd
+log-enricher 6062
+```
+
+The line is logged once at the start of the container, so `--tail=-1` reads
+the whole log instead of its last lines:
+
+```
+> kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator --tail=-1 | grep "Starting profiling"
 "Starting profiling server" endpoint="0.0.0.0:6060"
-
-> kubectl -n security-profiles-operator logs --selector name=spod -c log-enricher | grep "Starting profiling"
-"Starting profiling server" endpoint="0.0.0.0:6061"
-
-> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
-"Starting profiling server" endpoint="0.0.0.0:6062"
 ```
 
 Then use the pprof tool to look at the heap profile:
@@ -173,8 +181,8 @@ kubectl -n security-profiles-operator exec spod-4pt84 -c selinuxd -- curl --unix
 go tool pprof /tmp/heap.selinuxd
 ```
 
-For a study of the facility in action, please visit:
-https://go.dev/blog/pprof
+For a study of the facility in action, please visit
+<https://go.dev/blog/pprof>.
 
 ### Use a custom `/proc` location for nested environments like `kind`
 

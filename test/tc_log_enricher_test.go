@@ -160,10 +160,6 @@ spec:
 
 	e.waitFor("jsonpath={.status.phase}=Running", "pod", podName)
 
-	// Make sure that Exec webhook is not enabled unless JSON Log Enricher is used
-	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
-	e.NotContains(envOutput, "SPO_EXEC_REQUEST_UID")
-
 	// wait for at least one component of the expected logs to appear
 	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "listen"))
 
@@ -220,6 +216,10 @@ func (e *e2e) testCaseLogEnricherWithFilters([]string) {
 		),
 	)
 
+	// It runs after the JSON enricher test case, which enabled the exec
+	// metadata webhook. Disabling the JSON enricher has to remove it again.
+	e.waitForNoExecWebhook(podStartTimeout)
+
 	e.logf("Creating test profile")
 
 	profile := fmt.Sprintf(`
@@ -272,6 +272,9 @@ spec:
 	e.waitFor("condition=initialized", "pod", podName)
 
 	e.waitFor("jsonpath={.status.phase}=Running", "pod", podName)
+
+	envOutput := e.kubectl("exec", podName, "--", "env")
+	e.NotContains(envOutput, "SPO_EXEC_REQUEST_UID", "exec mutated without the JSON enricher")
 
 	// nginx calls listen after the execve of its start, so a listen line
 	// may only be missing because the enricher did not process it yet. An

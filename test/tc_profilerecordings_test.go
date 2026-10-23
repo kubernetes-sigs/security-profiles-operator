@@ -552,8 +552,19 @@ func (e *e2e) testCaseRecordingFinalizers() {
 		return nil
 	})
 
-	// Delete the pod and check that the resource is removed
+	// The finalizer keeps the recording while it records the pod.
+	e.logf("Deleting the recording while it records a pod")
+	e.kubectl("delete", "--wait=false", "profilerecording", recordingName)
+	deletionTimestamp := e.kubectl(
+		"get", "profilerecording", recordingName,
+		"--output", "jsonpath={.metadata.deletionTimestamp}",
+	)
+	e.NotEmpty(deletionTimestamp, "the recording is not being deleted")
+
+	// Once the pod is gone, the tracker releases the finalizer and the
+	// recording goes away, after the profile of the pod got recorded.
 	e.kubectl("delete", "pod", podName)
+	e.waitFor("delete", "profilerecording", recordingName)
 
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
@@ -584,6 +595,7 @@ func (e *e2e) profileRecordingDeployment(
 	since, deployName := e.createRecordingTestDeployment()
 
 	podNames := e.getRecordingPodNames()
+	e.Require().Len(podNames, 2, "pods of the recorded deployment")
 	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	suffixes := podSuffixes(podNames)
@@ -771,9 +783,30 @@ func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...strin
 	e.kubectl("rollout", "status", "deploy", deployName)
 
 	podNames := e.getRecordingPodNames()
+	e.Require().Len(podNames, 5, "pods of the scaled up deployment")
 	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	suffixes := podSuffixes(podNames)
+
+	// The profiles of the pods which scaling down deletes get recorded while
+	// the deployment still runs.
+	e.logf("Scaling the deployment down")
+	e.kubectl("scale", "deploy", "--replicas=1", deployName)
+	e.eventually(2*time.Minute, defaultPollInterval, func() error {
+		recorded := 0
+
+		for _, sfx := range suffixes {
+			if e.existsSeccompProfile(recordingName + "-nginx-" + sfx) {
+				recorded++
+			}
+		}
+
+		if want := len(suffixes) - 1; recorded < want {
+			return fmt.Errorf("%d of the %d profiles of the deleted pods recorded", recorded, want)
+		}
+
+		return nil
+	})
 
 	e.kubectl("delete", "deploy", deployName)
 

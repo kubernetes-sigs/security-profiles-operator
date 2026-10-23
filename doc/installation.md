@@ -145,24 +145,16 @@ as an artifact, and can be installed by executing the following shell commands:
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=available deployment --all
 
-# Create the namespace beforehand
+# Create the namespace beforehand, the chart does not manage it. The daemon
+# runs privileged, so the namespace needs the privileged Pod Security
+# Standard.
 export spo_ns=security-profiles-operator
 kubectl create ns $spo_ns
-
-# Label and annotate the ns to make it manageable by helm. Ensure it is
-# running on the privileged Pod Security Standard.
 kubectl label ns $spo_ns \
-  app=security-profiles-operator \
   pod-security.kubernetes.io/audit=privileged \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/warn=privileged \
-  app.kubernetes.io/managed-by=Helm \
   --overwrite=true
-
-kubectl annotate ns $spo_ns \
-  "meta.helm.sh/release-name"="security-profiles-operator" \
-  "meta.helm.sh/release-namespace"="$spo_ns" \
-  --overwrite
 
 # Install the chart from the release URL (or a file path if desired).
 # Replace $VERSION with the desired release version. The chart archive is
@@ -172,7 +164,10 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 # helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
 
-You may also specify a different target namespace with `--namespace mynamespace` or `--namespace mynamespace --create-namespace` if it still doesn't exist.
+You may also specify a different target namespace with `--namespace mynamespace`.
+Create and label it as shown above. `--create-namespace` creates it without
+the Pod Security labels, so the admission rejects the privileged pods of the
+daemon unless the cluster allows them by default.
 
 To verify a downloaded chart archive before installing it, see
 [verifying the released artifacts](verification.md#helm-chart).
@@ -382,10 +377,12 @@ verbose logs, patch the spod config by adjusting the value:
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
-The daemon should now indicate that it's using the new logging verbosity:
+The daemon should now indicate that it's using the new logging verbosity. It
+logs the line once at its start, so `--tail=-1` reads the whole log instead of
+its last lines:
 
 ```
-> kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | head -n1
+> kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator --tail=-1 | grep "Set logging verbosity"
 "Set logging verbosity to 1"
 ```
 

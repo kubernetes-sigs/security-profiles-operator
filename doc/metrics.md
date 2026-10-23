@@ -62,8 +62,12 @@ spo-metrics-client   ClusterRole/spo-metrics-client   35m                    sec
 
 Every metrics server pod from the DaemonSet runs with the same set of certificates
 (secret `metrics-server-cert`: `tls.crt` and `tls.key`) in the
-`security-profiles-operator` namespace. This means a pod like this can be used
-to omit the `--insecure/-k` flag:
+`security-profiles-operator` namespace. With cert-manager, the secret also
+holds the CA certificate `ca.crt`, so a pod like this one in the same namespace
+can be used to omit the `--insecure/-k` flag. On OpenShift, the service CA
+signs the certificate and writes no `ca.crt`, use the
+`/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt` which OpenShift
+mounts into every pod instead:
 
 ```yaml
 ---
@@ -71,6 +75,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: test-pod
+  namespace: security-profiles-operator
 spec:
   serviceAccountName: spo-metrics-client
   # The service account does not mount its token by default.
@@ -84,7 +89,7 @@ spec:
         - |
           curl -s --cacert /var/run/secrets/metrics/ca.crt \
             -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
-            https://metrics.security-profiles-operator/metrics-spod
+            https://metrics.security-profiles-operator.svc/metrics-spod
       volumeMounts:
         - mountPath: /var/run/secrets/metrics
           name: metrics-cert-volume

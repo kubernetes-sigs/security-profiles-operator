@@ -47,8 +47,10 @@ func runTest(t *testing.T) {
 		for i := range 10 {
 			target := filepath.Join(dir, fmt.Sprintf("confined-%d", i))
 
-			_, err := runSpoc(t, "run", "-p", in, "mkdir", target)
-			requireExitCode(t, err, 1)
+			// The exit code of the shell tells that the command ran and its
+			// mkdir failed, spoc exits with another one if it fails itself.
+			_, err := runSpoc(t, "run", "-p", in, "sh", "-c", `mkdir "$1" || exit 42`, "sh", target)
+			requireExitCode(t, err, 42)
 			require.NoDirExists(t, target, "run %d escaped the profile", i)
 		}
 	})

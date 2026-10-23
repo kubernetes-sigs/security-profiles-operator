@@ -8,13 +8,13 @@ title: "Release v"
 
 Tracking issue for the v{VERSION} release.
 
-#### Prerequisites
+## Prerequisites
 
 <!-- List any PRs or issues that must be merged before cutting the release -->
 
 None
 
-#### Release checklist
+## Release checklist
 
 See [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md) for the details of every step.
 

@@ -50,7 +50,10 @@ jobs:
           [ ! -f "${tgz_path}" ] && echo "failed to find helm chart from 'helm package' stdout" && exit 1
           tgz_name="${tgz_path##*/}"
           source hack/lib/common.sh
-          CRANE="$(crane_bin)" hack/oci-layout.sh chart build/chart-oci "${tgz_path}" > build/chart-oci.sha256
+          # Assigned on its own, a prefix assignment drops the exit status.
+          CRANE="$(crane_bin)"
+          export CRANE
+          hack/oci-layout.sh chart build/chart-oci "${tgz_path}" > build/chart-oci.sha256
           hack/oci-layout.sh pack build/chart-oci "build/${tgz_name%.tgz}-oci-layout.tar"
           hashes=$(cd build && { sha256sum "${tgz_name}"; cat chart-oci.sha256; } | base64 -w0)
           {

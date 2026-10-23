@@ -28,8 +28,8 @@ All released artifacts are signed and the release assets carry SLSA build
 provenance. [Verifying the released artifacts][verification] has the commands
 for the container images, the binaries, the SBOM and the helm chart.
 
-Feel free to provide us any kind of feedback in the official [Kubernetes Slack
-#security-profiles-operator channel][slack].
+Feel free to provide us any kind of feedback in the official
+[Kubernetes Slack #security-profiles-operator channel][slack].
 
 [docs]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/README.md
 [helm]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/installation.md#installation-using-helm

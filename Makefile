@@ -43,9 +43,9 @@ MDTOC_VERSION = v1.4.0
 GOVULNCHECK_VERSION = v1.8.0
 GOTESTSUM_VERSION = v1.13.0
 # setup-envtest downloads the kube-apiserver and etcd binaries of the
-# integration tests. It is released together with controller-runtime, bump
-# them together.
-SETUP_ENVTEST_VERSION = v0.25.2
+# integration tests. It is released together with controller-runtime, so it
+# follows the version of go.mod.
+SETUP_ENVTEST_VERSION = $(shell $(GO) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime)
 SHELLCHECK_VERSION = v0.11.0
 # Checksums of the shellcheck release archives per GOOS_GOARCH, bump them
 # together with the version above.
@@ -985,9 +985,14 @@ bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then
 	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
 	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
 	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
+	# Concatenated into a file first: make runs recipes without pipefail, so a
+	# missing input would only be a warning of cat in the pipe. It runs before
+	# the cleanup below, so that a missing input leaves the bundle intact.
+	# operator-sdk only reads the manifests from stdin when it is a pipe.
+	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml >$(BUILD_DIR)/bundle-input.yaml
 	# operator-sdk never removes files, so start clean to not ship stale manifests
 	rm -rf ./bundle/manifests ./bundle/metadata
-	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	cat $(BUILD_DIR)/bundle-input.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle

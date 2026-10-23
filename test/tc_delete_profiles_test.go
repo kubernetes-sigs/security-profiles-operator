@@ -218,6 +218,8 @@ spec:
 
 			// The node statuses should still be there, just terminating
 			nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
+			statusNodes := make([]string, 0, len(nodeStatuses.Items))
+
 			for i := range nodeStatuses.Items {
 				e.Equal(
 					secprofnodestatusapi.ProfileStateTerminating,
@@ -225,9 +227,13 @@ spec:
 				)
 				// On each node, there should still be the profile on the disk
 				nodeWithPodName := nodeStatuses.Items[i].Spec.NodeName
+				statusNodes = append(statusNodes, nodeWithPodName)
 				profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 				e.execNode(nodeWithPodName, "test", "-f", profileOperatorPath)
 			}
+
+			// A loop over no statuses would check nothing.
+			e.Subset(statusNodes, nodes, "nodes without a terminating node status")
 
 			// The wait runs while the pod gets deleted. It must not fail the
 			// test from its goroutine, which would leave the receive below

@@ -20,8 +20,10 @@ package e2e_test
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -59,8 +61,9 @@ func (e *e2e) previousRelease() string {
 
 // testCaseUpgradeFromPreviousRelease replaces the operator under test with
 // the previous release, creates a profile, upgrades to the operator under
-// test and checks that the profile stays installed.
-func (e *e2e) testCaseUpgradeFromPreviousRelease([]string) {
+// test and checks that the profile stays installed and that the daemon under
+// test installs a change of it.
+func (e *e2e) testCaseUpgradeFromPreviousRelease(nodes []string) {
 	e.seccompOnlyTestCase()
 
 	if strings.EqualFold(clusterType, clusterTypeOpenShift) {
@@ -120,8 +123,35 @@ func (e *e2e) testCaseUpgradeFromPreviousRelease([]string) {
 	)
 	e.Require().Equal(e.testImage, image, "the spod does not run the image under test")
 
+	upgraded = true
+
 	e.logf("Checking that the profile is still installed")
 	e.waitForProfile(upgradeProfileName)
 
-	upgraded = true
+	// The status is still the one the previous release wrote, a change of the
+	// profile shows that the daemon under test handles the profiles which the
+	// previous release created.
+	e.logf("Changing the profile with the operator under test")
+	e.kubectl("patch", "sp", upgradeProfileName, "--type", "merge", "-p",
+		`{"spec":{"syscalls":[{"action":"SCMP_ACT_ERRNO","names":["acct"]}]}}`)
+
+	sp := e.getSeccompProfile(upgradeProfileName)
+	profilePath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
+
+	for _, node := range nodes {
+		e.eventually(time.Minute, 2*time.Second, func() error {
+			content, err := e.nodeCommand(node, "cat", profilePath)
+			if err != nil {
+				return fmt.Errorf("reading %s on node %s: %w", profilePath, node, err)
+			}
+
+			if !strings.Contains(content, `"acct"`) {
+				return fmt.Errorf("the profile on node %s lacks the change: %s", node, content)
+			}
+
+			return nil
+		})
+	}
+
+	e.waitForProfile(upgradeProfileName)
 }

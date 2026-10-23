@@ -73,16 +73,11 @@ update_base_profiles() {
   # that uses `setns` to join the container mount namespace.
   # As a consequence, we sometimes get all the funny syscalls emitted
   # by the Go runtime, which we need to ignore.
+  # The pattern matches whole list entries, so that syscalls which only start
+  # with one of these names, like exit_group or epoll_pwait2, still count.
   echo "Diffing output while ignoring flaky syscalls"
   git diff --exit-code -U0 \
-    -I rt_sigreturn \
-    -I sched_yield \
-    -I tgkill \
-    -I exit \
-    -I madvise \
-    -I rt_sigprocmask \
-    -I sigaltstack \
-    -I epoll_pwait \
+    -I '^ *- (rt_sigreturn|sched_yield|tgkill|exit|madvise|rt_sigprocmask|sigaltstack|epoll_pwait)$' \
     examples
 }
 
