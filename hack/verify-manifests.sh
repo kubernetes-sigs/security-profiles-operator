@@ -45,14 +45,23 @@ CRD_VERSIONS='.spec as $spec | $spec.versions[] | [$spec.names.kind, $spec.group
 rm -rf "$SCHEMAS"
 mkdir -p "$SCHEMAS"
 for crd in deploy/base-crds/crds/*.yaml; do
+  # Read on its own, a failure of yq in a process substitution would go
+  # unnoticed.
+  versions="$(yq "$CRD_VERSIONS" "$crd")"
   while IFS=$'\t' read -r kind group version; do
     # Files with several CRDs print document separators in between.
     [[ -n "$version" ]] || continue
     yq -o=json \
       "select(.spec.names.kind == \"$kind\") | .spec.versions[] | select(.name == \"$version\") | .schema.openAPIV3Schema" \
       "$crd" >"$SCHEMAS/${kind,,}-$group-$version.json"
-  done < <(yq "$CRD_VERSIONS" "$crd")
+  done <<<"$versions"
 done
+# kubeconform skips the custom resources without a schema, so missing schemas
+# would let every one of them pass.
+if [[ -z "$(find "$SCHEMAS" -name '*.json' -print -quit)" ]]; then
+  echo "No CRD schemas were written to $SCHEMAS" >&2
+  exit 1
+fi
 
 echo "Validating the manifests against Kubernetes $KUBERNETES_VERSION"
 # The OpenShift kinds and the CRDs themselves have no schema here and get

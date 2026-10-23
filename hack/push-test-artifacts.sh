@@ -64,11 +64,19 @@ PROVENANCE_DEPENDENCIES="$(spoc_dependency "$SPOC" | "$(jq_bin)" -cs .)"
 export PROVENANCE_DEPENDENCIES
 
 push() {
-  local file="$1" ref="$REGISTRY/$REPOSITORY:$2" published=false
+  local file="$1" ref="$REGISTRY/$REPOSITORY:$2" published=false status=1
   shift 2
 
-  if [[ "$SKIP_EXISTING" == "true" ]] &&
-    "$SPOC" pull ${registry_args[@]+"${registry_args[@]}"} -s -o /dev/null "$ref" >/dev/null 2>&1; then
+  # A failed check fails the push, only a missing tag gets pushed, see
+  # pull_profile in hack/lib/common.sh.
+  if [[ "$SKIP_EXISTING" == "true" ]]; then
+    status=0
+    pull_profile /dev/null "$ref" ${registry_args[@]+"${registry_args[@]}"} || status=$?
+  fi
+  if [[ $status -eq 2 ]]; then
+    return 1
+  fi
+  if [[ $status -eq 0 ]]; then
     echo "Already published, skipping $ref"
     published=true
   else

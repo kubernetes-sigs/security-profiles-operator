@@ -8,6 +8,7 @@ presumed and PRs are always welcome.
   - [Other build targets](#other-build-targets)
 - [Verifying changes](#verifying-changes)
   - [Pre-commit hooks](#pre-commit-hooks)
+  - [Dependencies](#dependencies)
 - [Submitting a Pull Request (PR)](#submitting-a-pull-request-pr)
 - [Vulnerability checks and assessments](#vulnerability-checks-and-assessments)
 - [Running unit tests and viewing coverage](#running-unit-tests-and-viewing-coverage)
@@ -37,6 +38,7 @@ want to build with, you might need to either install extra dependencies or
 disable features that would require them.
 
 There are currently two optional features at build time
+
 - eBPF based recording
   - This feature requires a rather new `libbpf` which requires a new `libelf`
     version which in turn requires a new `libz` version.
@@ -179,22 +181,48 @@ so that the hooks and the CI use the same pinned linters. `make verify-go-lint`
 takes a while and only runs on `git push`. `pre-commit run --all-files` runs
 all hooks once.
 
+### Dependencies
+
+[`dependencies.yaml`](../dependencies.yaml) lists the versions which appear in
+more than one file, and `make verify-dependencies` checks that they match.
+Dependabot only updates the files of its own ecosystem, so it owns the Go
+modules, the GitHub actions and the base image digests of the Dockerfiles,
+which `dependencies.yaml` does not track.
+
+Dependabot ignores the generators of committed files, because their output
+changes with their version and `make verify` would fail on its pull requests.
+Bump them by hand in `go.mod` and regenerate the files:
+
+- `sigs.k8s.io/controller-tools` with `make manifests generate deployments
+  bundle`.
+- `google.golang.org/grpc/cmd/protoc-gen-go-grpc` with `make update-proto`.
+- `github.com/maxbrunsfeld/counterfeiter/v6` with `make update-mocks`.
+
+`google.golang.org/protobuf` is not ignored, it is a runtime library and
+Dependabot bumps it for security fixes too. Its version is in the headers of
+the generated `api/grpc` files, so push the result of `make update-proto` onto
+its pull requests, and onto the ones of other modules which raise it.
+
+Dependabot ignores `github.com/aquasecurity/libbpfgo` as well. Its version
+names the libbpf release it is built against, which `dependencies.yaml`
+tracks, so bump it together with libbpf.
+
 ## Submitting a Pull Request (PR)
 
 Here's the process for contributing your changes:
 
-1.  **Fork and Branch:**
+1. **Fork and Branch:**
     * First, create your own copy (a "fork") of the [main repository](https://github.com/kubernetes-sigs/security-profiles-operator) on GitHub.
     * Then, create a new branch within your forked repository to work on your changes.
 
-2.  **Build and Test:**
+2. **Build and Test:**
     * Build a container image of your changes. This ensures your code runs in a kubernetes environment (Ex: OpenShift).
 
-3.  **Verify:**
+3. **Verify:**
     * Run the command `make verify`. This command executes automated checks (like code style) to ensure your changes meet the project's standards. Make sure this command passes without any errors. The CI also runs `make verify-bpf`, which rebuilds the committed BPF objects, and `make verify-bundle`, which regenerates the OLM bundle. Both are not part of `make verify`, run them when changing the BPF programs or the deployment manifests.
     * If a vulnerability check fails, see [vulnerability checks and assessments](#vulnerability-checks-and-assessments).
 
-4.  **PR Description:**
+4. **PR Description:**
     * When you create your Pull Request to merge your changes back into the main repository, please provide a clear description.
     * Specifically, make sure to clearly indicate:
         * **Type of PR:** What kind of change is this?
@@ -411,6 +439,7 @@ are you running, because different distributions might have different ways
 of uploading custom images to the cluster.
 
 On a high level, the process is as follows:
+
   - build the images with `make image`
     - note that you can use a custom `Dockerfile` by setting the `DOCKERFILE`
       variable, e.g. `DOCKERFILE=Dockerfile.ubi make image`
@@ -651,6 +680,7 @@ through `hack/ci/e2e-spoc.sh`.
 As noted above, three different distributions are supported in our e2e tests
 at the time of the writing. To add a new distribution to the e2e tests,
 on a high level, this needs to be done:
+
  - Create a structure representing the new distribution. This structure must
    at minimum embed the `e2e` structure plus any additional distribution
    specific state. The `e2e` structure itself embeds the `Suite` structure

@@ -111,6 +111,16 @@ spec:
 
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
+
+	// Every record has the version which the second filter drops, so only the
+	// records of execs, which the first filter keeps, reach the file.
+	for line := range strings.Lines(output) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		e.Contains(line, "\"requestUID\"", "record not filtered")
+	}
 }
 
 // jsonEnricherTestNamespace is the namespace of the JSON enricher test pods.

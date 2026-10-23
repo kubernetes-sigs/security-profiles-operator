@@ -104,9 +104,15 @@ check_profile_mode() {
 # runs, and in the kernel log otherwise. The journal keeps the kernel log since
 # AppArmor got enabled, unlike the ring buffer of dmesg which may have wrapped.
 bpf_recorder_denials() {
-  local field="${1:-(profile|peer)}" since="${BPF_RECORDER_LOG_SINCE:-0}"
+  local field="${1:-(profile|peer)}" since="${BPF_RECORDER_LOG_SINCE:-0}" kernel_log
+  # Read on its own, so that the check fails instead of passing on an empty
+  # log. The audit log is optional, it only exists if auditd runs.
+  if ! kernel_log="$(sudo journalctl -k -o cat --no-pager --since "@$since")"; then
+    echo "Unable to read the kernel log" >&2
+    return 1
+  fi
   {
-    sudo journalctl -k -o cat --no-pager --since "@$since"
+    printf '%s\n' "$kernel_log"
     # The timestamp of an audit record is the one in audit(<seconds>.<ms>:<id>).
     sudo cat /var/log/audit/audit.log 2>/dev/null |
       awk -v since="$since" 'match($0, /audit\([0-9]+/) && substr($0, RSTART + 6, RLENGTH - 6) + 0 >= since' || true

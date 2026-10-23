@@ -1243,7 +1243,12 @@ func (e *e2e) waitForSpodPodsRunning(message string) {
 	}
 }
 
+// enableJsonEnricherInSpod enables the JSON enricher and restores the previous
+// SPOD spec once the current test ends, so that its exec webhook does not
+// keep mutating the execs of the following test cases.
 func (e *e2e) enableJsonEnricherInSpod() {
+	e.restoreSpodSpec()
+
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 	e.patchSpod(`{"spec":{"enricher":{"enableLogEnricher": false, "enableJsonEnricher": true,
 		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`)
@@ -1535,6 +1540,25 @@ func (e *e2e) checkExecWebhook(timeout time.Duration) bool {
 	}
 
 	return true
+}
+
+// waitForNoExecWebhook waits until the operator removed the exec metadata
+// webhook, which it only deploys together with the JSON enricher.
+func (e *e2e) waitForNoExecWebhook(timeout time.Duration) {
+	err := poll(timeout, defaultPollInterval, func() error {
+		output := e.kubectlOperatorNS(
+			"get",
+			"mutatingwebhookconfigurations",
+			"spo-mutating-webhook-configuration",
+			`-o=jsonpath='{.webhooks[*].name}'`,
+		)
+		if strings.Contains(output, "execmetadata.spo.io") {
+			return fmt.Errorf("execmetadata.spo.io webhook still in %s", output)
+		}
+
+		return nil
+	})
+	e.Require().NoError(err, "exec metadata webhook without the JSON enricher")
 }
 
 // getPodNamesByLabel returns the names of the pending and running pods of

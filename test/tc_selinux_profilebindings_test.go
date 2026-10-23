@@ -108,7 +108,9 @@ func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {
 
 	e.logf("the workload should have errored")
 	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
-	e.NotEmptyf(log, "container should have returned a 'Permissions Denied' error")
+	// The unbound container runs as container_t, which may not write to the
+	// var_log_t of the host, so its shell fails to create the file.
+	e.Contains(log, "Permission denied", "the unbound container wrote to /var/log")
 }
 
 func (e *e2e) profileBindingTestPrep(

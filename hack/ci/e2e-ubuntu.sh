@@ -39,8 +39,11 @@ if [[ -n "${SPO_KUBELET_DIR:-}" ]]; then
     deploy/operator.yaml deploy/namespace-operator.yaml
 fi
 
-if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
-  make test-flaky-e2e
-else
-  make test-e2e
-fi
+case "${E2E_TEST_FLAKY_TESTS_ONLY}" in
+true) make test-flaky-e2e ;;
+false) make test-e2e ;;
+*)
+  echo "E2E_TEST_FLAKY_TESTS_ONLY must be true or false, not ${E2E_TEST_FLAKY_TESTS_ONLY}" >&2
+  exit 1
+  ;;
+esac

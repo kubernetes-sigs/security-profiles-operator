@@ -75,21 +75,23 @@ fi
 PROVENANCE_DEPENDENCIES="$(spoc_dependency "$SPOC" | "$(jq_bin)" -cs .)"
 export PROVENANCE_DEPENDENCIES
 
+# Whether a tag is published, 1 if not and 2 if that is unknown, see
+# pull_profile in hack/lib/common.sh.
 published() {
   [[ "$SKIP_EXISTING" == "true" ]] || return 1
 
-  "$SPOC" pull ${registry_args[@]+"${registry_args[@]}"} -s -o /dev/null "$1" >/dev/null 2>&1
+  pull_profile /dev/null "$1" ${registry_args[@]+"${registry_args[@]}"}
 }
 
 # Whether a tag already serves this exact content, which is how latest is
 # checked: it exists from the previous version too, so its presence says
-# nothing about whether it still has to move.
+# nothing about whether it still has to move. Returns 2 if that is unknown.
 serves() {
   local ref="$1" file="$2" pulled="$BUILD_DIR/published-check.json"
 
   [[ "$SKIP_EXISTING" == "true" ]] || return 1
 
-  "$SPOC" pull ${registry_args[@]+"${registry_args[@]}"} -s -o "$pulled" "$ref" >/dev/null 2>&1 || return 1
+  pull_profile "$pulled" "$ref" ${registry_args[@]+"${registry_args[@]}"} || return
 
   cmp -s "$pulled" "$file"
 }
@@ -125,7 +127,12 @@ for runtime in "${RUNTIMES[@]}"; do
   version_ref="$REGISTRY/$NAME_PREFIX$runtime:$version"
   latest_ref="$REGISTRY/$NAME_PREFIX$runtime:latest"
 
-  if ! published "$version_ref"; then
+  status=0
+  published "$version_ref" || status=$?
+  if [[ $status -eq 2 ]]; then
+    exit 1
+  fi
+  if [[ $status -ne 0 ]]; then
     push "$converted" "$version_ref"
     push "$converted" "$latest_ref"
     attest_profile "$version_ref" "$converted"
@@ -133,7 +140,12 @@ for runtime in "${RUNTIMES[@]}"; do
     continue
   fi
 
-  if ! serves "$latest_ref" "$converted"; then
+  status=0
+  serves "$latest_ref" "$converted" || status=$?
+  if [[ $status -eq 2 ]]; then
+    exit 1
+  fi
+  if [[ $status -ne 0 ]]; then
     push "$converted" "$latest_ref"
   else
     echo "Already published, skipping $runtime $version"

@@ -224,7 +224,7 @@ We can verify that the recorder is up and running after the spod rollout has
 been finished:
 
 ```
-> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
+> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder --tail=-1
 …
 bpf-recorder "msg"="Setting up caches" "expiry"="1h0m0s"
 bpf-recorder "msg"="Starting ebpf recorder on node" "node"="ip-10-0-228-234.us-east-2.compute.internal"
@@ -688,7 +688,7 @@ spec:
             debug.openshift.io/managed-by: "oc-debug"
 ```
 
-Reference: For more details on the label, see: https://github.com/kubernetes/kubernetes/pull/131791
+Reference: For more details on the label, see <https://github.com/kubernetes/kubernetes/pull/131791>.
 
 ### AppArmor Profile
 
@@ -731,7 +731,7 @@ We can verify that the recorder is up and running after the spod rollout has
 been finished:
 
 ```
-> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
+> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder --tail=-1
 …
 bpf-recorder "msg"="Setting up caches" "expiry"="1h0m0s"
 bpf-recorder "msg"="Starting ebpf recorder on node" "node"="ip-10-0-228-234.us-east-2.compute.internal"
@@ -940,7 +940,7 @@ The CIL-formatted policies are placed into an `emptyDir` owned by the SPO where 
 the resulting CIL policy:
 
 ```shell
-$ kubectl exec -it -c selinuxd spod-fm55x -- sh
+$ kubectl -n security-profiles-operator exec -it -c selinuxd spod-fm55x -- sh
 sh-4.4# cat /etc/selinux.d/nginx-secure.cil
 (block nginx-secure
 (blockinherit container)
@@ -1177,13 +1177,19 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{
 #### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as
-[runc](https://github.com/opencontainers/runc) (recorded with version 1.5.2) to
-launch a container can be found in [the
-examples](../examples/baseprofile-runc.yaml). You can use this example as a
-starting point for creating custom profiles for your application. You can also
+[runc](https://github.com/opencontainers/runc) to launch a container can be
+found in [the examples](../examples/baseprofile-runc.yaml). It is named after
+the runc version it was recorded with. You can use this example as a starting
+point for creating custom profiles for your application. You can also
 programmatically combine it with your custom profiles in order to build
 application-specific profiles that only specify syscalls that are required on
-top of the base calls needed for the container runtime. For example:
+top of the base calls needed for the container runtime. The operator does not
+ship the base profiles, so apply the example first, then refer to it by its
+name. For example:
+
+```shell
+kubectl apply -f examples/baseprofile-runc.yaml
+```
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -1201,8 +1207,7 @@ spec:
 
 If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
-the [corresponding example profile](../examples/baseprofile-crun.yaml) (recorded
-with version 1.30.1).
+the [corresponding example profile](../examples/baseprofile-crun.yaml).
 
 #### Recording profiles without applying them
 

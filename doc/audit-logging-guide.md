@@ -7,6 +7,7 @@ This is a user guide to configure audit logging in a single node local Kubernete
 Please note this is a user guide. Detailed documentation is available at [profiles.md](profiles.md).
 
 The use case involves two personas:
+
 - **Auditor**: Configures the audit logging system and views the generated audit logs
 - **Cluster Administrator/Support Person**: Performs administrative tasks such as exec into pods or nodes, whose activities are being audited
 
