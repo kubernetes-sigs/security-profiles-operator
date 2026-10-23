@@ -75,15 +75,9 @@ func TestPlatformFlagsAreConsistent(t *testing.T) {
 
 		names := map[string]bool{}
 
-		for _, command := range newApp().Commands {
-			if command.Name != commandName {
-				continue
-			}
-
-			for _, flag := range command.Flags {
-				for _, name := range flag.Names() {
-					names[name] = true
-				}
+		for _, flag := range appCommand(t, commandName).Flags {
+			for _, name := range flag.Names() {
+				names[name] = true
 			}
 		}
 
@@ -106,10 +100,8 @@ func TestPlatformFlagsAreConsistent(t *testing.T) {
 func TestProfileFlagIsConsistent(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range newApp().Commands {
-		if command.Name != "run" && command.Name != "push" {
-			continue
-		}
+	for _, name := range []string{"run", "push"} {
+		command := appCommand(t, name)
 
 		found := false
 
@@ -119,6 +111,17 @@ func TestProfileFlagIsConsistent(t *testing.T) {
 
 		require.True(t, found, command.Name)
 	}
+}
+
+// appCommand returns the command of the app with the name, a renamed command
+// fails the test instead of skipping it.
+func appCommand(t *testing.T, name string) *cli.Command {
+	t.Helper()
+
+	command := newApp().Command(name)
+	require.NotNil(t, command, "command %s not found", name)
+
+	return command
 }
 
 // TestCommandsAreDocumented guards that every visible command explains itself
@@ -142,10 +145,8 @@ func TestCommandsAreDocumented(t *testing.T) {
 func TestPrivilegedFlag(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range newApp().Commands {
-		if command.Name != "record" && command.Name != "run" {
-			continue
-		}
+	for _, name := range []string{"record", "run"} {
+		command := appCommand(t, name)
 
 		found := false
 

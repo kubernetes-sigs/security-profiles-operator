@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
@@ -219,6 +220,17 @@ func TestRun(t *testing.T) {
 
 			err := sut.Run()
 			assert(t, err)
+
+			if err != nil {
+				return
+			}
+
+			// The profile of every success gets loaded before the command
+			// runs, which gets waited for.
+			require.Equal(t, 1, mock.SetupSeccompCallCount())
+			require.Equal(t, specs.ActErrno, mock.SetupSeccompArgsForCall(0).DefaultAction)
+			require.Equal(t, 1, mock.CommandRunCallCount())
+			require.Equal(t, 1, mock.CommandWaitCallCount())
 		})
 	}
 }

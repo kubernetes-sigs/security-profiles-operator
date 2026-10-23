@@ -33,6 +33,84 @@ import (
 // only build on Linux.
 const containerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
 
+// A pod which carries the recording annotation of another pod does not add
+// its syscalls to the profile of the other pod, and keeps its data when the
+// other pod gets collected.
+func TestSyscallsOfPod(t *testing.T) {
+	t.Parallel()
+
+	const (
+		profile = "profile"
+		other   = "1111111111111111111111111111111111111111111111111111111111111111"
+	)
+
+	sut, err := New(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	require.True(t, sut.syscalls.insert(profile, "recorded-pod", containerID, "read"))
+	require.True(t, sut.syscalls.insert(profile, "copied-annotation", other, "ptrace"))
+
+	request := &api.SyscallsRequest{Profile: profile, PodUid: "recorded-pod", Collect: true}
+
+	res, err := sut.Syscalls(t.Context(), request)
+	require.NoError(t, err)
+	require.Equal(t, []string{"read"}, res.GetSyscalls())
+
+	_, err = sut.ResetSyscalls(t.Context(), request)
+	require.NoError(t, err)
+
+	_, err = sut.Syscalls(
+		t.Context(),
+		&api.SyscallsRequest{Profile: profile, PodUid: "recorded-pod"},
+	)
+	require.Equal(t, codes.NotFound, status.Code(err))
+
+	// The other pod keeps its data, which only its own collection returns.
+	res, err = sut.Syscalls(
+		t.Context(),
+		&api.SyscallsRequest{Profile: profile, PodUid: "copied-annotation"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, []string{"ptrace"}, res.GetSyscalls())
+}
+
+// A reset for a pod which carries the recording annotation of another pod
+// does not drop what the collection of the other pod handed out, which a
+// retry of the collection needs.
+func TestSyscallsResetOfOtherPodKeepsCollection(t *testing.T) {
+	t.Parallel()
+
+	const (
+		profile = "profile"
+		other   = "1111111111111111111111111111111111111111111111111111111111111111"
+	)
+
+	sut, err := New(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	require.True(t, sut.syscalls.insert(profile, "recorded-pod", containerID, "read"))
+	require.True(t, sut.syscalls.insert(profile, "copied-annotation", other, "ptrace"))
+
+	collect := &api.SyscallsRequest{Profile: profile, PodUid: "recorded-pod", Collect: true}
+
+	_, err = sut.Syscalls(t.Context(), collect)
+	require.NoError(t, err)
+
+	_, err = sut.ResetSyscalls(
+		t.Context(), &api.SyscallsRequest{Profile: profile, PodUid: "copied-annotation"},
+	)
+	require.NoError(t, err)
+
+	// The retry of the collection, like after a failed write of the profile.
+	res, err := sut.Syscalls(t.Context(), collect)
+	require.NoError(t, err)
+	require.Equal(t, []string{"read"}, res.GetSyscalls())
+
+	_, err = sut.ResetSyscalls(t.Context(), collect)
+	require.NoError(t, err)
+	require.Zero(t, sut.syscalls.data.Len())
+}
+
 func TestSyscalls(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +123,7 @@ func TestSyscalls(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.ErrorContains(t, err, ErrorNoSyscalls)
 
-	require.True(t, sut.syscalls.insert(profile, containerID, "read", "write", "read"))
+	require.True(t, sut.syscalls.insert(profile, "", containerID, "read", "write", "read"))
 
 	res, err := sut.Syscalls(t.Context(), &api.SyscallsRequest{Profile: profile})
 	require.NoError(t, err)
@@ -64,7 +142,7 @@ func TestSyscalls(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 
 	// The lines read after the reset are not recorded again.
-	require.False(t, sut.syscalls.insert(profile, containerID, "close"))
+	require.False(t, sut.syscalls.insert(profile, "", containerID, "close"))
 	require.Zero(t, sut.syscalls.data.Len())
 
 	// Resetting a profile which is not recorded is fine.
@@ -83,7 +161,7 @@ func TestSyscallsCollect(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	require.True(t, sut.syscalls.insert(profile, containerID, "read"))
+	require.True(t, sut.syscalls.insert(profile, "", containerID, "read"))
 
 	request := &api.SyscallsRequest{Profile: profile, Collect: true}
 
@@ -92,7 +170,7 @@ func TestSyscallsCollect(t *testing.T) {
 	require.ElementsMatch(t, []string{"read"}, res.GetSyscalls())
 
 	// A line read between collecting and resetting is dropped.
-	require.False(t, sut.syscalls.insert(profile, containerID, "write"))
+	require.False(t, sut.syscalls.insert(profile, "", containerID, "write"))
 
 	res, err = sut.Syscalls(t.Context(), request)
 	require.NoError(t, err)
@@ -106,12 +184,12 @@ func TestSyscallsCollect(t *testing.T) {
 	// pod which starts with the same profile later records it.
 	_, err = sut.Syscalls(t.Context(), &api.SyscallsRequest{Profile: "empty", Collect: true})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	require.True(t, sut.syscalls.insert("empty", containerID, "read"))
+	require.True(t, sut.syscalls.insert("empty", "", containerID, "read"))
 
 	// Fetching without collecting does not stop the recording.
 	_, err = sut.Syscalls(t.Context(), &api.SyscallsRequest{Profile: "other"})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	require.True(t, sut.syscalls.insert("other", containerID, "read"))
+	require.True(t, sut.syscalls.insert("other", "", containerID, "read"))
 }
 
 // TestSyscallsCollectPerContainer asserts that collecting a profile only stops
@@ -129,7 +207,7 @@ func TestSyscallsCollectPerContainer(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	require.True(t, sut.syscalls.insert(profile, containerID, "read"))
+	require.True(t, sut.syscalls.insert(profile, "", containerID, "read"))
 
 	request := &api.SyscallsRequest{Profile: profile, Collect: true}
 
@@ -138,8 +216,8 @@ func TestSyscallsCollectPerContainer(t *testing.T) {
 	require.ElementsMatch(t, []string{"read"}, res.GetSyscalls())
 
 	// The collected container is not recorded anymore, a new one is.
-	require.False(t, sut.syscalls.insert(profile, containerID, "write"))
-	require.True(t, sut.syscalls.insert(profile, later, "close"))
+	require.False(t, sut.syscalls.insert(profile, "", containerID, "write"))
+	require.True(t, sut.syscalls.insert(profile, "", later, "close"))
 
 	_, err = sut.ResetSyscalls(t.Context(), request)
 	require.NoError(t, err)
@@ -148,8 +226,8 @@ func TestSyscallsCollectPerContainer(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"close"}, res.GetSyscalls())
 
-	require.False(t, sut.syscalls.insert(profile, containerID, "write"))
-	require.True(t, sut.syscalls.insert(profile, later, "open"))
+	require.False(t, sut.syscalls.insert(profile, "", containerID, "write"))
+	require.True(t, sut.syscalls.insert(profile, "", later, "open"))
 
 	// The recording of the new container gets collected on its own.
 	res, err = sut.Syscalls(t.Context(), request)
@@ -159,7 +237,7 @@ func TestSyscallsCollectPerContainer(t *testing.T) {
 	_, err = sut.ResetSyscalls(t.Context(), request)
 	require.NoError(t, err)
 	require.Zero(t, sut.syscalls.data.Len())
-	require.False(t, sut.syscalls.insert(profile, later, "write"))
+	require.False(t, sut.syscalls.insert(profile, "", later, "write"))
 }
 
 // TestSyscallsResetWithoutCollect asserts that a reset without a collection
@@ -172,16 +250,16 @@ func TestSyscallsResetWithoutCollect(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	require.True(t, sut.syscalls.insert(profile, containerID, "read"))
-	require.True(t, sut.syscalls.insert(profile, "other", "write"))
+	require.True(t, sut.syscalls.insert(profile, "", containerID, "read"))
+	require.True(t, sut.syscalls.insert(profile, "", "other", "write"))
 
 	_, err = sut.ResetSyscalls(t.Context(), &api.SyscallsRequest{Profile: profile})
 	require.NoError(t, err)
 	require.Zero(t, sut.syscalls.data.Len())
 
-	require.False(t, sut.syscalls.insert(profile, containerID, "read"))
-	require.False(t, sut.syscalls.insert(profile, "other", "write"))
-	require.True(t, sut.syscalls.insert(profile, "new", "close"))
+	require.False(t, sut.syscalls.insert(profile, "", containerID, "read"))
+	require.False(t, sut.syscalls.insert(profile, "", "other", "write"))
+	require.True(t, sut.syscalls.insert(profile, "", "new", "close"))
 }
 
 func TestAvcs(t *testing.T) {
@@ -205,7 +283,7 @@ func TestAvcs(t *testing.T) {
 		jsonBytes, err := protojson.Marshal(avc)
 		require.NoError(t, err)
 
-		require.True(t, sut.avcs.insert(profile, containerID, string(jsonBytes)))
+		require.True(t, sut.avcs.insert(profile, "", containerID, string(jsonBytes)))
 	}
 
 	res, err := sut.Avcs(t.Context(), &api.AvcRequest{Profile: profile})
@@ -232,7 +310,7 @@ func TestAvcs(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 
 	// The lines read after the reset are not recorded again.
-	require.False(t, sut.avcs.insert(profile, containerID, "{}"))
+	require.False(t, sut.avcs.insert(profile, "", containerID, "{}"))
 }
 
 // TestAvcsCollect asserts that collecting a profile stops its recording, and
@@ -245,7 +323,7 @@ func TestAvcsCollect(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	require.True(t, sut.avcs.insert(profile, containerID, `{"perm":"read"}`))
+	require.True(t, sut.avcs.insert(profile, "", containerID, `{"perm":"read"}`))
 
 	request := &api.AvcRequest{Profile: profile, Collect: true}
 
@@ -256,7 +334,7 @@ func TestAvcsCollect(t *testing.T) {
 		require.Equal(t, "read", res.GetAvc()[0].GetPerm())
 
 		// A line read between collecting and resetting is dropped.
-		require.False(t, sut.avcs.insert(profile, containerID, `{"perm":"write"}`))
+		require.False(t, sut.avcs.insert(profile, "", containerID, `{"perm":"write"}`))
 	}
 
 	_, err = sut.ResetAvcs(t.Context(), request)
@@ -272,7 +350,7 @@ func TestAvcsInvalidJson(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	require.True(t, sut.avcs.insert(profile, containerID, "{"))
+	require.True(t, sut.avcs.insert(profile, "", containerID, "{"))
 
 	_, err = sut.Avcs(t.Context(), &api.AvcRequest{Profile: profile})
 	require.ErrorContains(t, err, "unmarshall JSON")

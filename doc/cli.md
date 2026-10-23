@@ -110,7 +110,9 @@ within Kubernetes. This behavior can be disabled by using `spoc record
 
 It is also possible to change the format to JSON via `spoc record -t/--type
 raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
-`all`:
+`all`. The file of `all` holds a SeccompProfile and an AppArmorProfile, for
+`kubectl apply`. The other `spoc` commands take a single profile, so it has to
+be split into one file per profile for them:
 
 ```console
 > sudo spoc record -t raw-seccomp echo test
@@ -288,8 +290,9 @@ lists:
 
 The profile can now be found in `profile.yaml` in the current directory, or in
 `profile.json` for runtime format artifacts like the base profile above, unless
-the output file is specified with `--output-file` / `-o`. Profiles are written with the
-permissions `0644`. If username and password authentication is required, either
+the output file is specified with `--output-file` / `-o`. New files are
+created with the permissions `0644` minus the umask, an existing file keeps its
+permissions. If username and password authentication is required, either
 use the `--username`, `-u` flag or export the `SPOC_USERNAME` environment
 variable. To set the password, export the `SPOC_PASSWORD` environment variable
 or pass it on stdin with `--password-stdin`. Giving only one of both is an
@@ -377,11 +380,13 @@ We can specify a username and password in the same way as for `spoc pull`.
 Artifacts are signed on push and verified on pull by default. The signature
 is a Sigstore bundle that is attached to the pushed digest through the OCI
 referrers API, or the referrers tag schema on registries without it, in the
-format `cosign sign` writes, so `cosign verify` can verify it. On pull, bundles
-are verified if the artifact has any, otherwise the legacy cosign signature
-tags of artifacts pushed by older `spoc` versions or by the image promoter of
-registry.k8s.io are verified. Keyless signing needs an OIDC identity token.
-`spoc push` takes it from the environment if there is one: GitHub Actions
+format `cosign sign` writes, so `cosign verify` can verify it. On pull, the
+bundles of the artifact are verified, and the legacy cosign signature tags of
+artifacts pushed by older `spoc` versions or by the image promoter of
+registry.k8s.io if none of the bundles is valid. A promoted profile carries
+both: the bundle of its build and the legacy signature of its promotion.
+Keyless signing needs an OIDC identity token. `spoc push` takes it from the
+environment if there is one: GitHub Actions
 (`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`), the
 `SIGSTORE_ID_TOKEN` environment variable, a token file at
 `/var/run/sigstore/cosign/oidc-token` or the service account of the Google

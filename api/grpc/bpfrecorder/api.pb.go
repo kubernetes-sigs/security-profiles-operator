@@ -80,7 +80,12 @@ type RecordingRequest struct {
 	// pod. Start and Stop are idempotent per id, so that a retried or stale
 	// request does not affect the recordings of other clients. Requests without
 	// an id are counted, every Start needs its own Stop.
-	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// profiles are the profiles which the recording of a pod with the UID id
+	// records for its containers. Only the recording annotations of the pod
+	// which name one of them are trusted, any pod can carry the annotation of
+	// another one. Without them, every recording annotation of the pod is.
+	Profiles      []*RecordedProfile `protobuf:"bytes,2,rep,name=profiles,proto3" json:"profiles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,6 +127,66 @@ func (x *RecordingRequest) GetId() string {
 	return ""
 }
 
+func (x *RecordingRequest) GetProfiles() []*RecordedProfile {
+	if x != nil {
+		return x.Profiles
+	}
+	return nil
+}
+
+// RecordedProfile is a profile which gets recorded for a container.
+type RecordedProfile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Container     string                 `protobuf:"bytes,1,opt,name=container,proto3" json:"container,omitempty"`
+	Profile       string                 `protobuf:"bytes,2,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordedProfile) Reset() {
+	*x = RecordedProfile{}
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordedProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordedProfile) ProtoMessage() {}
+
+func (x *RecordedProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordedProfile.ProtoReflect.Descriptor instead.
+func (*RecordedProfile) Descriptor() ([]byte, []int) {
+	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RecordedProfile) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+func (x *RecordedProfile) GetProfile() string {
+	if x != nil {
+		return x.Profile
+	}
+	return ""
+}
+
 type ProfileRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -135,7 +200,7 @@ type ProfileRequest struct {
 
 func (x *ProfileRequest) Reset() {
 	*x = ProfileRequest{}
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[2]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -147,7 +212,7 @@ func (x *ProfileRequest) String() string {
 func (*ProfileRequest) ProtoMessage() {}
 
 func (x *ProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[2]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -160,7 +225,7 @@ func (x *ProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileRequest.ProtoReflect.Descriptor instead.
 func (*ProfileRequest) Descriptor() ([]byte, []int) {
-	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{2}
+	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProfileRequest) GetName() string {
@@ -189,7 +254,7 @@ type SyscallsResponse struct {
 
 func (x *SyscallsResponse) Reset() {
 	*x = SyscallsResponse{}
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[3]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -201,7 +266,7 @@ func (x *SyscallsResponse) String() string {
 func (*SyscallsResponse) ProtoMessage() {}
 
 func (x *SyscallsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[3]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -214,7 +279,7 @@ func (x *SyscallsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyscallsResponse.ProtoReflect.Descriptor instead.
 func (*SyscallsResponse) Descriptor() ([]byte, []int) {
-	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{3}
+	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SyscallsResponse) GetSyscalls() []string {
@@ -249,7 +314,7 @@ type ApparmorResponse struct {
 
 func (x *ApparmorResponse) Reset() {
 	*x = ApparmorResponse{}
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[4]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -261,7 +326,7 @@ func (x *ApparmorResponse) String() string {
 func (*ApparmorResponse) ProtoMessage() {}
 
 func (x *ApparmorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[4]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -274,7 +339,7 @@ func (x *ApparmorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApparmorResponse.ProtoReflect.Descriptor instead.
 func (*ApparmorResponse) Descriptor() ([]byte, []int) {
-	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{4}
+	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ApparmorResponse) GetFiles() *ApparmorResponse_Files {
@@ -311,7 +376,7 @@ type ApparmorResponse_Files struct {
 
 func (x *ApparmorResponse_Files) Reset() {
 	*x = ApparmorResponse_Files{}
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[5]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -323,7 +388,7 @@ func (x *ApparmorResponse_Files) String() string {
 func (*ApparmorResponse_Files) ProtoMessage() {}
 
 func (x *ApparmorResponse_Files) ProtoReflect() protoreflect.Message {
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[5]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -336,7 +401,7 @@ func (x *ApparmorResponse_Files) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApparmorResponse_Files.ProtoReflect.Descriptor instead.
 func (*ApparmorResponse_Files) Descriptor() ([]byte, []int) {
-	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{4, 0}
+	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{5, 0}
 }
 
 func (x *ApparmorResponse_Files) GetAllowedExecutables() []string {
@@ -385,7 +450,7 @@ type ApparmorResponse_Socket struct {
 
 func (x *ApparmorResponse_Socket) Reset() {
 	*x = ApparmorResponse_Socket{}
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[6]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -397,7 +462,7 @@ func (x *ApparmorResponse_Socket) String() string {
 func (*ApparmorResponse_Socket) ProtoMessage() {}
 
 func (x *ApparmorResponse_Socket) ProtoReflect() protoreflect.Message {
-	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[6]
+	mi := &file_api_grpc_bpfrecorder_api_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -410,7 +475,7 @@ func (x *ApparmorResponse_Socket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApparmorResponse_Socket.ProtoReflect.Descriptor instead.
 func (*ApparmorResponse_Socket) Descriptor() ([]byte, []int) {
-	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{4, 1}
+	return file_api_grpc_bpfrecorder_api_proto_rawDescGZIP(), []int{5, 1}
 }
 
 func (x *ApparmorResponse_Socket) GetUseRaw() bool {
@@ -439,9 +504,13 @@ var File_api_grpc_bpfrecorder_api_proto protoreflect.FileDescriptor
 const file_api_grpc_bpfrecorder_api_proto_rawDesc = "" +
 	"\n" +
 	"\x1eapi/grpc/bpfrecorder/api.proto\x12\x0fapi_bpfrecorder\"\x0f\n" +
-	"\rEmptyResponse\"\"\n" +
+	"\rEmptyResponse\"`\n" +
 	"\x10RecordingRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"I\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
+	"\bprofiles\x18\x02 \x03(\v2 .api_bpfrecorder.RecordedProfileR\bprofiles\"I\n" +
+	"\x0fRecordedProfile\x12\x1c\n" +
+	"\tcontainer\x18\x01 \x01(\tR\tcontainer\x12\x18\n" +
+	"\aprofile\x18\x02 \x01(\tR\aprofile\"I\n" +
 	"\x0eProfileRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rallow_partial\x18\x02 \x01(\bR\fallowPartial\"g\n" +
@@ -485,36 +554,38 @@ func file_api_grpc_bpfrecorder_api_proto_rawDescGZIP() []byte {
 	return file_api_grpc_bpfrecorder_api_proto_rawDescData
 }
 
-var file_api_grpc_bpfrecorder_api_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_api_grpc_bpfrecorder_api_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_api_grpc_bpfrecorder_api_proto_goTypes = []any{
 	(*EmptyResponse)(nil),           // 0: api_bpfrecorder.EmptyResponse
 	(*RecordingRequest)(nil),        // 1: api_bpfrecorder.RecordingRequest
-	(*ProfileRequest)(nil),          // 2: api_bpfrecorder.ProfileRequest
-	(*SyscallsResponse)(nil),        // 3: api_bpfrecorder.SyscallsResponse
-	(*ApparmorResponse)(nil),        // 4: api_bpfrecorder.ApparmorResponse
-	(*ApparmorResponse_Files)(nil),  // 5: api_bpfrecorder.ApparmorResponse.Files
-	(*ApparmorResponse_Socket)(nil), // 6: api_bpfrecorder.ApparmorResponse.Socket
+	(*RecordedProfile)(nil),         // 2: api_bpfrecorder.RecordedProfile
+	(*ProfileRequest)(nil),          // 3: api_bpfrecorder.ProfileRequest
+	(*SyscallsResponse)(nil),        // 4: api_bpfrecorder.SyscallsResponse
+	(*ApparmorResponse)(nil),        // 5: api_bpfrecorder.ApparmorResponse
+	(*ApparmorResponse_Files)(nil),  // 6: api_bpfrecorder.ApparmorResponse.Files
+	(*ApparmorResponse_Socket)(nil), // 7: api_bpfrecorder.ApparmorResponse.Socket
 }
 var file_api_grpc_bpfrecorder_api_proto_depIdxs = []int32{
-	5, // 0: api_bpfrecorder.ApparmorResponse.files:type_name -> api_bpfrecorder.ApparmorResponse.Files
-	6, // 1: api_bpfrecorder.ApparmorResponse.socket:type_name -> api_bpfrecorder.ApparmorResponse.Socket
-	1, // 2: api_bpfrecorder.BpfRecorder.Start:input_type -> api_bpfrecorder.RecordingRequest
-	1, // 3: api_bpfrecorder.BpfRecorder.Stop:input_type -> api_bpfrecorder.RecordingRequest
-	2, // 4: api_bpfrecorder.BpfRecorder.SyscallsForProfile:input_type -> api_bpfrecorder.ProfileRequest
-	2, // 5: api_bpfrecorder.BpfRecorder.ApparmorForProfile:input_type -> api_bpfrecorder.ProfileRequest
-	2, // 6: api_bpfrecorder.BpfRecorder.ResetSyscallsForProfile:input_type -> api_bpfrecorder.ProfileRequest
-	2, // 7: api_bpfrecorder.BpfRecorder.ResetApparmorForProfile:input_type -> api_bpfrecorder.ProfileRequest
-	0, // 8: api_bpfrecorder.BpfRecorder.Start:output_type -> api_bpfrecorder.EmptyResponse
-	0, // 9: api_bpfrecorder.BpfRecorder.Stop:output_type -> api_bpfrecorder.EmptyResponse
-	3, // 10: api_bpfrecorder.BpfRecorder.SyscallsForProfile:output_type -> api_bpfrecorder.SyscallsResponse
-	4, // 11: api_bpfrecorder.BpfRecorder.ApparmorForProfile:output_type -> api_bpfrecorder.ApparmorResponse
-	0, // 12: api_bpfrecorder.BpfRecorder.ResetSyscallsForProfile:output_type -> api_bpfrecorder.EmptyResponse
-	0, // 13: api_bpfrecorder.BpfRecorder.ResetApparmorForProfile:output_type -> api_bpfrecorder.EmptyResponse
-	8, // [8:14] is the sub-list for method output_type
-	2, // [2:8] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 0: api_bpfrecorder.RecordingRequest.profiles:type_name -> api_bpfrecorder.RecordedProfile
+	6, // 1: api_bpfrecorder.ApparmorResponse.files:type_name -> api_bpfrecorder.ApparmorResponse.Files
+	7, // 2: api_bpfrecorder.ApparmorResponse.socket:type_name -> api_bpfrecorder.ApparmorResponse.Socket
+	1, // 3: api_bpfrecorder.BpfRecorder.Start:input_type -> api_bpfrecorder.RecordingRequest
+	1, // 4: api_bpfrecorder.BpfRecorder.Stop:input_type -> api_bpfrecorder.RecordingRequest
+	3, // 5: api_bpfrecorder.BpfRecorder.SyscallsForProfile:input_type -> api_bpfrecorder.ProfileRequest
+	3, // 6: api_bpfrecorder.BpfRecorder.ApparmorForProfile:input_type -> api_bpfrecorder.ProfileRequest
+	3, // 7: api_bpfrecorder.BpfRecorder.ResetSyscallsForProfile:input_type -> api_bpfrecorder.ProfileRequest
+	3, // 8: api_bpfrecorder.BpfRecorder.ResetApparmorForProfile:input_type -> api_bpfrecorder.ProfileRequest
+	0, // 9: api_bpfrecorder.BpfRecorder.Start:output_type -> api_bpfrecorder.EmptyResponse
+	0, // 10: api_bpfrecorder.BpfRecorder.Stop:output_type -> api_bpfrecorder.EmptyResponse
+	4, // 11: api_bpfrecorder.BpfRecorder.SyscallsForProfile:output_type -> api_bpfrecorder.SyscallsResponse
+	5, // 12: api_bpfrecorder.BpfRecorder.ApparmorForProfile:output_type -> api_bpfrecorder.ApparmorResponse
+	0, // 13: api_bpfrecorder.BpfRecorder.ResetSyscallsForProfile:output_type -> api_bpfrecorder.EmptyResponse
+	0, // 14: api_bpfrecorder.BpfRecorder.ResetApparmorForProfile:output_type -> api_bpfrecorder.EmptyResponse
+	9, // [9:15] is the sub-list for method output_type
+	3, // [3:9] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_api_grpc_bpfrecorder_api_proto_init() }
@@ -528,7 +599,7 @@ func file_api_grpc_bpfrecorder_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_grpc_bpfrecorder_api_proto_rawDesc), len(file_api_grpc_bpfrecorder_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

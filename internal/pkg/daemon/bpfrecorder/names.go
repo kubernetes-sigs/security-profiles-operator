@@ -18,6 +18,8 @@ limitations under the License.
 
 package bpfrecorder
 
+import "slices"
+
 // Names of the maps and global variables of recorder.bpf.c the recorder uses.
 // Every name has to be listed in bpfMapNames or bpfGlobalNames, a test checks
 // them against the compiled objects.
@@ -54,6 +56,15 @@ const (
 	progPathMkdir          = "path_mkdir"
 	progPathMknod          = "path_mknod"
 	progPathUnlink         = "path_unlink"
+	progPathRmdir          = "path_rmdir"
+	progPathRename         = "path_rename"
+	progPathLink           = "path_link"
+	progPathSymlink        = "path_symlink"
+	progPathTruncate       = "path_truncate"
+	progPathChmod          = "path_chmod"
+	progPathChown          = "path_chown"
+	progInodeGetattr       = "inode_getattr"
+	progFileMprotect       = "file_mprotect"
 	progBprmCheckSecurity  = "bprm_check_security"
 	progSysEnterSocket     = "sys_enter_socket"
 	progCapCapable         = "cap_capable"
@@ -75,12 +86,22 @@ var (
 	// baseHooks are attached by the recorder in any case.
 	baseHooks = []string{
 		progSysEnter,
+		progSysEnterGetgid,
+		progSchedProcessExit,
+	}
+
+	// filterHooks track the children of the recorded program, they are
+	// attached by the recorder with a program name filter only.
+	filterHooks = []string{
 		progSchedProcessFork,
+		progSchedProcessExec,
+	}
+
+	// execHooks send the arguments of the execs, which only the process cache
+	// needs, see capture_exec_args.
+	execHooks = []string{
 		progSysEnterExecve,
 		progSysEnterExecveat,
-		progSysEnterGetgid,
-		progSchedProcessExec,
-		progSchedProcessExit,
 	}
 
 	// appArmorHooks are attached when recording AppArmor profiles.
@@ -91,17 +112,22 @@ var (
 		progPathMkdir,
 		progPathMknod,
 		progPathUnlink,
+		progPathRmdir,
+		progPathRename,
+		progPathLink,
+		progPathSymlink,
+		progPathTruncate,
+		progPathChmod,
+		progPathChown,
+		progInodeGetattr,
+		progFileMprotect,
 		progBprmCheckSecurity,
 		progSysEnterSocket,
 		progCapCapable,
 	}
 
 	// procCacheHooks are attached by the process cache.
-	procCacheHooks = []string{
-		progSysEnterExecve,
-		progSysEnterExecveat,
-		progSysEnterGetgid,
-	}
+	procCacheHooks = append(slices.Clone(execHooks), progSysEnterGetgid)
 
 	// procCacheUnusedMaps are the maps of the recorder which the hooks of the
 	// process cache do not fill, see BpfProcessCache.Load.

@@ -111,21 +111,25 @@ func TestSignalContextDuplicateSignal(t *testing.T) {
 	require.Contains(t, string(out), "context canceled")
 }
 
-// signalContextDuplicateChild signals itself twice at once and returns zero
-// if it still runs afterwards.
+// signalContextDuplicateChild signals itself once more after the context got
+// canceled, within the DuplicateSignalWindow, and returns zero if it still
+// runs afterwards. Two signals sent back to back would be merged by the
+// kernel into one.
 func signalContextDuplicateChild() int {
 	ctx, stop := SignalContext()
 	defer stop()
 
-	for range 2 {
-		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
-			return 1
-		}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		return 1
 	}
 
 	<-ctx.Done()
 
-	// The duplicate may arrive after the cancellation.
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		return 1
+	}
+
+	// The duplicate gets delivered asynchronously.
 	time.Sleep(DuplicateSignalWindow / 4)
 
 	if errors.Is(ctx.Err(), context.Canceled) {

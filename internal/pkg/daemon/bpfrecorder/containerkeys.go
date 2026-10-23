@@ -192,11 +192,3 @@ func (c *containerKeys) Containers() []string {
 
 	return slices.Collect(maps.Keys(c.byContainer))
 }
-
-// Size returns the number of known keys.
-func (c *containerKeys) Size() int {
-	c.l.RLock()
-	defer c.l.RUnlock()
-
-	return len(c.byKey)
-}

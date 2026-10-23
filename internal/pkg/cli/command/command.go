@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -49,6 +50,12 @@ type Command struct {
 	options *Options
 	cmd     *exec.Cmd
 	signals chan os.Signal
+	// lastSignal is when a signal was received last, in nanoseconds since
+	// the epoch, see Wait.
+	lastSignal atomic.Int64
+	// exited is set once the command exited, its signals are not forwarded
+	// any more then.
+	exited atomic.Bool
 }
 
 // New returns a new Command instance.
@@ -212,6 +219,13 @@ func sudoIDs() (uid, gid uint32, err error) {
 }
 
 func (c *Command) DropSudoPrivileges() error {
+	// Only root can switch to the invoking user. A spoc which runs as
+	// another user, like with sudo -u, or which inherited the environment of
+	// sudo, runs the command as itself.
+	if c.Geteuid() != 0 {
+		return errNoSudoEnvironment
+	}
+
 	uid, gid, err := sudoIDs()
 	if err != nil {
 		return err
@@ -399,6 +413,14 @@ func (c *Command) forwardSignals(signals <-chan os.Signal, pid uint32) {
 	forwardedAt := map[os.Signal]time.Time{}
 
 	for sig := range signals {
+		c.lastSignal.Store(time.Now().UnixNano())
+
+		if c.exited.Load() {
+			log.Printf("Got %v again, the process exited already", sig)
+
+			continue
+		}
+
 		if last, ok := forwardedAt[sig]; ok && time.Since(last) < cli.DuplicateSignalWindow {
 			log.Printf("Got %v again, the process got it already", sig)
 
@@ -430,12 +452,23 @@ func (c *Command) forwardSignals(signals <-chan os.Signal, pid uint32) {
 // process group of the controlling terminal of spoc. The command may have
 // moved to a process group of its own, like timeout(1) does.
 func (c *Command) inTerminalForeground(pid uint32) bool {
-	foreground, err := c.ForegroundProcessGroup()
+	return inTerminalForeground(c.impl, int(pid))
+}
+
+// InTerminalForeground reports whether the process is in the foreground
+// process group of the controlling terminal of the calling process, which
+// gets the SIGINT of Ctrl+C from the terminal directly.
+func InTerminalForeground(pid int) bool {
+	return inTerminalForeground(&defaultImpl{}, pid)
+}
+
+func inTerminalForeground(i impl, pid int) bool {
+	foreground, err := i.ForegroundProcessGroup()
 	if err != nil || foreground <= 0 {
 		return false
 	}
 
-	group, err := c.ProcessGroup(int(pid))
+	group, err := i.ProcessGroup(pid)
 
 	return err == nil && group == foreground
 }
@@ -453,10 +486,49 @@ func (c *Command) stopSignals() {
 
 // Wait waits for the command to exit. Signals are forwarded to the command
 // until then.
+//
+// A signal which made the command exit can reach spoc once more within the
+// cli.DuplicateSignalWindow, like the SIGINT of a terminal which the spoc
+// command of the operator forwards. It would terminate spoc while it still
+// processes the result of the command, so the signals are ignored until the
+// window passed.
+//
+// A command killed by a signal may have got it from the process group before
+// the copy of spoc got handled, so the window starts at its exit then.
 func (c *Command) Wait() error {
-	defer c.stopSignals()
+	err := c.CmdWait(c.cmd)
 
-	return c.CmdWait(c.cmd)
+	c.exited.Store(true)
+
+	var left time.Duration
+	if last := c.lastSignal.Load(); last != 0 {
+		left = cli.DuplicateSignalWindow - time.Since(time.Unix(0, last))
+	}
+
+	if killedBySignal(err) {
+		left = cli.DuplicateSignalWindow
+	}
+
+	if left > 0 {
+		time.AfterFunc(left, c.stopSignals)
+	} else {
+		c.stopSignals()
+	}
+
+	return err
+}
+
+// killedBySignal reports whether err tells that the command got killed by a
+// signal.
+func killedBySignal(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+
+	return ok && status.Signaled()
 }
 
 // ExitCode returns the exit code of a command which ran but did not succeed,

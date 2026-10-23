@@ -189,6 +189,7 @@ func ReleaseUnsupported(
 	reader client.Reader,
 	profile profilebase.SecurityProfileBase,
 	nodeName string,
+	written *nodestatus.WrittenStates,
 ) error {
 	if profile.GetDeletionTimestamp().IsZero() {
 		return nil
@@ -198,6 +199,9 @@ func ReleaseUnsupported(
 	if err != nil {
 		return fmt.Errorf("cannot create nodeStatus: %w", err)
 	}
+
+	// The state written to the node status is forgotten along with it.
+	nsc.WithWrittenStates(written)
 
 	if !nsc.FinalizerExists() {
 		return nil

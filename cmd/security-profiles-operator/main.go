@@ -2003,19 +2003,29 @@ func runForwardingSignals(c *exec.Cmd, stderr io.Writer) error {
 		close(done)
 	}()
 
-	go forwardSignals(signals, c.Process, stderr, done)
+	go forwardSignals(signals, c.Process, stderr, done, command.InTerminalForeground)
 
 	return c.Wait()
 }
 
 // forwardSignals forwards the signals to the process until done gets closed,
-// and reports the failures to stderr.
+// and reports the failures to stderr. The SIGINT of Ctrl+C reaches spoc
+// directly while it runs in the foreground of the terminal, which
+// inForeground tells, so it is not forwarded then.
 func forwardSignals(
-	signals <-chan os.Signal, process *os.Process, stderr io.Writer, done <-chan struct{},
+	signals <-chan os.Signal,
+	process *os.Process,
+	stderr io.Writer,
+	done <-chan struct{},
+	inForeground func(pid int) bool,
 ) {
 	for {
 		select {
 		case sig := <-signals:
+			if sig == os.Interrupt && inForeground(process.Pid) {
+				continue
+			}
+
 			if err := process.Signal(sig); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				fmt.Fprintf(stderr, "Unable to forward %s to %s: %v\n", sig, spocCmd, err)
 			}

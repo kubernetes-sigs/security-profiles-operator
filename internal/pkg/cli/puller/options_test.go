@@ -192,7 +192,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(t *testing.T, _ *Options, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorContains(t, err, "no remote image provided")
 			},
 		},
 		{
@@ -207,7 +207,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(t *testing.T, _ *Options, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorContains(t, err, "no filename provided")
 			},
 		},
 		{
@@ -222,7 +222,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(t *testing.T, _ *Options, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorContains(t, err, "parse platform")
 			},
 		},
 	} {

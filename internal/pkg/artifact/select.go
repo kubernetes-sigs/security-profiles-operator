@@ -57,7 +57,7 @@ func selectLayer(manifest *v1.Manifest, platform *v1.Platform) (*v1.Descriptor, 
 		for i := range manifest.Layers {
 			layer := &manifest.Layers[i]
 
-			if layer.Platform != nil && platformMatches(layer.Platform, platform) {
+			if layer.Platform != nil && SamePlatform(layer.Platform, platform) {
 				return layer, false, nil
 			}
 
@@ -128,19 +128,14 @@ func layerMatchesPlatform(layer *v1.Descriptor, platform *v1.Platform) bool {
 		return !platformQualifiedName.MatchString(layer.Annotations[v1.AnnotationTitle])
 	}
 
-	return platform != nil && platformMatches(layer.Platform, platform)
+	return platform != nil && SamePlatform(layer.Platform, platform)
 }
 
-// SamePlatform reports whether a pull selects the profiles of both platforms
-// for the same platform, see platformMatches.
-func SamePlatform(a, b *v1.Platform) bool {
-	return platformMatches(a, b)
-}
-
-// platformMatches reports whether both platforms are the same, with the
-// variants normalized the way container runtimes do it, so that for example
-// linux/arm64/v8 matches linux/arm64.
-func platformMatches(have, want *v1.Platform) bool {
+// SamePlatform reports whether both platforms are the same, with the variants
+// normalized the way container runtimes do it, so that for example
+// linux/arm64/v8 matches linux/arm64. A pull selects the profiles of both for
+// the same platform then.
+func SamePlatform(have, want *v1.Platform) bool {
 	return have.OS == want.OS &&
 		have.Architecture == want.Architecture &&
 		normalizeVariant(have.Architecture, have.Variant) ==
@@ -224,7 +219,7 @@ func selectIndexManifest(index *v1.Index, platform *v1.Platform) (*v1.Descriptor
 	if platform != nil {
 		for i := range index.Manifests {
 			manifest := &index.Manifests[i]
-			if manifest.Platform != nil && platformMatches(manifest.Platform, platform) {
+			if manifest.Platform != nil && SamePlatform(manifest.Platform, platform) {
 				return manifest, nil
 			}
 		}

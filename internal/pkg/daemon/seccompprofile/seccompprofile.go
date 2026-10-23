@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -34,6 +35,7 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -61,8 +63,10 @@ const (
 
 	filePermissionMode os.FileMode = 0o644
 
-	// MkdirAll won't create a directory if it does not have the execute bit.
-	// https://github.com/golang/go/issues/22323#issuecomment-340568811
+	// The directories of the profiles need the execute bit for the owner,
+	// otherwise MkdirAll cannot create the files and directories below
+	// them, see https://github.com/golang/go/issues/22323. The container
+	// runtime reads the profiles as root, so the others need no access.
 	dirPermissionMode os.FileMode = 0o744
 
 	reasonSeccompNotSupported   string = "SeccompNotSupportedOnNode"
@@ -89,6 +93,10 @@ var (
 	// errInvalidBaseProfile marks base profile errors which retrying cannot
 	// fix, only a change of the profiles can.
 	errInvalidBaseProfile = seccompcheck.ErrInvalidBaseProfile
+
+	// errAnnotatingSyscalls marks a failure to show the merged syscalls in
+	// the annotation of the profile.
+	errAnnotatingSyscalls = errors.New("annotating the merged syscalls")
 
 	// errBaseProfileNotFound marks an invalid base profile which is missing.
 	// It may be created again, so the profiles in use keep their files.
@@ -177,6 +185,19 @@ type Reconciler struct {
 	conflicts common.Reports[rejection]
 	// pullFailures backs off the pulls of OCI base profiles which failed.
 	pullFailures pullFailures
+	// writtenStates keeps the node status states this node wrote.
+	writtenStates nodestatus.WrittenStates
+	// syscallsWritten keeps the architecture specific syscalls annotation
+	// which this node wrote last for each profile, see annotateSyscalls.
+	syscallsWritten sync.Map
+}
+
+// writtenSyscalls is the architecture specific syscalls annotation which a
+// node wrote last for a profile.
+type writtenSyscalls struct {
+	uid   types.UID
+	key   string
+	value string
 }
 
 // profilePath returns the path of the file of the profile on the node.
@@ -236,7 +257,7 @@ func (r *Reconciler) Setup(
 
 	// The temporary files of interrupted profile writes live next to the
 	// profiles.
-	common.RemoveStaleTempFiles(r.log, config.ProfilesRootPath())
+	common.RemoveStaleTempFilesOnStart(r.log, config.ProfilesRootPath())
 
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx, &seccompprofileapi.SeccompProfile{}, baseProfileIndex, indexBaseProfile,
@@ -465,7 +486,7 @@ func (r *Reconciler) Reconcile(
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
 		return reconcile.Result{}, common.ReleaseUnsupported(
-			ctx, r.client, r.apiReader(), profile, r.nodeName,
+			ctx, r.client, r.apiReader(), profile, r.nodeName, &r.writtenStates,
 		)
 	}
 
@@ -474,6 +495,8 @@ func (r *Reconciler) Reconcile(
 		if err == nil {
 			r.rejections.Forget(req.NamespacedName)
 			r.conflicts.Forget(req.NamespacedName)
+			r.syscallsWritten.Delete(req.NamespacedName)
+			r.writtenStates.Forget(req.NamespacedName)
 		}
 
 		return reconcile.Result{}, err
@@ -494,7 +517,7 @@ func (r *Reconciler) mergeBaseProfile(
 	}
 
 	if err := r.annotateSyscalls(ctx, sp, finalSyscalls, archSpecific, l); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errAnnotatingSyscalls, err)
 	}
 
 	merged := sp.DeepCopy()
@@ -528,6 +551,17 @@ func (r *Reconciler) annotateSyscalls(
 	_, hasStale := sp.GetAnnotations()[staleKey]
 
 	if sp.GetAnnotations()[key] == value && !hasStale {
+		r.recordSyscalls(sp, key, value)
+
+		return nil
+	}
+
+	// Another node of the same architecture can hold an older or a newer pull
+	// of a base profile referenced by tag, until the cache of one of them
+	// expires. Writing back a value which this node wrote before would make
+	// both of them overwrite each other on every resync, so the value which
+	// changed last stays.
+	if archSpecific && !hasStale && r.wroteSyscalls(sp, key, value) {
 		return nil
 	}
 
@@ -548,7 +582,30 @@ func (r *Reconciler) annotateSyscalls(
 		return fmt.Errorf("update seccomp profile annotations: %w", err)
 	}
 
+	r.recordSyscalls(sp, key, value)
+
 	return nil
+}
+
+// recordSyscalls records the architecture specific syscalls annotation of
+// the profile, which this node wrote or found up to date.
+func (r *Reconciler) recordSyscalls(sp *seccompprofileapi.SeccompProfile, key, value string) {
+	r.syscallsWritten.Store(
+		client.ObjectKeyFromObject(sp), writtenSyscalls{uid: sp.GetUID(), key: key, value: value},
+	)
+}
+
+// wroteSyscalls returns true if this node wrote or found the syscalls
+// annotation of the profile with the value before.
+func (r *Reconciler) wroteSyscalls(sp *seccompprofileapi.SeccompProfile, key, value string) bool {
+	stored, ok := r.syscallsWritten.Load(client.ObjectKeyFromObject(sp))
+	if !ok {
+		return false
+	}
+
+	written, ok := stored.(writtenSyscalls)
+
+	return ok && written == writtenSyscalls{uid: sp.GetUID(), key: key, value: value}
 }
 
 // resolveSyscallsForProfile recursively resolves the syscalls for base
@@ -1010,6 +1067,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 
 	nodeStatus.WithAPIReader(r.apiReader())
+	nodeStatus.WithWrittenStates(&r.writtenStates)
 
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
 		return r.reconcileDeletion(ctx, sp, nodeStatus, l)
@@ -1092,6 +1150,12 @@ func (r *Reconciler) buildProfileContent(
 		// which is retried with backoff.
 		l.Error(err, "merge base profile")
 
+		// The annotation only shows the merged syscalls, so failing to
+		// write it does not tell anything about the profile on the node.
+		if !errors.Is(err, errAnnotatingSyscalls) {
+			r.setErrorStatus(ctx, sp, nodeStatus, err)
+		}
+
 		return nil, fmt.Errorf("merging base profile: %w", err)
 	}
 
@@ -1105,6 +1169,7 @@ func (r *Reconciler) buildProfileContent(
 		}
 
 		l.Error(err, "validate profile")
+		r.setErrorStatus(ctx, sp, nodeStatus, err)
 
 		return nil, fmt.Errorf("validating profile: %w", err)
 	}
@@ -1122,6 +1187,24 @@ func (r *Reconciler) buildProfileContent(
 	r.rejections.Forget(client.ObjectKeyFromObject(sp))
 
 	return profileContent, nil
+}
+
+// setErrorStatus sets the node status to error with the message of err, for
+// a profile which cannot be installed until a retry succeeds, like when the
+// registry of an OCI base profile is unreachable. The file of an earlier
+// version of the profile stays, and the status tells why it did not get
+// updated.
+func (r *Reconciler) setErrorStatus(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	nodeStatus *nodestatus.StatusClient,
+	err error,
+) {
+	if statusErr := nodeStatus.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError, err.Error(),
+	); statusErr != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, statusErr)
+	}
 }
 
 // writeProfile writes the profile file unless another profile owns it, in
@@ -1164,11 +1247,7 @@ func (r *Reconciler) writeProfile(
 		r.reportError(sp, reasonCannotSaveProfile, util.EventActionInstall, err)
 
 		// The controller retries it with backoff, the status tells why.
-		if statusErr := nodeStatus.SetNodeStatusWithMessage(
-			ctx, secprofnodestatusapi.ProfileStateError, err.Error(),
-		); statusErr != nil {
-			r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, statusErr)
-		}
+		r.setErrorStatus(ctx, sp, nodeStatus, err)
 
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
@@ -1377,12 +1456,9 @@ func siblingName(name string) string {
 
 // siblingRequests enqueues the profile which can share the file of obj.
 func siblingRequests(_ context.Context, obj client.Object) []reconcile.Request {
-	name := siblingName(obj.GetName())
-	if name == "" {
-		return nil
-	}
-
-	return []reconcile.Request{{NamespacedName: util.NamespacedName(name, obj.GetNamespace())}}
+	return []reconcile.Request{{
+		NamespacedName: util.NamespacedName(siblingName(obj.GetName()), obj.GetNamespace()),
+	}}
 }
 
 // sibling returns the other profile which is stored in the same file as sp,
@@ -1391,9 +1467,6 @@ func sibling(
 	ctx context.Context, reader client.Reader, sp *seccompprofileapi.SeccompProfile,
 ) (*seccompprofileapi.SeccompProfile, bool, error) {
 	name := siblingName(sp.GetName())
-	if name == "" {
-		return nil, false, nil
-	}
 
 	other := &seccompprofileapi.SeccompProfile{}
 	if err := reader.Get(ctx, util.NamespacedName(name, sp.GetNamespace()), other); err != nil {
@@ -1404,6 +1477,8 @@ func sibling(
 		return nil, false, fmt.Errorf("looking up profile %s: %w", name, err)
 	}
 
+	// A name with a doubled suffix, like "foo.json.json", is stored in a
+	// file of its own, while siblingName returns "foo.json".
 	if other.GetProfileFile() != sp.GetProfileFile() {
 		return nil, false, nil
 	}

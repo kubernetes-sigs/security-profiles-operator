@@ -236,8 +236,12 @@ func (c *containerLookup) containerIDForProcess(
 	i impl, pid int, eventTime time.Time,
 ) (string, error) {
 	cID, started, err := i.ContainerIDForPID(c.containerIDCache, pid)
-	if err == nil {
-		err = c.startedBefore(i, pid, started, eventTime)
+	if err == nil || errors.Is(err, util.ErrContainerIDNotFound) {
+		// A process outside of a container which started after the line got
+		// logged reused the PID of the process of the line.
+		if startErr := c.startedBefore(i, pid, started, eventTime); startErr != nil {
+			err = startErr
+		}
 	}
 
 	switch {

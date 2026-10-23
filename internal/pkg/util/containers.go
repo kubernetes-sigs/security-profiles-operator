@@ -117,7 +117,9 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 
 // ContainerIDAndStartTimeForPID is ContainerIDForPID which also returns when
 // the process started, like ProcessStartTime. The start time is the one the
-// container got looked up for, read only once.
+// container got looked up for, read only once. It is returned along with
+// ErrContainerIDNotFound as well, which tells whether the process outside of
+// any container is the one the caller looks for.
 func ContainerIDAndStartTimeForPID(
 	cache *ttlcache.Cache[string, string], pid int,
 ) (containerID string, started time.Duration, err error) {
@@ -147,6 +149,10 @@ func containerIDAndStartTimeForPID(
 	}
 
 	containerID, err = containerIDForStartTime(cache, pid, startTime, cgroupReader)
+	if errors.Is(err, ErrContainerIDNotFound) {
+		return "", started, err
+	}
+
 	if err != nil {
 		return "", 0, err
 	}

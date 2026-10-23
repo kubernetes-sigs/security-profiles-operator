@@ -95,9 +95,29 @@ type recordedData struct {
 // recording is what got recorded for a profile, per container.
 type recording struct {
 	containers map[string]sets.Set[string]
-	// collecting holds the containers whose data a collecting get handed
-	// out, which reset drops. It is nil if no collecting get happened.
-	collecting sets.Set[string]
+	// pods holds the UID of the pod of each container.
+	pods map[string]string
+	// collecting holds per pod UID the containers whose data a collecting
+	// get for the pod handed out, which a reset for the pod drops. A pod
+	// without an entry had no collecting get.
+	collecting map[string]sets.Set[string]
+}
+
+// containersOf returns the containers which recorded the profile for the pod
+// with the UID, or all of them without a UID.
+func (r *recording) containersOf(podUID string) sets.Set[string] {
+	containers := sets.KeySet(r.containers)
+	if podUID == "" {
+		return containers
+	}
+
+	for containerID := range containers {
+		if r.pods[containerID] != podUID {
+			containers.Delete(containerID)
+		}
+	}
+
+	return containers
 }
 
 func newRecordedData() *recordedData {
@@ -114,10 +134,10 @@ func newRecordedData() *recordedData {
 	}
 }
 
-// insert records the items of a container for the profile. It reports false
-// if the recording of the container got collected already, then nothing is
-// recorded.
-func (r *recordedData) insert(profile, containerID string, items ...string) bool {
+// insert records the items of a container of the pod with the UID for the
+// profile. It reports false if the recording of the container got collected
+// already, then nothing is recorded.
+func (r *recordedData) insert(profile, podUID, containerID string, items ...string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -127,7 +147,10 @@ func (r *recordedData) insert(profile, containerID string, items ...string) bool
 	}
 
 	item, _ := r.data.GetOrSetFunc(profile, func() *recording {
-		return &recording{containers: map[string]sets.Set[string]{}}
+		return &recording{
+			containers: map[string]sets.Set[string]{},
+			pods:       map[string]string{},
+		}
 	})
 
 	rec := item.Value()
@@ -136,6 +159,7 @@ func (r *recordedData) insert(profile, containerID string, items ...string) bool
 	if !ok {
 		recorded = sets.New[string]()
 		rec.containers[containerID] = recorded
+		rec.pods[containerID] = podUID
 	}
 
 	recorded.Insert(items...)
@@ -143,12 +167,14 @@ func (r *recordedData) insert(profile, containerID string, items ...string) bool
 	return true
 }
 
-// get returns what got recorded for the profile. With collect, nothing gets
-// recorded afterwards for the containers which recorded it, so that the
-// returned data is all that reset drops. The data stays until then, so that a
-// failed collection can be retried. Nothing is marked as collected if nothing
-// got recorded.
-func (r *recordedData) get(profile string, collect bool) (items []string, found bool) {
+// get returns what got recorded for the profile by the containers of the pod
+// with the UID, or by every container without a UID. Any pod can carry the
+// recording annotation of another one, its data is not part of the profile of
+// the other pod. With collect, nothing gets recorded afterwards for the
+// containers which recorded it, so that the returned data is all that reset
+// drops. The data stays until then, so that a failed collection can be
+// retried. Nothing is marked as collected if nothing got recorded.
+func (r *recordedData) get(profile, podUID string, collect bool) (items []string, found bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -158,24 +184,36 @@ func (r *recordedData) get(profile string, collect bool) (items []string, found 
 	}
 
 	rec := item.Value()
+	containers := rec.containersOf(podUID)
+
+	if containers.Len() == 0 {
+		return nil, false
+	}
+
 	merged := sets.New[string]()
 
-	for _, recorded := range rec.containers {
-		merged = merged.Union(recorded)
+	for containerID := range containers {
+		merged = merged.Union(rec.containers[containerID])
 	}
 
 	if collect {
-		rec.collecting = sets.KeySet(rec.containers)
-		r.markCollected(profile, rec.collecting)
+		if rec.collecting == nil {
+			rec.collecting = map[string]sets.Set[string]{}
+		}
+
+		rec.collecting[podUID] = containers
+		r.markCollected(profile, containers)
 	}
 
 	return merged.UnsortedList(), true
 }
 
 // reset drops what got recorded for the profile by the containers whose data
-// the last collecting get handed out, or by all of them without one. Nothing
-// gets recorded for these containers afterwards.
-func (r *recordedData) reset(profile string) {
+// the last collecting get for the pod with the UID handed out, or by all
+// containers of the pod without one. Nothing gets recorded for these containers afterwards.
+// The containers of other pods which carry the same recording annotation keep
+// their data until their own pod gets collected, or the cache evicts it.
+func (r *recordedData) reset(profile, podUID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -186,18 +224,19 @@ func (r *recordedData) reset(profile string) {
 
 	rec := item.Value()
 
-	drop := rec.collecting
-	if drop == nil {
-		drop = sets.KeySet(rec.containers)
+	drop, ok := rec.collecting[podUID]
+	if !ok {
+		drop = rec.containersOf(podUID)
 	}
 
 	for containerID := range drop {
 		delete(rec.containers, containerID)
+		delete(rec.pods, containerID)
 	}
 
 	r.markCollected(profile, drop)
 
-	rec.collecting = nil
+	delete(rec.collecting, podUID)
 
 	// A container which started with the same profile while it got
 	// collected keeps its recording.
@@ -876,7 +915,8 @@ func (e *Enricher) dispatchSelinuxLine(
 			avcs = append(avcs, string(jsonBytes))
 		}
 
-		if len(avcs) > 0 && !e.avcs.insert(info.SelinuxRecordProfile, info.ContainerID, avcs...) {
+		if len(avcs) > 0 &&
+			!e.avcs.insert(info.SelinuxRecordProfile, info.PodUID, info.ContainerID, avcs...) {
 			e.logger.V(config.VerboseLevel).Info(
 				"Dropping AVC of a collected profile", "profile", info.SelinuxRecordProfile,
 			)
@@ -956,7 +996,9 @@ func (e *Enricher) dispatchSeccompLine(
 		return
 	}
 
-	if !e.syscalls.insert(info.SeccompRecordProfile, info.ContainerID, syscallName) {
+	if !e.syscalls.insert(
+		info.SeccompRecordProfile, info.PodUID, info.ContainerID, syscallName,
+	) {
 		e.logger.V(config.VerboseLevel).Info(
 			"Dropping syscall of a collected profile", "profile", info.SeccompRecordProfile,
 		)

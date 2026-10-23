@@ -24,6 +24,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -130,14 +131,48 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// signalSender sends signals to the channel the fake subscribed, unless the
+// default handling got restored already, which closes the channel.
+type signalSender struct {
+	mu      sync.Mutex
+	signals chan<- os.Signal
+	stopped bool
+}
+
+func newSignalSender(mock *commandfakes.FakeImpl) *signalSender {
+	s := &signalSender{}
+
+	mock.NotifyCalls(func(c chan<- os.Signal, _ ...os.Signal) { s.signals = c })
+	mock.StopCalls(func(chan<- os.Signal) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		s.stopped = true
+	})
+
+	return s
+}
+
+// send sends the signal and reports whether it got sent. The channel only
+// gets closed after Stop, which waits for the send.
+func (s *signalSender) send(sig os.Signal) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopped {
+		return false
+	}
+
+	s.signals <- sig
+
+	return true
+}
+
 func TestRunForwardsSignals(t *testing.T) {
 	t.Parallel()
 
 	mock := &commandfakes.FakeImpl{}
-
-	var signals chan<- os.Signal
-
-	mock.NotifyCalls(func(c chan<- os.Signal, _ ...os.Signal) { signals = c })
+	sender := newSignalSender(mock)
 
 	forwarded := make(chan os.Signal, 3)
 
@@ -155,7 +190,7 @@ func TestRunForwardsSignals(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, sig := range []os.Signal{syscall.SIGTERM, os.Interrupt, syscall.SIGHUP} {
-		signals <- sig
+		require.True(t, sender.send(sig))
 
 		select {
 		case got := <-forwarded:
@@ -166,7 +201,45 @@ func TestRunForwardsSignals(t *testing.T) {
 	}
 
 	require.NoError(t, sut.Wait())
-	require.Equal(t, 1, mock.StopCallCount())
+
+	// A duplicate of the last signal may still arrive after the command
+	// exited, which is ignored. The default handling comes back afterwards.
+	sender.send(os.Interrupt)
+
+	require.Eventually(t, func() bool {
+		return mock.StopCallCount() == 1
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Empty(t, forwarded)
+}
+
+// TestWaitKeepsSignalsAfterSignalDeath verifies that a command which got
+// killed by a signal from the process group, before spoc handled its own copy
+// of it, does not leave spoc to the duplicate of a parent which forwards it.
+func TestWaitKeepsSignalsAfterSignalDeath(t *testing.T) {
+	t.Parallel()
+
+	mock := &commandfakes.FakeImpl{}
+	sender := newSignalSender(mock)
+
+	killed := exec.CommandContext(t.Context(), "sh", "-c", "kill -INT $$").Run()
+	require.True(t, killedBySignal(killed))
+	mock.CmdWaitReturns(killed)
+
+	sut := New(Default())
+	sut.impl = mock
+
+	_, err := sut.Run()
+	require.NoError(t, err)
+	require.Equal(t, killed, sut.Wait())
+
+	// Restoring the default handling right away would let the duplicate
+	// terminate spoc.
+	require.True(t, sender.send(os.Interrupt), "the default handling got restored right away")
+
+	require.Eventually(t, func() bool {
+		return mock.StopCallCount() == 1
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Zero(t, mock.SignalCallCount())
 }
 
 // TestRunForwardsRepeatedSignalOnce verifies that a signal which arrives
@@ -398,6 +471,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		sudoUID    string
+		euid       int
 		privileged bool
 		homeErr    error
 		groupsErr  error
@@ -406,6 +480,9 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 	}{
 		{name: "dropped", sudoUID: "1000", wantCred: true},
 		{name: "not in a sudo environment", sudoUID: ""},
+		// Like with sudo -u or an inherited sudo environment, only root can
+		// switch to the invoking user.
+		{name: "not root", sudoUID: "1000", euid: 1002},
 		{name: "privileged", sudoUID: "1000", privileged: true},
 		{name: "home directory lookup fails", sudoUID: "1000", homeErr: errTest, wantErr: errTest},
 		{name: "group lookup fails", sudoUID: "1000", groupsErr: errTest, wantCred: true},
@@ -420,6 +497,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 			mock.CommandReturns(exec.CommandContext(t.Context(), "true"))
 			mock.GetHomeDirectoryReturns("/home/user", tc.homeErr)
 			mock.GetGroupIDsReturns([]uint32{1001, 27}, tc.groupsErr)
+			mock.GeteuidReturns(tc.euid)
 
 			options := Default()
 			options.DropSudoPrivileges = !tc.privileged

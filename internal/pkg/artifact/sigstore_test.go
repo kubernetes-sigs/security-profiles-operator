@@ -971,10 +971,19 @@ func TestVerifyPrefersBundles(t *testing.T) {
 		)
 		require.NoError(t, pull("prefer", publicKey))
 
-		// A bundle of another key replaces the legacy signature.
-		bundle, _ := sigstore.keyBundle(t, subject.Digest, cosignSignPredicateType)
+		// A bundle of another key does not hide the legacy signature, like
+		// the bundle of the staging build of a promoted profile next to the
+		// legacy signature of the promotion.
+		bundle, otherKey := sigstore.keyBundle(t, subject.Digest, cosignSignPredicateType)
 		require.NoError(t, sut.attachSignatureBundle(t.Context(), repo, &subject, bundle))
-		require.ErrorContains(t, pull("prefer", publicKey), "verify signature")
+		require.NoError(t, pull("prefer", publicKey))
+		require.NoError(t, pull("prefer", otherKey))
+
+		// A signature of neither key fails with the errors of both.
+		_, unrelated := sigstore.keyBundle(t, subject.Digest, cosignSignPredicateType)
+		err := pull("prefer", unrelated)
+		require.ErrorContains(t, err, "verify signature")
+		require.Equal(t, 2, strings.Count(err.Error(), "signature sha256:"), err)
 	})
 
 	t.Run("attestation with signature annotation", func(t *testing.T) {

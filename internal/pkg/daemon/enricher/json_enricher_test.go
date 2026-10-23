@@ -321,6 +321,17 @@ func TestJsonRun(t *testing.T) {
 					lineChan <- invalidLineJsonTest
 					// The next send returns once the invalid line got processed.
 					lineChan <- invalidLineJsonTest
+
+					// A valid line after them is the only one sent.
+					lineChan <- seccompLineJsonTest1
+
+					require.Eventually(t, func() bool {
+						return mock.PrintJsonOutputCallCount() == 1
+					}, time.Minute, time.Millisecond)
+
+					outputs := jsonOutputs(t, mock)
+					require.Len(t, outputs, 1)
+					require.Equal(t, executableBusybox, outputs[0]["executable"])
 				},
 			},
 		} {

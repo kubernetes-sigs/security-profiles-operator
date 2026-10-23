@@ -93,6 +93,15 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
+	GeteuidStub        func() int
+	geteuidMutex       sync.RWMutex
+	geteuidArgsForCall []struct{}
+	geteuidReturns     struct {
+		result1 int
+	}
+	geteuidReturnsOnCall map[int]struct {
+		result1 int
+	}
 	NotifyStub              func(chan<- os.Signal, ...os.Signal)
 	notifyMutex             sync.RWMutex
 	notifyArgsForCall       []FakeImplNotifyArgs
@@ -643,6 +652,58 @@ func (fake *FakeImpl) GetHomeDirectoryReturnsOnCall(i int, result1 string, resul
 		result1 string
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) Geteuid() int {
+	fake.geteuidMutex.Lock()
+	ret, specificReturn := fake.geteuidReturnsOnCall[len(fake.geteuidArgsForCall)]
+	fake.geteuidArgsForCall = append(fake.geteuidArgsForCall, struct{}{})
+	stub := fake.GeteuidStub
+	fakeReturns := fake.geteuidReturns
+	fake.recordInvocation("Geteuid", []interface{}{})
+	fake.geteuidMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) GeteuidCallCount() int {
+	fake.geteuidMutex.RLock()
+	defer fake.geteuidMutex.RUnlock()
+	return len(fake.geteuidArgsForCall)
+}
+
+func (fake *FakeImpl) GeteuidCalls(stub func() int) {
+	fake.geteuidMutex.Lock()
+	defer fake.geteuidMutex.Unlock()
+	fake.GeteuidStub = stub
+}
+
+func (fake *FakeImpl) GeteuidReturns(result1 int) {
+	fake.geteuidMutex.Lock()
+	defer fake.geteuidMutex.Unlock()
+	fake.GeteuidStub = nil
+	fake.geteuidReturns = struct {
+		result1 int
+	}{result1}
+}
+
+func (fake *FakeImpl) GeteuidReturnsOnCall(i int, result1 int) {
+	fake.geteuidMutex.Lock()
+	defer fake.geteuidMutex.Unlock()
+	fake.GeteuidStub = nil
+	if fake.geteuidReturnsOnCall == nil {
+		fake.geteuidReturnsOnCall = make(map[int]struct {
+			result1 int
+		})
+	}
+	fake.geteuidReturnsOnCall[i] = struct {
+		result1 int
+	}{result1}
 }
 
 func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {

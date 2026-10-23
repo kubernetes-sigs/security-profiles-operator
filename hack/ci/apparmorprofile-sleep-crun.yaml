@@ -44,6 +44,12 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/
       writeOnlyPaths:
         - /@{pid}/task/@{tid}/attr/apparmor/exec
+        - /var/lib/containers/storage/overlay/*/merged/dev/core
+        - /var/lib/containers/storage/overlay/*/merged/dev/fd
+        - /var/lib/containers/storage/overlay/*/merged/dev/ptmx
+        - /var/lib/containers/storage/overlay/*/merged/dev/stderr
+        - /var/lib/containers/storage/overlay/*/merged/dev/stdin
+        - /var/lib/containers/storage/overlay/*/merged/dev/stdout
         - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
         - /var/lib/containers/storage/overlay/*/merged/etc/resolv.conf
         - /var/lib/containers/storage/overlay/*/merged/run/.containerenv

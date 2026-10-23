@@ -238,7 +238,8 @@ func TestContainerIDAndStartTimeForPID(t *testing.T) {
 	require.Equal(t, 2500*time.Millisecond, started)
 	require.Equal(t, 1, statReads)
 
-	// A process outside of a container has no start time to check.
+	// A process outside of a container comes with its start time as well,
+	// which tells whether it reused the PID of another process.
 	noContainer := func(_ int) ([]byte, error) { return []byte("0::/user.slice\n"), nil }
 
 	id, started, err = containerIDAndStartTimeForPID(
@@ -246,7 +247,7 @@ func TestContainerIDAndStartTimeForPID(t *testing.T) {
 	)
 	require.ErrorIs(t, err, ErrContainerIDNotFound)
 	require.Empty(t, id)
-	require.Zero(t, started)
+	require.Equal(t, 2500*time.Millisecond, started)
 }
 
 func TestContainerIDForPID_CacheHit(t *testing.T) {

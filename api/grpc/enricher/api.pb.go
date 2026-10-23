@@ -43,7 +43,12 @@ type SyscallsRequest struct {
 	// recorded it, so that the response holds all of theirs. They are kept
 	// until ResetSyscalls, so that a failed collection can be retried. Other
 	// containers with the same profile keep recording it.
-	Collect       bool `protobuf:"varint,2,opt,name=collect,proto3" json:"collect,omitempty"`
+	Collect bool `protobuf:"varint,2,opt,name=collect,proto3" json:"collect,omitempty"`
+	// pod_uid is the UID of the pod the profile got recorded for. Only the data
+	// of its containers is returned and reset then: another pod can carry the
+	// same recording annotation. Without it, the data of every container which
+	// recorded the profile is used.
+	PodUid        string `protobuf:"bytes,3,opt,name=pod_uid,json=podUid,proto3" json:"pod_uid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -90,6 +95,13 @@ func (x *SyscallsRequest) GetCollect() bool {
 		return x.Collect
 	}
 	return false
+}
+
+func (x *SyscallsRequest) GetPodUid() string {
+	if x != nil {
+		return x.PodUid
+	}
+	return ""
 }
 
 type SyscallsResponse struct {
@@ -151,7 +163,10 @@ type AvcRequest struct {
 	// recorded it, so that the response holds all of theirs. They are kept until
 	// ResetAvcs, so that a failed collection can be retried. Other containers
 	// with the same profile keep recording it.
-	Collect       bool `protobuf:"varint,2,opt,name=collect,proto3" json:"collect,omitempty"`
+	Collect bool `protobuf:"varint,2,opt,name=collect,proto3" json:"collect,omitempty"`
+	// pod_uid is the UID of the pod the profile got recorded for, see
+	// SyscallsRequest.
+	PodUid        string `protobuf:"bytes,3,opt,name=pod_uid,json=podUid,proto3" json:"pod_uid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -198,6 +213,13 @@ func (x *AvcRequest) GetCollect() bool {
 		return x.Collect
 	}
 	return false
+}
+
+func (x *AvcRequest) GetPodUid() string {
+	if x != nil {
+		return x.PodUid
+	}
+	return ""
 }
 
 type AvcResponse struct {
@@ -352,17 +374,19 @@ var File_api_grpc_enricher_api_proto protoreflect.FileDescriptor
 
 const file_api_grpc_enricher_api_proto_rawDesc = "" +
 	"\n" +
-	"\x1bapi/grpc/enricher/api.proto\x12\fapi_enricher\"E\n" +
+	"\x1bapi/grpc/enricher/api.proto\x12\fapi_enricher\"^\n" +
 	"\x0fSyscallsRequest\x12\x18\n" +
 	"\aprofile\x18\x01 \x01(\tR\aprofile\x12\x18\n" +
-	"\acollect\x18\x02 \x01(\bR\acollect\"G\n" +
+	"\acollect\x18\x02 \x01(\bR\acollect\x12\x17\n" +
+	"\apod_uid\x18\x03 \x01(\tR\x06podUid\"G\n" +
 	"\x10SyscallsResponse\x12\x1a\n" +
 	"\bsyscalls\x18\x01 \x03(\tR\bsyscalls\x12\x17\n" +
-	"\ago_arch\x18\x02 \x01(\tR\x06goArch\"@\n" +
+	"\ago_arch\x18\x02 \x01(\tR\x06goArch\"Y\n" +
 	"\n" +
 	"AvcRequest\x12\x18\n" +
 	"\aprofile\x18\x01 \x01(\tR\aprofile\x12\x18\n" +
-	"\acollect\x18\x02 \x01(\bR\acollect\"\xb7\x01\n" +
+	"\acollect\x18\x02 \x01(\bR\acollect\x12\x17\n" +
+	"\apod_uid\x18\x03 \x01(\tR\x06podUid\"\xb7\x01\n" +
 	"\vAvcResponse\x126\n" +
 	"\x03avc\x18\x01 \x03(\v2$.api_enricher.AvcResponse.SelinuxAvcR\x03avc\x1ap\n" +
 	"\n" +

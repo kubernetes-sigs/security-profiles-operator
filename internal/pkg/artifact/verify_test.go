@@ -53,6 +53,8 @@ func signatureCandidatesMock(t *testing.T, count int) *artifactfakes.FakeImpl {
 	}
 
 	mock.SignatureReferrersReturns(candidates, nil)
+	// No legacy signatures, which are verified if no bundle is valid.
+	mock.FetchReferenceReturns(ocispec.Descriptor{}, nil, errdef.ErrNotFound)
 
 	return mock
 }
@@ -105,6 +107,27 @@ func TestVerifySignatureOfSummarizesErrors(t *testing.T) {
 		strconv.Itoa(maxSignatures-maxReportedSignatureErrors)+" more signatures failed to verify",
 	)
 	require.Equal(t, maxSignatures, mock.VerifyEntityCallCount())
+}
+
+// A failed lookup of the legacy signatures is not hidden behind the count of
+// the invalid bundles.
+func TestVerifySignatureOfReportsLegacyLookupError(t *testing.T) {
+	t.Parallel()
+
+	mock := signatureCandidatesMock(t, maxSignatures)
+	mock.VerifyEntityReturns(errTest)
+
+	errLookup := errors.New("registry unavailable")
+	mock.FetchReferenceReturns(ocispec.Descriptor{}, nil, errLookup)
+
+	sut := New(logr.Discard())
+	sut.impl = mock
+
+	subject := testSubject()
+	err := sut.verifySignatureOf(t.Context(), &remote.Repository{}, &subject, &PullOptions{})
+	require.ErrorIs(t, err, errLookup)
+	require.ErrorContains(t, err, "looking up legacy signatures failed")
+	require.ErrorContains(t, err, "more signatures failed to verify")
 }
 
 func TestSummarizeErrors(t *testing.T) {

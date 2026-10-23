@@ -33,6 +33,11 @@ message SyscallsRequest {
   // until ResetSyscalls, so that a failed collection can be retried. Other
   // containers with the same profile keep recording it.
   bool collect = 2;
+  // pod_uid is the UID of the pod the profile got recorded for. Only the data
+  // of its containers is returned and reset then: another pod can carry the
+  // same recording annotation. Without it, the data of every container which
+  // recorded the profile is used.
+  string pod_uid = 3;
 }
 
 message SyscallsResponse {
@@ -47,6 +52,9 @@ message AvcRequest {
   // ResetAvcs, so that a failed collection can be retried. Other containers
   // with the same profile keep recording it.
   bool collect = 2;
+  // pod_uid is the UID of the pod the profile got recorded for, see
+  // SyscallsRequest.
+  string pod_uid = 3;
 }
 
 message AvcResponse {

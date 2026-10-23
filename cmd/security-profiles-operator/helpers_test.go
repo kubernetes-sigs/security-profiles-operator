@@ -156,7 +156,9 @@ func TestForwardSignals(t *testing.T) {
 
 			stderr := &bytes.Buffer{}
 
-			go forwardSignals(signals, c.Process, stderr, done)
+			go forwardSignals(
+				signals, c.Process, stderr, done, func(int) bool { return false },
+			)
 
 			signals <- sig
 

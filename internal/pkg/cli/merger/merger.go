@@ -55,7 +55,15 @@ func New(options *Options) *Merger {
 
 // Run the Merger.
 func (p *Merger) Run() error {
-	log.Printf("Merging %d profiles into %s", len(p.options.inputFiles), p.options.outputFile)
+	if p.options.check {
+		log.Printf(
+			"Checking %d profiles against %s",
+			len(p.options.inputFiles),
+			p.options.outputFile,
+		)
+	} else {
+		log.Printf("Merging %d profiles into %s", len(p.options.inputFiles), p.options.outputFile)
+	}
 
 	contents := make([]client.Object, len(p.options.inputFiles))
 
