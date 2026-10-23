@@ -1,13 +1,9 @@
 ---
+# Unset fields keep their defaults, for example SELinux support is enabled on
+# OpenShift only.
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SecurityProfilesOperatorDaemon
 metadata:
   name: spod
   namespace: security-profiles-operator
-spec:
-  selinux:
-    enable: false
-  enricher:
-    enableLogEnricher: false
-  enableAppArmor: false
-
+spec: {}

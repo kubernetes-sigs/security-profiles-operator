@@ -491,7 +491,8 @@ func (r *StatusReconciler) aggregateStatuses(
 		}
 	}
 
-	if wantsStatuses > hasStatuses {
+	switch {
+	case wantsStatuses > hasStatuses:
 		logger.Info("Not updating policy: not all statuses are ready",
 			"has", hasStatuses, "wants", wantsStatuses)
 
@@ -499,7 +500,7 @@ func (r *StatusReconciler) aggregateStatuses(
 		// reconcile. Check again later anyway, a SPOd pod which becomes
 		// unavailable before its daemon created the status triggers nothing.
 		return reconcile.Result{RequeueAfter: dsWait}, nil
-	} else if wantsStatuses < hasStatuses {
+	case wantsStatuses < hasStatuses:
 		// this happens when nodes are removed from the cluster or no longer
 		// run the SPOd, for example because of a new taint
 		logger.Info("Removing extra statuses", "has", hasStatuses, "wants", wantsStatuses)
@@ -519,6 +520,30 @@ func (r *StatusReconciler) aggregateStatuses(
 		logger.Info("No stale status identified, aggregating the existing statuses")
 
 		requeue = reconcile.Result{RequeueAfter: dsWait}
+	default:
+		// The count matches, but the status of a node which stopped running
+		// the SPOd can stand in for the one of a new node, which did not
+		// report yet.
+		missing, err := missingNodeStatuses(ctx, spodDS, nodeStatusList, view)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		if missing > 0 {
+			logger.Info("Not updating policy: not all nodes running the SPOd reported a status",
+				"missing", missing)
+
+			removed, err := r.removeStaleStatuses(ctx, prof, spodDS, nodeStatusList, view, logger)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("cannot remove stale statuses: %w", err)
+			}
+
+			if removed {
+				return reconcile.Result{RequeueAfter: time.Second}, nil
+			}
+
+			return reconcile.Result{RequeueAfter: dsWait}, nil
+		}
 	}
 
 	if err := r.removeDeletedNodeFinalizers(ctx, prof, view, logger); err != nil {
@@ -532,6 +557,43 @@ func (r *StatusReconciler) aggregateStatuses(
 	_, err = r.reconcileStatus(ctx, prof, agg, logger)
 
 	return requeue, err
+}
+
+// missingNodeStatuses returns the number of nodes running a SPOd pod which
+// have no node status. It returns zero if that cannot be told, because the
+// DaemonSet has not settled or a status of an earlier release does not name
+// its node yet.
+func missingNodeStatuses(
+	ctx context.Context,
+	spodDS *appsv1.DaemonSet,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	view *clusterView,
+) (int, error) {
+	nodes, settled, err := view.spodNodesOf(ctx, spodDS)
+	if err != nil || !settled {
+		return 0, err
+	}
+
+	reported := make(map[string]bool, len(nodeStatusList.Items))
+
+	for i := range nodeStatusList.Items {
+		node := nodeStatusList.Items[i].Spec.NodeName
+		if node == "" {
+			return 0, nil
+		}
+
+		reported[node] = true
+	}
+
+	missing := 0
+
+	for node := range nodes {
+		if !reported[node] {
+			missing++
+		}
+	}
+
+	return missing, nil
 }
 
 // aggregateAvailableStatuses aggregates the statuses of the nodes which run

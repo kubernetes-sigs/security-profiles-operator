@@ -22,6 +22,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
 
@@ -36,6 +37,10 @@ type impl interface {
 		context.Context,
 		...client.ListOption,
 	) (*profilerecordingapi.ProfileRecordingList, error)
+	ListProfileBindings(
+		context.Context,
+		...client.ListOption,
+	) (*profilebindingapi.ProfileBindingList, error)
 }
 
 func (d *defaultImpl) ListProfileRecordings(
@@ -47,4 +52,15 @@ func (d *defaultImpl) ListProfileRecordings(
 	}
 
 	return profileRecordings, nil
+}
+
+func (d *defaultImpl) ListProfileBindings(
+	ctx context.Context, opts ...client.ListOption,
+) (*profilebindingapi.ProfileBindingList, error) {
+	profileBindings := &profilebindingapi.ProfileBindingList{}
+	if err := d.client.List(ctx, profileBindings, opts...); err != nil {
+		return nil, fmt.Errorf("list profile bindings: %w", err)
+	}
+
+	return profileBindings, nil
 }

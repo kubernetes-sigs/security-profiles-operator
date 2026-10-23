@@ -75,7 +75,7 @@ func (r *RecordingTrackerReconciler) SchemeBuilder() runtime.SchemeBuilder {
 // The Ready condition of a recording tells whether the SPODs enable its
 // recorder and whether the recording webhook selects its namespace.
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch
 //
 // The ProfileConflict condition of a recording names the profiles it would

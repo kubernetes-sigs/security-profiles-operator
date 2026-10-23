@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	jsonpatchapply "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	"gomodules.xyz/jsonpatch/v2"
@@ -35,9 +36,11 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording/recordingfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -85,6 +88,25 @@ func rawPod(t *testing.T, pod *corev1.Pod) runtime.RawExtension {
 	require.NoError(t, err)
 
 	return runtime.RawExtension{Raw: b}
+}
+
+// patchedPod returns the pod with the patches applied.
+func patchedPod(t *testing.T, pod *corev1.Pod, patches []jsonpatch.Operation) *corev1.Pod {
+	t.Helper()
+
+	patchJSON, err := json.Marshal(patches)
+	require.NoError(t, err)
+
+	patch, err := jsonpatchapply.DecodePatch(patchJSON)
+	require.NoError(t, err)
+
+	patched, err := patch.Apply(rawPod(t, pod).Raw)
+	require.NoError(t, err)
+
+	res := &corev1.Pod{}
+	require.NoError(t, json.Unmarshal(patched, res))
+
+	return res
 }
 
 func newTestRecorder(t *testing.T, mock *recordingfakes.FakeImpl) *podSeccompRecorder {
@@ -464,6 +486,7 @@ func TestHandle(t *testing.T) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
+							ObjectMeta: metav1.ObjectMeta{Name: "rec"},
 							Spec: profilerecordingapi.ProfileRecordingSpec{
 								Kind:        profilerecordingapi.ProfileRecordingKindAppArmorProfile,
 								Recorder:    profilerecordingapi.ProfileRecorderBpf,
@@ -483,6 +506,17 @@ func TestHandle(t *testing.T) {
 				t.Helper()
 
 				require.True(t, resp.Allowed)
+				// The bpf recorder only adds the annotation, it does not
+				// change the security context.
+				require.Len(t, resp.Patches, 1)
+				require.Equal(t, "/metadata/annotations", resp.Patches[0].Path)
+
+				annotations, ok := resp.Patches[0].Value.(map[string]any)
+				require.True(t, ok)
+
+				value, ok := annotations["io.containers.trace-bpf-apparmor/container"].(string)
+				require.True(t, ok)
+				require.True(t, strings.HasPrefix(value, "rec_container_"))
 			},
 		},
 	} {
@@ -932,4 +966,391 @@ func TestHandleDryRunRecordsNoEvents(t *testing.T) {
 			require.Contains(t, <-recorder.Events, "InvalidPodSelector")
 		}
 	}
+}
+
+// A logs recording used to replace the profile which a binding enforces on
+// the container, because the recording webhook runs after the binding
+// webhook. Containers bound for the recorded kind are not recorded by the
+// logs recorder instead.
+func TestHandleSkipsBoundContainers(t *testing.T) {
+	t.Parallel()
+
+	binding := func(name, image string, kind profilebindingapi.ProfileBindingKind) profilebindingapi.ProfileBinding {
+		return profilebindingapi.ProfileBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{Kind: kind, Name: "profile"},
+				Image:      image,
+			},
+		}
+	}
+
+	pod := testPod.DeepCopy()
+	pod.Spec.Containers = []corev1.Container{
+		{Name: "bound", Image: "bound-image"},
+		{Name: "other", Image: "other-image"},
+	}
+
+	// The pod author set the recording annotation of the bound container.
+	spoofed := pod.DeepCopy()
+	spoofed.Annotations = map[string]string{
+		"io.containers.trace-logs/bound": "attacker_profile_abcde_1661693966",
+	}
+
+	withInit := pod.DeepCopy()
+	withInit.Spec.InitContainers = []corev1.Container{{Name: "init", Image: "bound-image"}}
+
+	nginx := testPod.DeepCopy()
+	nginx.Spec.Containers = []corev1.Container{
+		{Name: "bound", Image: "nginx"},
+		{Name: "other", Image: "other-image"},
+	}
+
+	for _, tc := range []struct {
+		name     string
+		kind     profilerecordingapi.ProfileRecordingKind
+		recorder profilerecordingapi.ProfileRecorder
+		// bindings are applied to the pod and in the cache, unapplied only
+		// in the cache and uncached only applied to the pod.
+		bindings  []profilebindingapi.ProfileBinding
+		unapplied []profilebindingapi.ProfileBinding
+		uncached  []string
+		// recorded are the containers which get a recording annotation.
+		recorded []string
+		warnings int
+		// pod is the created pod, the test pod if unset.
+		pod    *corev1.Pod
+		dryRun bool
+	}{
+		{
+			name:     "logs recording removes the annotation of the author on a bound container",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", "bound-image", profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"other"},
+			warnings: 1,
+			pod:      spoofed,
+		},
+		{
+			name:     "logs recording skips the container bound for its kind",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", "bound-image", profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"other"},
+			warnings: 1,
+		},
+		{
+			name:     "logs recording skips bound init containers",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", "bound-image", profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"other"},
+			warnings: 2,
+			pod:      withInit,
+		},
+		{
+			name:     "logs recording compares the normalized images",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", "docker.io/library/nginx:latest",
+					profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"other"},
+			warnings: 1,
+			pod:      nginx,
+		},
+		{
+			name:     "logs recording skips bound containers on a dry run",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", "bound-image", profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"other"},
+			warnings: 1,
+			dryRun:   true,
+		},
+		{
+			name:     "logs recording skips every container of a wildcard binding",
+			kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("selinux", profilebindingapi.SelectAllContainersImage,
+					profilebindingapi.ProfileBindingKindSelinuxProfile),
+			},
+			warnings: 2,
+		},
+		{
+			// The cache of the replica may not know the binding yet, which
+			// another replica applied.
+			name:     "logs recording skips every container of an uncached binding",
+			kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			uncached: []string{"lagging"},
+			warnings: 2,
+		},
+		{
+			name:     "logs recording records containers bound for another kind",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("selinux", profilebindingapi.SelectAllContainersImage,
+					profilebindingapi.ProfileBindingKindSelinuxProfile),
+			},
+			recorded: []string{"bound", "other"},
+		},
+		{
+			name:     "logs recording records containers of bindings not applied",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			unapplied: []profilebindingapi.ProfileBinding{
+				binding("unapplied", profilebindingapi.SelectAllContainersImage,
+					profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"bound", "other"},
+		},
+		{
+			name:     "bpf recording records bound containers",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderBpf,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", profilebindingapi.SelectAllContainersImage,
+					profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"bound", "other"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &recordingfakes.FakeImpl{}
+			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+				Items: []profilerecordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:        tc.kind,
+						Recorder:    tc.recorder,
+						PodSelector: selectAll,
+					},
+				}},
+			}, nil)
+			mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+				Items: slices.Concat(tc.bindings, tc.unapplied),
+			}, nil)
+
+			created := pod.DeepCopy()
+			if tc.pod != nil {
+				created = tc.pod.DeepCopy()
+			}
+
+			applied := slices.Clone(tc.uncached)
+			for i := range tc.bindings {
+				applied = append(applied, tc.bindings[i].Name)
+			}
+
+			if len(applied) > 0 {
+				if created.Annotations == nil {
+					created.Annotations = map[string]string{}
+				}
+
+				created.Annotations[profilebindingapi.AppliedBindingsAnnotation] = strings.Join(
+					applied,
+					",",
+				)
+			}
+
+			recorder := events.NewFakeRecorder(10)
+			podRecorder := newTestRecorder(t, mock)
+			podRecorder.record = utils.NewSafeRecorder(recorder)
+
+			resp := podRecorder.Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, created),
+					DryRun:    new(tc.dryRun),
+				},
+			})
+			require.True(t, resp.Allowed)
+			require.Len(t, resp.Warnings, tc.warnings)
+
+			if len(tc.uncached) > 0 {
+				require.Contains(t, resp.Warnings[0], "not known to the webhook yet")
+			}
+
+			if tc.dryRun {
+				require.Empty(t, recorder.Events)
+			} else {
+				require.Len(t, recorder.Events, tc.warnings)
+			}
+
+			patched := patchedPod(t, created, resp.Patches)
+
+			var recorded []string
+
+			for _, ctr := range util.PodContainers(patched) {
+				for key := range patched.Annotations {
+					if strings.HasPrefix(key, "io.containers.trace-") &&
+						strings.HasSuffix(key, "/"+ctr.Name) {
+						recorded = append(recorded, ctr.Name)
+					}
+				}
+
+				if !slices.Contains(tc.recorded, ctr.Name) {
+					require.Nil(t, ctr.SecurityContext, ctr.Name)
+				}
+			}
+
+			require.ElementsMatch(t, tc.recorded, recorded)
+		})
+	}
+}
+
+// The webhook gets invoked again on its own output if another webhook changed
+// the pod, like the binding webhook restoring a bound profile. The bound
+// container stays untouched and the recorded one keeps its annotation.
+func TestHandleReinvocationKeepsBoundContainers(t *testing.T) {
+	t.Parallel()
+
+	boundProfile := &corev1.SeccompProfile{
+		Type:             corev1.SeccompProfileTypeLocalhost,
+		LocalhostProfile: new("operator/bound.json"),
+	}
+
+	pod := testPod.DeepCopy()
+	pod.Annotations = map[string]string{profilebindingapi.AppliedBindingsAnnotation: "seccomp"}
+	pod.Spec.Containers = []corev1.Container{
+		{
+			Name:            "bound",
+			Image:           "bound-image",
+			SecurityContext: &corev1.SecurityContext{SeccompProfile: boundProfile},
+		},
+		{Name: "other", Image: "other-image"},
+	}
+
+	mock := &recordingfakes.FakeImpl{}
+	mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+		Items: []profilerecordingapi.ProfileRecording{{
+			ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+			Spec: profilerecordingapi.ProfileRecordingSpec{
+				Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				Recorder:    profilerecordingapi.ProfileRecorderLogs,
+				PodSelector: selectAll,
+			},
+		}},
+	}, nil)
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{{
+			ObjectMeta: metav1.ObjectMeta{Name: "seccomp"},
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+					Name: "bound",
+				},
+				Image: "bound-image",
+			},
+		}},
+	}, nil)
+
+	handle := func(pod *corev1.Pod) admission.Response {
+		t.Helper()
+
+		resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    rawPod(t, pod),
+			},
+		})
+		require.True(t, resp.Allowed)
+		require.Len(t, resp.Warnings, 1)
+
+		return resp
+	}
+
+	first := patchedPod(t, pod, handle(pod).Patches)
+	require.Equal(t, boundProfile, first.Spec.Containers[0].SecurityContext.SeccompProfile)
+	require.NotContains(t, first.Annotations, "io.containers.trace-logs/bound")
+	require.Contains(t, first.Annotations, "io.containers.trace-logs/other")
+
+	resp := handle(first)
+	require.Empty(t, resp.Patches)
+	require.Equal(t, first, patchedPod(t, first, resp.Patches))
+}
+
+// The bindings are only listed once a logs recording selects the pod.
+func TestHandleListsBindingsOnlyForLogsRecordings(t *testing.T) {
+	t.Parallel()
+
+	pod := testPod.DeepCopy()
+	pod.Annotations = map[string]string{profilebindingapi.AppliedBindingsAnnotation: "binding"}
+
+	for name, recording := range map[string]profilerecordingapi.ProfileRecordingSpec{
+		"no recording selects the pod": {
+			Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			Recorder: profilerecordingapi.ProfileRecorderLogs,
+			PodSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "other"},
+			},
+		},
+		"bpf recording": {
+			Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			Recorder:    profilerecordingapi.ProfileRecorderBpf,
+			PodSelector: selectAll,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &recordingfakes.FakeImpl{}
+			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+				Items: []profilerecordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+					Spec:       recording,
+				}},
+			}, nil)
+
+			resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, pod),
+				},
+			})
+			require.True(t, resp.Allowed)
+			require.Zero(t, mock.ListProfileBindingsCallCount())
+		})
+	}
+}
+
+func TestHandleListBindingsError(t *testing.T) {
+	t.Parallel()
+
+	pod := testPod.DeepCopy()
+	pod.Annotations = map[string]string{profilebindingapi.AppliedBindingsAnnotation: "binding"}
+
+	mock := &recordingfakes.FakeImpl{}
+	mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+		Items: []profilerecordingapi.ProfileRecording{{
+			ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+			Spec: profilerecordingapi.ProfileRecordingSpec{
+				Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				Recorder:    profilerecordingapi.ProfileRecorderLogs,
+				PodSelector: selectAll,
+			},
+		}},
+	}, nil)
+	mock.ListProfileBindingsReturns(nil, errTest)
+
+	resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    rawPod(t, pod),
+		},
+	})
+	require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 }

@@ -345,9 +345,11 @@ func WorkloadsHandler(
 		obj client.Object,
 		request reconcile.Request,
 	) {
+		// The pod is only read, so the cached one does not get copied.
 		pod := &corev1.Pod{}
-		if err := pods.Get(ctx, request.NamespacedName, pod); err != nil ||
-			util.PodCompleted(pod) || !uses(obj, pod) {
+		if err := pods.Get(
+			ctx, request.NamespacedName, pod, client.UnsafeDisableDeepCopy,
+		); err != nil || util.PodCompleted(pod) || !uses(obj, pod) {
 			q.Add(request)
 		}
 	}

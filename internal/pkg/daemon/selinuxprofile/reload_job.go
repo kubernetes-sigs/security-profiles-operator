@@ -25,6 +25,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -40,6 +41,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 )
+
+// reloadJobMu serializes the creation of the reload jobs of this node, see
+// createPolicyReloadJob.
+var reloadJobMu sync.Mutex
 
 const (
 	// reloadJobNamePrefix is the GenerateName of the reload jobs. The API
@@ -175,6 +180,12 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	}
 
 	namespace := r.namespace
+
+	// The SelinuxProfile and RawSelinuxProfile controllers of the daemon
+	// create the reload jobs of the same node, so looking for a running job
+	// and creating one has to happen at once for both of them.
+	reloadJobMu.Lock()
+	defer reloadJobMu.Unlock()
 
 	state, err := r.existingReloadJob(
 		ctx,

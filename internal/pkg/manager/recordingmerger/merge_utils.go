@@ -126,7 +126,9 @@ func hasPartialProfiles(
 
 // listPartialProfiles returns the partial profiles of the recording grouped by
 // container, and a copy of every listed partial profile for the cleanup after
-// the merge.
+// the merge. Partial profiles which are being deleted got merged already: they
+// stay for a while because of their finalizer, and merging them again would
+// add back what got removed from the merged profile since.
 func listPartialProfiles(
 	ctx context.Context,
 	cli client.Client,
@@ -138,6 +140,10 @@ func listPartialProfiles(
 	var listed []client.Object
 
 	if err := eachPartialProfile(ctx, cli, list, recording, func(obj client.Object) error {
+		if !obj.GetDeletionTimestamp().IsZero() {
+			return nil
+		}
+
 		copied, ok := obj.DeepCopyObject().(client.Object)
 		if !ok {
 			return fmt.Errorf("copy of %T is not a client.Object", obj)

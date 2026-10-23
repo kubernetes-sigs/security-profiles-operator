@@ -717,6 +717,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		schemeAPI{"seccompprofile v1", seccompprofilev1.AddToScheme},
 		schemeAPI{"apparmorprofile v1", apparmorprofilev1.AddToScheme},
 		schemeAPI{"selinuxprofile v1", selinuxprofilev1.AddToScheme},
+		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
 		schemeAPI{"ServiceMonitor", monitoringv1.AddToScheme},
 	); err != nil {
 		return err
@@ -759,8 +760,17 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	setupLog.Info("enabled controllers", "controllers", enabledControllers)
 
+	// The platform got detected for the TLS configuration already.
+	caInjectType := bindata.CAInjectTypeCertManager
+	if tlsCfg.isOpenShift {
+		caInjectType = bindata.CAInjectTypeOpenShift
+	}
+
 	setupCtx := controller.WithMaxConcurrentReconciles(
-		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook(ctx)),
+		bindata.WithCAInjectType(
+			context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook(ctx)),
+			caInjectType,
+		),
 		ctx.Int(maxConcurrentReconcilesFlag),
 	)
 
@@ -886,7 +896,8 @@ func setRESTMapper(opts *ctrl.Options, cfg *rest.Config) (servedAPIs, error) {
 // restrictOperandCache limits the cache of the operand kinds to the operator
 // namespace. The operator creates them only there and its RBAC permissions are
 // scoped to that namespace, so a cluster wide informer would not be allowed to
-// list them. The cluster scoped operands are cached by name for the same
+// list them. The same holds for the SPOD, which is only read in the operator
+// namespace. The cluster scoped operands are cached by name for the same
 // reason, and the pods, which every namespace can hold, are stripped down to
 // the fields the controllers read. The admission policies and the cert-manager
 // resources are only added if the cluster serves their API, because creating
@@ -906,6 +917,7 @@ func restrictOperandCache(
 		&appsv1.Deployment{},
 		&corev1.Service{},
 		&policyv1.PodDisruptionBudget{},
+		&spodv1.SecurityProfilesOperatorDaemon{},
 	}
 
 	if served.certManager {
@@ -1060,9 +1072,12 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 // The same goes for the node statuses: the daemon only reads and writes the
 // ones of its own node, while the cluster holds one per node and profile.
 //
+// The SPOD is only read in the operator namespace, which the RBAC permissions
+// of the daemon are scoped to.
+//
 // When memory optimization is additionally enabled, only pods labeled for
 // recording are cached on top of that.
-func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
+func newDaemonCache(ctx *cli.Context, operatorNamespace string) cache.NewCacheFunc {
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		setupLog.Info(
@@ -1074,7 +1089,7 @@ func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
 	memOptim := ctx.Bool(memOptimFlag)
 
 	return func(restConfig *rest.Config, opts cache.Options) (cache.Cache, error) {
-		setDaemonCacheOptions(&opts, nodeName, memOptim)
+		setDaemonCacheOptions(&opts, nodeName, operatorNamespace, memOptim)
 
 		return cache.New(restConfig, opts)
 	}
@@ -1084,11 +1099,18 @@ func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
 // the pod cache to the pods of the node and, with memory optimization, to the
 // pods labeled for recording. The node status cache is restricted to the
 // statuses of the node by their node label, which every status carries since
-// the per-node statuses got introduced. Like in the manager and the webhook,
-// the managed fields, which no daemon controller reads, are not cached.
-func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) {
+// the per-node statuses got introduced. The SPOD cache is restricted to the
+// operator namespace. Like in the manager and the webhook, the managed fields,
+// which no daemon controller reads, are not cached.
+func setDaemonCacheOptions(
+	opts *cache.Options, nodeName, operatorNamespace string, memOptim bool,
+) {
 	byPod := cache.ByObject{}
-	byObject := map[client.Object]cache.ByObject{}
+	byObject := map[client.Object]cache.ByObject{
+		&spodv1.SecurityProfilesOperatorDaemon{}: {
+			Namespaces: map[string]cache.Config{operatorNamespace: {}},
+		},
+	}
 
 	if nodeName != "" {
 		byPod.Field = fields.OneTermEqualSelector("spec.nodeName", nodeName)
@@ -1436,7 +1458,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	// The sync period of the cache is set by newDaemonCache.
 	ctrlOpts := ctrl.Options{
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
-		NewCache:               newDaemonCache(ctx),
+		NewCache:               newDaemonCache(ctx, operatorNamespace),
 		Metrics: metricsserver.Options{
 			BindAddress:    fmt.Sprintf(":%d", bindata.ContainerPort),
 			CertDir:        bindata.MetricsCertPath,

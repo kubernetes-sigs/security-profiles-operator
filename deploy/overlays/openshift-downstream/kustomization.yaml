@@ -9,7 +9,6 @@ sortOptions:
 
 resources:
 - ../cluster
-- prometheus_role.yaml
 patches:
 - patch: |-
     - op: replace

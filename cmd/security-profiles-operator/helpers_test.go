@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	secprofnodestatusv1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	spodv1 "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -224,11 +225,15 @@ func TestDaemonCacheOptions(t *testing.T) {
 	}
 
 	opts := cache.Options{}
-	setDaemonCacheOptions(&opts, "node", false)
+	setDaemonCacheOptions(&opts, "node", "spo", false)
 	require.Equal(t, &daemonSyncPeriod, opts.SyncPeriod)
 	require.NotNil(t, opts.DefaultTransform, "the managed fields are not cached")
 	require.Nil(t, opts.DefaultLabelSelector)
-	require.Len(t, opts.ByObject, 2)
+	require.Len(t, opts.ByObject, 3)
+
+	bySpod, ok := byObject(opts, &spodv1.SecurityProfilesOperatorDaemon{})
+	require.True(t, ok, "only the SPODs of the operator namespace are cached")
+	require.Equal(t, map[string]cache.Config{"spo": {}}, bySpod.Namespaces)
 	require.Equal(t, fields.OneTermEqualSelector("spec.nodeName", "node"), podOptions(opts).Field)
 	require.Nil(t, podOptions(opts).Label)
 
@@ -249,7 +254,7 @@ func TestDaemonCacheOptions(t *testing.T) {
 	// client does.
 	longName := strings.Repeat("n", 100)
 	opts = cache.Options{}
-	setDaemonCacheOptions(&opts, longName, false)
+	setDaemonCacheOptions(&opts, longName, "spo", false)
 	byStatus, ok = byObject(opts, &secprofnodestatusv1.SecurityProfileNodeStatus{})
 	require.True(t, ok)
 	require.True(t, byStatus.Label.Matches(labels.Set{
@@ -257,8 +262,8 @@ func TestDaemonCacheOptions(t *testing.T) {
 	}))
 
 	opts = cache.Options{}
-	setDaemonCacheOptions(&opts, "", true)
-	require.Len(t, opts.ByObject, 1, "without a node name every node status is cached")
+	setDaemonCacheOptions(&opts, "", "spo", true)
+	require.Len(t, opts.ByObject, 2, "without a node name every node status is cached")
 	require.Nil(t, podOptions(opts).Field, "without a node name every pod is cached")
 	require.Equal(t,
 		labels.SelectorFromSet(labels.Set{bindata.EnableRecordingLabel: "true"}),
@@ -277,10 +282,14 @@ func TestDaemonCacheOptionsCreateCache(t *testing.T) {
 		secprofnodestatusv1.GroupVersion.WithKind("SecurityProfileNodeStatus"),
 		meta.RESTScopeNamespace,
 	)
+	mapper.Add(
+		spodv1.GroupVersion.WithKind("SecurityProfilesOperatorDaemon"),
+		meta.RESTScopeNamespace,
+	)
 
 	newCache := func(scheme *runtime.Scheme) error {
 		opts := cache.Options{Scheme: scheme, Mapper: mapper}
-		setDaemonCacheOptions(&opts, "node", true)
+		setDaemonCacheOptions(&opts, "node", "spo", true)
 
 		_, err := cache.New(&rest.Config{Host: "https://127.0.0.1:1"}, opts)
 
@@ -292,6 +301,7 @@ func TestDaemonCacheOptionsCreateCache(t *testing.T) {
 	require.Error(t, newCache(scheme))
 
 	require.NoError(t, secprofnodestatusv1.AddToScheme(scheme))
+	require.NoError(t, spodv1.AddToScheme(scheme))
 	require.NoError(t, newCache(scheme))
 }
 
@@ -299,7 +309,7 @@ func TestNewDaemonCache(t *testing.T) {
 	t.Setenv(config.NodeNameEnvKey, "node")
 
 	flags := daemonCommand(&version.Info{}).Flags
-	require.NotNil(t, newDaemonCache(newCLIContext(t, flags, "--with-mem-optim")))
+	require.NotNil(t, newDaemonCache(newCLIContext(t, flags, "--with-mem-optim"), "spo"))
 }
 
 func TestNewTLSConfig(t *testing.T) {

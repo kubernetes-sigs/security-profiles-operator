@@ -58,16 +58,25 @@ var (
 	}
 
 	errInvalidIdentifier = errors.New("invalid identifier")
+
+	// ErrPermissiveNotAllowed is returned for a profile in the Permissive
+	// mode if the options deny it.
+	ErrPermissiveNotAllowed = errors.New("permissive profiles are not allowed")
 )
 
 // Safe Defaults: Hardcoded denylists to prevent critical privilege escalation.
 var (
 	// deniedTypes prevents access to critical hosts assets. The types are
 	// compared by name, so a type attribute which contains a denied type,
-	// like file_type, is not denied.
+	// like file_type, is not denied. The DeniedTypes of the SPOD can deny
+	// attributes by their name as well.
 	deniedTypes = map[string]struct{}{
-		"kernel_t":   {}, // Core kernel structures
-		"kmem_t":     {}, // Kernel memory
+		"kernel_t": {}, // Core kernel structures
+		// The policies of the distributions do not declare kmem_t: /dev/mem,
+		// /dev/kmem and /dev/port are labeled memory_device_t and
+		// /proc/kcore proc_kcore_t. Denying those breaks existing profiles,
+		// the DeniedTypes of the SPOD can deny them.
+		"kmem_t":     {},
 		"security_t": {}, // SELinux fs
 		"shadow_t":   {}, // /etc/shadow
 	}
@@ -125,6 +134,11 @@ type Options struct {
 	// AllowedPermissions if specified, a list of SELinux permissions which are
 	// removed from the built-in denylist.
 	AllowedPermissions []string
+
+	// DenyPermissive rejects profiles in the Permissive mode. A permissive
+	// domain gets every access it asks for, including the denied types,
+	// classes and permissions.
+	DenyPermissive bool
 }
 
 type deniedOptions struct {
@@ -231,6 +245,11 @@ func Object2CIL(
 	}
 
 	if sp.Spec.Mode == selinuxprofileapi.SelinuxModePermissive {
+		if options != nil && options.DenyPermissive {
+			return "", fmt.Errorf("%w: profile %s is in the %s mode",
+				ErrPermissiveNotAllowed, sp.GetName(), sp.Spec.Mode)
+		}
+
 		cilbuilder.WriteString(typePermissive)
 		cilbuilder.WriteString("\n")
 	}

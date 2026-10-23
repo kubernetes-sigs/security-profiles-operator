@@ -99,12 +99,15 @@ type SeccompProfileSpec struct {
 	// +optional
 	// +listType=set
 	Architectures []Arch `json:"architectures,omitempty"`
+	// The pattern rejects the names "." and "..", which only rejects values
+	// that never worked: they name a directory instead of a socket.
+
 	// listenerPath is the path of UNIX domain socket to contact a seccomp
 	// agent for SCMP_ACT_NOTIFY.
 	// +optional
 	// +kubebuilder:validation:MaxLength=107
-	// +kubebuilder:validation:Pattern=`^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$`
-	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
+	//nolint:kubeapilinter,lll // released v1 API: empty means unset, a MinLength would reject existing manifests
+	// +kubebuilder:validation:Pattern=`^/var/run/security-profiles-operator/([a-zA-Z0-9_\-][a-zA-Z0-9_\-.]*|[.][a-zA-Z0-9_\-][a-zA-Z0-9_\-.]*|[.][.][a-zA-Z0-9_\-.]+)$`
 	ListenerPath string `json:"listenerPath,omitempty"`
 	// listenerMetadata contains opaque data to pass to the seccomp agent.
 	// +optional
@@ -126,7 +129,7 @@ type SeccompProfileSpec struct {
 	Flags []Flag `json:"flags,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=SCMP_ARCH_NATIVE;SCMP_ARCH_X86;SCMP_ARCH_X86_64;SCMP_ARCH_X32;SCMP_ARCH_ARM;SCMP_ARCH_AARCH64;SCMP_ARCH_MIPS;SCMP_ARCH_MIPS64;SCMP_ARCH_MIPS64N32;SCMP_ARCH_MIPSEL;SCMP_ARCH_MIPSEL64;SCMP_ARCH_MIPSEL64N32;SCMP_ARCH_PPC;SCMP_ARCH_PPC64;SCMP_ARCH_PPC64LE;SCMP_ARCH_S390;SCMP_ARCH_S390X;SCMP_ARCH_PARISC;SCMP_ARCH_PARISC64;SCMP_ARCH_RISCV64
+// +kubebuilder:validation:Enum=SCMP_ARCH_NATIVE;SCMP_ARCH_X86;SCMP_ARCH_X86_64;SCMP_ARCH_X32;SCMP_ARCH_ARM;SCMP_ARCH_AARCH64;SCMP_ARCH_MIPS;SCMP_ARCH_MIPS64;SCMP_ARCH_MIPS64N32;SCMP_ARCH_MIPSEL;SCMP_ARCH_MIPSEL64;SCMP_ARCH_MIPSEL64N32;SCMP_ARCH_PPC;SCMP_ARCH_PPC64;SCMP_ARCH_PPC64LE;SCMP_ARCH_S390;SCMP_ARCH_S390X;SCMP_ARCH_PARISC;SCMP_ARCH_PARISC64;SCMP_ARCH_RISCV64;SCMP_ARCH_LOONGARCH64;SCMP_ARCH_M68K;SCMP_ARCH_SH;SCMP_ARCH_SHEB
 //
 //nolint:lll // required for kubebuilder
 type Arch string

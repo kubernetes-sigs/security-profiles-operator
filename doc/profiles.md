@@ -897,8 +897,23 @@ In particular, the `SelinuxProfile` kind:
   which would let a container switch into another domain, and `allowedTypes`, `allowedClasses` and
   `allowedPermissions` remove entries from that built-in denylist. Use the latter with care, because they relax
   a safe default for every profile. The lists are compared by name, so the CIL keywords `all`, `and`, `not`,
-  `or`, `range` and `xor` are rejected as permissions, and allowing a type attribute like `file_type` is not
-  rejected, although it contains denied types.
+  `or`, `range` and `xor` are rejected as permissions. An allow rule on a type attribute like `file_type` is not
+  rejected either, although the attribute contains denied types, and grants access to them. To stop that, add
+  the attribute to `deniedTypes`, which denies attributes by their name as well.
+
+  The kernel memory types `memory_device_t` of `/dev/mem`, `/dev/kmem` and `/dev/port` and `proc_kcore_t` of
+  `/proc/kcore` are not denied by default, which would break existing profiles. They are recommended
+  `deniedTypes`, together with the `device_node` attribute, which contains `memory_device_t`:
+
+  ```yaml
+  spec:
+    selinux:
+      options:
+        deniedTypes:
+          - device_node
+          - memory_device_t
+          - proc_kcore_t
+  ```
 - adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
   workloads and namespaces easily, as the "usage" of the policy (see below) is based on the profile name.
 
@@ -964,6 +979,17 @@ container from executing, a `SelinuxProfile` can be marked as permissive
 by setting `.spec.mode` to `Permissive`. This mode might be useful e.g. when
 the policy is known or suspected to be incomplete and you'd prefer to just
 watch for subsequent AVC denials after deploying the policy.
+
+A permissive domain gets every access it asks for, including the types, classes and permissions which the
+`spod` instance denies. To keep the profiles from bypassing the denylist this way, reject permissive profiles:
+
+```shell
+kubectl -n security-profiles-operator patch spod spod --type=merge \
+  -p '{"spec":{"selinux":{"options":{"allowPermissiveProfiles":false}}}}'
+```
+
+A permissive profile and every profile which inherits from it then fail validation and report an error, so they
+are neither installed nor updated. A policy which a node loaded already stays loaded until the profile is deleted.
 
 #### Record SELinux profile
 
@@ -1506,7 +1532,15 @@ security context of a pod cannot be changed after its creation.
   new containers.
 - A binding always replaces a security context value of the pod author, so
   that the bound profile cannot be weakened, for example with
-  `type: Unconfined`. For the same reason, the deprecated
+  `type: Unconfined`. A `ProfileRecording` with the `Logs` recorder would
+  replace the bound seccomp profile or SELinux type of a container with the
+  ones of the recording, so it does not record the containers which a
+  binding of the same kind binds. The pod is admitted with an admission
+  warning and the recording gets a `ContainerBound` event. A binding which
+  got applied to the pod, but which the webhook replica does not know yet,
+  counts as binding every container of the pod. The `Bpf` recorder
+  does not change the security context and records these containers with
+  their bound profile. For the same reason, the deprecated
   `container.apparmor.security.beta.kubernetes.io/<container>` annotations of
   the containers an AppArmorProfile gets bound to are removed. The API server
   rejects pods whose deprecated seccomp annotations do not match the seccomp

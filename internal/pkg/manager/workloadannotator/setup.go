@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -269,16 +270,23 @@ func (r *PodReconciler) profileWorkloadRequests(
 		return requests
 	}
 
+	// The pods are only read for their keys, so the cached ones do not get
+	// copied.
 	pods := &corev1.PodList{}
-	if err := r.client.List(ctx, pods, client.MatchingFields{ownerKey: reference}); err != nil {
+	if err := r.client.List(
+		ctx, pods, client.MatchingFields{ownerKey: reference}, client.UnsafeDisableDeepCopy,
+	); err != nil {
 		r.log.Error(err, "cannot list pods using profile", "profile", obj.GetName())
 
 		return requests
 	}
 
+	seen := sets.New(requests...)
+
 	for i := range pods.Items {
 		request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&pods.Items[i])}
-		if !slices.Contains(requests, request) {
+		if !seen.Has(request) {
+			seen.Insert(request)
 			requests = append(requests, request)
 		}
 	}

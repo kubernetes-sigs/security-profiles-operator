@@ -8,6 +8,7 @@
   - [Notes on OpenShift and SCCs](#notes-on-openshift-and-sccs)
     - [SELinux recording should allow <code>seLinuxContext: RunAsAny</code>](#selinux-recording-should-allow-selinuxcontext-runasany)
     - [Replicating controllers and SCCs](#replicating-controllers-and-sccs)
+  - [Customize the admission policies of the <code>spod</code> service account](#customize-the-admission-policies-of-the-spod-service-account)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -325,6 +326,22 @@ spec:
 Note that we don't specify the SELinux type at all in the workload, that's handled by the SCC instead.
 When the pods are created through the deployment and its `ReplicaSet`, they should be
 running with the appropriate profile.
+
+### Customize the admission policies of the `spod` service account
+
+The operator creates the `spo-spod-*` ValidatingAdmissionPolicies and their bindings if they are
+missing, see the [security model](security-model.md#spod). It updates only the ones it created,
+which carry the `spo.x-k8s.io/admission-policy-hash` annotation. To change a policy or binding,
+for example to only audit the requests of a binding, replace it with an own copy without that
+annotation, which the operator leaves alone:
+
+```sh
+kubectl get validatingadmissionpolicybinding spo-spod-jobs -o yaml >binding.yaml
+# Remove the spo.x-k8s.io/admission-policy-hash annotation and change the spec.
+kubectl replace -f binding.yaml
+```
+
+Deleting a policy or binding does not turn it off, the operator creates it again.
 
 ## Uninstalling
 

@@ -45,6 +45,9 @@ type SelinuxOptions struct {
 	// denied in SELinux profiles.
 	// Each entry gets compared to the types of SELinux profiles, so it may
 	// only contain alphanumeric characters, '.', '-' and '_', or be '@self'.
+	// The comparison is by name only, so an allow rule on a type attribute
+	// grants access to the denied types it contains, unless the attribute is
+	// denied as well, for example device_node next to memory_device_t.
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:items:Pattern=`^([-a-zA-Z0-9._]+|@self)$`
@@ -97,6 +100,18 @@ type SelinuxOptions struct {
 	// +listType=set
 	// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 	AllowedPermissions []string `json:"allowedPermissions,omitempty"`
+
+	// allowPermissiveProfiles allows SelinuxProfiles in the Permissive mode,
+	// and SelinuxProfiles which inherit such a profile. It defaults to true.
+	// A permissive domain gets every access it asks for and only logs the
+	// denials, so it bypasses the denied types, classes and permissions. Set
+	// it to false to reject these profiles: they fail validation and report
+	// an error, so they are neither installed nor updated. A policy which a
+	// node loaded already stays loaded until the profile is deleted.
+	// RawSelinuxProfiles are not affected.
+	// +optional
+	// +default=true
+	AllowPermissiveProfiles *bool `json:"allowPermissiveProfiles,omitempty"`
 }
 
 // JsonEnricherOptions defines options specific to the JSON enricher.
@@ -225,7 +240,8 @@ type SPODSpec struct {
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
 	// imagePullSecrets if defined, list of references to secrets in the
 	// security-profiles-operator's namespace to use for pulling the images
-	// from SPOD pod from a private registry.
+	// of the SPOD pods and of the pods of the webhook managed by the
+	// operator from a private registry.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
@@ -431,7 +447,14 @@ type SPODSchedulingConfig struct {
 // SPODSecurityConfig contains security policy configuration.
 type SPODSecurityConfig struct {
 	// allowedSyscalls if specified, a list of system calls which are
-	// allowed in seccomp profiles.
+	// allowed in seccomp profiles. The syscalls of the checked actions, see
+	// allowedSeccompActions, have to be in the list, including the ones of
+	// the base profiles. A profile whose defaultAction is one of the checked
+	// actions is not allowed either, because it allows every syscall, which
+	// by default applies to SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and
+	// SCMP_ACT_NOTIFY. The operator deletes the SeccompProfiles which are not
+	// allowed from the cluster as soon as the list is set or changed, and the
+	// nodes do not install them.
 	// +optional
 	// +listType=set
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`

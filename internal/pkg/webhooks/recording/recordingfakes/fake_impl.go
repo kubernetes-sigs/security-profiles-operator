@@ -22,24 +22,42 @@ import (
 	"sync"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	v1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	v1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	v1a "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
 
 type FakeImpl struct {
-	ListProfileRecordingsStub        func(context.Context, ...client.ListOption) (*v1.ProfileRecordingList, error)
+	ListProfileBindingsStub        func(context.Context, ...client.ListOption) (*v1.ProfileBindingList, error)
+	listProfileBindingsMutex       sync.RWMutex
+	listProfileBindingsArgsForCall []FakeImplListProfileBindingsArgs
+	listProfileBindingsReturns     struct {
+		result1 *v1.ProfileBindingList
+		result2 error
+	}
+	listProfileBindingsReturnsOnCall map[int]struct {
+		result1 *v1.ProfileBindingList
+		result2 error
+	}
+	ListProfileRecordingsStub        func(context.Context, ...client.ListOption) (*v1a.ProfileRecordingList, error)
 	listProfileRecordingsMutex       sync.RWMutex
 	listProfileRecordingsArgsForCall []FakeImplListProfileRecordingsArgs
 	listProfileRecordingsReturns     struct {
-		result1 *v1.ProfileRecordingList
+		result1 *v1a.ProfileRecordingList
 		result2 error
 	}
 	listProfileRecordingsReturnsOnCall map[int]struct {
-		result1 *v1.ProfileRecordingList
+		result1 *v1a.ProfileRecordingList
 		result2 error
 	}
 	invocations      map[string][][]interface{}
 	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplListProfileBindingsArgs holds the arguments of one call to ListProfileBindings.
+type FakeImplListProfileBindingsArgs struct {
+	Arg1 context.Context
+	Arg2 []client.ListOption
 }
 
 // FakeImplListProfileRecordingsArgs holds the arguments of one call to ListProfileRecordings.
@@ -48,7 +66,82 @@ type FakeImplListProfileRecordingsArgs struct {
 	Arg2 []client.ListOption
 }
 
-func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client.ListOption) (*v1.ProfileRecordingList, error) {
+func (fake *FakeImpl) ListProfileBindings(arg1 context.Context, arg2 ...client.ListOption) (*v1.ProfileBindingList, error) {
+	var arg2Copy []client.ListOption
+	if arg2 != nil {
+		arg2Copy = make([]client.ListOption, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.listProfileBindingsMutex.Lock()
+	ret, specificReturn := fake.listProfileBindingsReturnsOnCall[len(fake.listProfileBindingsArgsForCall)]
+	fake.listProfileBindingsArgsForCall = append(fake.listProfileBindingsArgsForCall, FakeImplListProfileBindingsArgs{arg1, arg2Copy})
+	stub := fake.ListProfileBindingsStub
+	fakeReturns := fake.listProfileBindingsReturns
+	fake.recordInvocation("ListProfileBindings", []interface{}{arg1, arg2Copy})
+	fake.listProfileBindingsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2...)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ListProfileBindingsCallCount() int {
+	fake.listProfileBindingsMutex.RLock()
+	defer fake.listProfileBindingsMutex.RUnlock()
+	return len(fake.listProfileBindingsArgsForCall)
+}
+
+func (fake *FakeImpl) ListProfileBindingsCalls(stub func(context.Context, ...client.ListOption) (*v1.ProfileBindingList, error)) {
+	fake.listProfileBindingsMutex.Lock()
+	defer fake.listProfileBindingsMutex.Unlock()
+	fake.ListProfileBindingsStub = stub
+}
+
+func (fake *FakeImpl) ListProfileBindingsArgsForCall(i int) (context.Context, []client.ListOption) {
+	fake.listProfileBindingsMutex.RLock()
+	defer fake.listProfileBindingsMutex.RUnlock()
+	argsForCall := fake.listProfileBindingsArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) ListProfileBindingsArgs() []FakeImplListProfileBindingsArgs {
+	fake.listProfileBindingsMutex.RLock()
+	defer fake.listProfileBindingsMutex.RUnlock()
+	args := make([]FakeImplListProfileBindingsArgs, len(fake.listProfileBindingsArgsForCall))
+	copy(args, fake.listProfileBindingsArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) ListProfileBindingsReturns(result1 *v1.ProfileBindingList, result2 error) {
+	fake.listProfileBindingsMutex.Lock()
+	defer fake.listProfileBindingsMutex.Unlock()
+	fake.ListProfileBindingsStub = nil
+	fake.listProfileBindingsReturns = struct {
+		result1 *v1.ProfileBindingList
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ListProfileBindingsReturnsOnCall(i int, result1 *v1.ProfileBindingList, result2 error) {
+	fake.listProfileBindingsMutex.Lock()
+	defer fake.listProfileBindingsMutex.Unlock()
+	fake.ListProfileBindingsStub = nil
+	if fake.listProfileBindingsReturnsOnCall == nil {
+		fake.listProfileBindingsReturnsOnCall = make(map[int]struct {
+			result1 *v1.ProfileBindingList
+			result2 error
+		})
+	}
+	fake.listProfileBindingsReturnsOnCall[i] = struct {
+		result1 *v1.ProfileBindingList
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client.ListOption) (*v1a.ProfileRecordingList, error) {
 	var arg2Copy []client.ListOption
 	if arg2 != nil {
 		arg2Copy = make([]client.ListOption, len(arg2))
@@ -76,7 +169,7 @@ func (fake *FakeImpl) ListProfileRecordingsCallCount() int {
 	return len(fake.listProfileRecordingsArgsForCall)
 }
 
-func (fake *FakeImpl) ListProfileRecordingsCalls(stub func(context.Context, ...client.ListOption) (*v1.ProfileRecordingList, error)) {
+func (fake *FakeImpl) ListProfileRecordingsCalls(stub func(context.Context, ...client.ListOption) (*v1a.ProfileRecordingList, error)) {
 	fake.listProfileRecordingsMutex.Lock()
 	defer fake.listProfileRecordingsMutex.Unlock()
 	fake.ListProfileRecordingsStub = stub
@@ -97,28 +190,28 @@ func (fake *FakeImpl) ListProfileRecordingsArgs() []FakeImplListProfileRecording
 	return args
 }
 
-func (fake *FakeImpl) ListProfileRecordingsReturns(result1 *v1.ProfileRecordingList, result2 error) {
+func (fake *FakeImpl) ListProfileRecordingsReturns(result1 *v1a.ProfileRecordingList, result2 error) {
 	fake.listProfileRecordingsMutex.Lock()
 	defer fake.listProfileRecordingsMutex.Unlock()
 	fake.ListProfileRecordingsStub = nil
 	fake.listProfileRecordingsReturns = struct {
-		result1 *v1.ProfileRecordingList
+		result1 *v1a.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ListProfileRecordingsReturnsOnCall(i int, result1 *v1.ProfileRecordingList, result2 error) {
+func (fake *FakeImpl) ListProfileRecordingsReturnsOnCall(i int, result1 *v1a.ProfileRecordingList, result2 error) {
 	fake.listProfileRecordingsMutex.Lock()
 	defer fake.listProfileRecordingsMutex.Unlock()
 	fake.ListProfileRecordingsStub = nil
 	if fake.listProfileRecordingsReturnsOnCall == nil {
 		fake.listProfileRecordingsReturnsOnCall = make(map[int]struct {
-			result1 *v1.ProfileRecordingList
+			result1 *v1a.ProfileRecordingList
 			result2 error
 		})
 	}
 	fake.listProfileRecordingsReturnsOnCall[i] = struct {
-		result1 *v1.ProfileRecordingList
+		result1 *v1a.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }

@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,6 +50,7 @@ var (
 	errInheritNotFound         = errors.New("inherited profile not found")
 	errInheritCycle            = errors.New("inherited profiles form a cycle")
 	errInheritTooDeep          = errors.New("inheritance too deep")
+	errInheritPermissive       = errors.New("inherited profile is permissive")
 
 	// errTemporaryValidation marks validation failures which are caused by
 	// the API server and not by the profile, so they have to be retried.
@@ -174,6 +176,16 @@ func (sph *selinuxProfileHandler) Validate(ctx context.Context) error {
 
 	sph.handleSelinuxOptions(spod)
 
+	if sph.sp.Spec.Mode == selinuxprofileapi.SelinuxModePermissive &&
+		!sph.allowPermissive() {
+		return fmt.Errorf(
+			"%w: unset spec.selinux.options.allowPermissiveProfiles of the SPOD or set it to "+
+				"true to allow them, a policy loaded on the node already stays loaded until the "+
+				"profile is deleted",
+			translator.ErrPermissiveNotAllowed,
+		)
+	}
+
 	for _, inherit := range sph.sp.Spec.Inherit {
 		err := sph.validateAndTrackInherit(ctx, spod, inherit, sph.sp.GetNamespace())
 		if err != nil {
@@ -291,7 +303,10 @@ type inheritEntry struct {
 // checkInheritCycle returns an error if the profile inherits from itself,
 // directly or through the profiles it inherits from, or if the chain of
 // inherited profiles is too deep. Such a profile could never be installed,
-// because each profile waits for its ancestors.
+// because each profile waits for its ancestors. It also returns an error if
+// one of the profiles is permissive and the SPOD does not allow permissive
+// profiles: blockinherit copies the typepermissive statement, so the profile
+// would be permissive as well.
 func (sph *selinuxProfileHandler) checkInheritCycle(
 	ctx context.Context, ancestor *selinuxprofileapi.SelinuxProfile, namespace string,
 ) error {
@@ -314,6 +329,16 @@ func (sph *selinuxProfileHandler) checkInheritCycle(
 
 		if visited[current.profile.GetName()] {
 			continue
+		}
+
+		if current.profile.Spec.Mode == selinuxprofileapi.SelinuxModePermissive &&
+			!sph.allowPermissive() {
+			return fmt.Errorf(
+				"%w: %s is in the %s mode, unset spec.selinux.options.allowPermissiveProfiles "+
+					"of the SPOD or set it to true to allow it, a policy loaded on the node "+
+					"already stays loaded until the profile is deleted",
+				errInheritPermissive, current.profile.GetName(), current.profile.Spec.Mode,
+			)
 		}
 
 		visited[current.profile.GetName()] = true
@@ -367,7 +392,14 @@ func (sph *selinuxProfileHandler) handleSelinuxOptions(
 		AllowedTypes:       spod.Spec.Selinux.Options.AllowedTypes,
 		AllowedClasses:     spod.Spec.Selinux.Options.AllowedClasses,
 		AllowedPermissions: spod.Spec.Selinux.Options.AllowedPermissions,
+		DenyPermissive:     !ptr.Deref(spod.Spec.Selinux.Options.AllowPermissiveProfiles, true),
 	}
+}
+
+// allowPermissive returns true if the SPOD allows permissive profiles, which
+// it does by default. It is only valid after handleSelinuxOptions.
+func (sph *selinuxProfileHandler) allowPermissive() bool {
+	return sph.translatorOpts == nil || !sph.translatorOpts.DenyPermissive
 }
 
 func (sph *selinuxProfileHandler) handleInheritSystemPolicy(

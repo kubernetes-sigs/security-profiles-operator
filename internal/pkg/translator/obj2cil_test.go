@@ -709,6 +709,56 @@ func TestObject2CIL(t *testing.T) {
 	}
 }
 
+func TestObject2CILPermissive(t *testing.T) {
+	t.Parallel()
+
+	sp := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Mode: selinuxprofileapi.SelinuxModePermissive,
+		},
+	}
+
+	for _, opts := range []*Options{nil, {}} {
+		policy, err := Object2CIL(nil, nil, sp, opts)
+		require.NoError(t, err)
+		require.Contains(t, policy, typePermissive)
+	}
+
+	policy, err := Object2CIL(nil, nil, sp, &Options{DenyPermissive: true})
+	require.ErrorIs(t, err, ErrPermissiveNotAllowed)
+	require.Empty(t, policy)
+}
+
+// The kernel memory types are not denied by default, which would break
+// existing profiles, but the SPOD can deny them and the attributes which
+// contain them, like device_node, by name.
+func TestObject2CILKernelMemoryTypes(t *testing.T) {
+	t.Parallel()
+
+	profile := func(ttype string) *selinuxprofileapi.SelinuxProfile {
+		return &selinuxprofileapi.SelinuxProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Spec: selinuxprofileapi.SelinuxProfileSpec{
+				Allow: selinuxprofileapi.Allow{
+					selinuxprofileapi.LabelKey(ttype): {"chr_file": {"read"}},
+				},
+			},
+		}
+	}
+
+	_, err := Object2CIL(nil, nil, profile("kmem_t"), nil)
+	require.ErrorContains(t, err, "type kmem_t is denied")
+
+	for _, ttype := range []string{"memory_device_t", "proc_kcore_t", "device_node"} {
+		_, err := Object2CIL(nil, nil, profile(ttype), nil)
+		require.NoError(t, err)
+
+		_, err = Object2CIL(nil, nil, profile(ttype), &Options{DeniedTypes: []string{ttype}})
+		require.ErrorContains(t, err, "type "+ttype+" is denied")
+	}
+}
+
 func TestObject2CILRejectsInvalidIdentifiers(t *testing.T) {
 	t.Parallel()
 

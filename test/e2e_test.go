@@ -235,6 +235,12 @@ func (e *e2e) testCases() []testCase {
 			clusterWideOnly: true,
 		},
 		{
+			description:     "Selinux: Verify that the SPOD can deny permissive policies",
+			fn:              e.testCaseSelinuxDeniedPermissivePolicy,
+			clusterWideOnly: true,
+			flaky:           true,
+		},
+		{
 			description:     "Selinux: Verify the policy can be marked as permissive: disabled",
 			fn:              func([]string) { e.testCaseSelinuxIncompleteDisabledPolicy() },
 			clusterWideOnly: true,

@@ -38,6 +38,7 @@ import (
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/translator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
@@ -64,6 +65,8 @@ func TestCheckInheritCycle(t *testing.T) {
 		inherits  string
 		wantCycle bool
 		wantErr   error
+		// denyPermissive denies permissive profiles in the SPOD.
+		denyPermissive bool
 	}{
 		"self reference": {
 			profiles:  []client.Object{inheritingProfile("a", "a")},
@@ -114,6 +117,33 @@ func TestCheckInheritCycle(t *testing.T) {
 			inherits: "level-0",
 			wantErr:  errInheritTooDeep,
 		},
+		"permissive ancestor": {
+			profiles: []client.Object{
+				inheritingProfile("a", "b"),
+				inheritingProfile("b", "c"),
+				func() client.Object {
+					sp := inheritingProfile("c")
+					sp.Spec.Mode = selinuxprofileapi.SelinuxModePermissive
+
+					return sp
+				}(),
+			},
+			inherits:       "b",
+			denyPermissive: true,
+			wantErr:        errInheritPermissive,
+		},
+		"permissive ancestor allowed by default": {
+			profiles: []client.Object{
+				inheritingProfile("a", "b"),
+				func() client.Object {
+					sp := inheritingProfile("b")
+					sp.Spec.Mode = selinuxprofileapi.SelinuxModePermissive
+
+					return sp
+				}(),
+			},
+			inherits: "b",
+		},
 		"chain without cycle": {
 			profiles: []client.Object{
 				inheritingProfile("a", "b"),
@@ -131,7 +161,11 @@ func TestCheckInheritCycle(t *testing.T) {
 				WithObjects(tc.profiles...).
 				Build()
 
-			sph := &selinuxProfileHandler{sp: &selinuxprofileapi.SelinuxProfile{}, cli: cli}
+			sph := &selinuxProfileHandler{
+				sp:             &selinuxprofileapi.SelinuxProfile{},
+				cli:            cli,
+				translatorOpts: &translator.Options{DenyPermissive: tc.denyPermissive},
+			}
 			require.NoError(t, cli.Get(t.Context(),
 				types.NamespacedName{Name: "a", Namespace: testReconcileNamespace}, sph.sp))
 

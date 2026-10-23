@@ -50,8 +50,8 @@ func PodTemplateNeedsUpdate(configured, found *corev1.PodTemplateSpec) bool {
 
 // containerListsDiffer reports if the containers at the same index have a
 // different number of arguments, environment variables or volume mounts, a
-// readiness probe on one side only, or different resources or security
-// contexts. DeepDerivative ignores fields which are unset in the configured
+// readiness, liveness or startup probe on one side only, or different
+// resources or security contexts. DeepDerivative ignores fields which are unset in the configured
 // container, so these get compared explicitly to detect cleared ones, like a
 // removed limit. Both lists are expected to have the same length.
 func containerListsDiffer(configured, found []corev1.Container) bool {
@@ -60,6 +60,8 @@ func containerListsDiffer(configured, found []corev1.Container) bool {
 			len(configured[i].Env) != len(found[i].Env) ||
 			len(configured[i].VolumeMounts) != len(found[i].VolumeMounts) ||
 			(configured[i].ReadinessProbe == nil) != (found[i].ReadinessProbe == nil) ||
+			(configured[i].LivenessProbe == nil) != (found[i].LivenessProbe == nil) ||
+			(configured[i].StartupProbe == nil) != (found[i].StartupProbe == nil) ||
 			!apiequality.Semantic.DeepEqual(configured[i].Resources, found[i].Resources) ||
 			securityContextsDiffer(configured[i].SecurityContext, found[i].SecurityContext) {
 			return true

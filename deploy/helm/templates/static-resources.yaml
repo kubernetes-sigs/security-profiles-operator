@@ -100,6 +100,19 @@ rules:
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
+  - spo-spod-jobs
+  - spo-spod-node-statuses
+  - spo-spod-profiles
+  - spo-spod-recordings
+  resources:
+  - validatingadmissionpolicies
+  - validatingadmissionpolicybindings
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - admissionregistration.k8s.io
+  resourceNames:
   - spo-validating-webhook-configuration
   resources:
   - validatingwebhookconfigurations
@@ -163,8 +176,6 @@ rules:
   - profilerecordings/status
   - rawselinuxprofiles/status
   - seccompprofiles/status
-  - securityprofilesoperatordaemons/finalizers
-  - securityprofilesoperatordaemons/status
   - selinuxprofiles/status
   verbs:
   - get
@@ -188,15 +199,6 @@ rules:
   - securityprofilenodestatuses
   verbs:
   - delete
-  - get
-  - list
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons
-  verbs:
-  - create
   - get
   - list
   - watch
@@ -290,6 +292,24 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons/finalizers
+  - securityprofilesoperatordaemons/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - security.openshift.io
   resourceNames:
@@ -415,14 +435,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons
-  verbs:
-  - get
-  - list
-  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -451,6 +463,14 @@ rules:
   verbs:
   - create
   - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons
+  verbs:
   - get
   - list
   - watch
@@ -1267,7 +1287,6 @@ data:
           - /sys/kernel/debug/tracing/events/**/id
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
           - /sys/kernel/security/lsm
-          - /var/run/secrets/kubernetes.io/serviceaccount/**
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
           - /var/run/grpc/bpf-recorder.sock

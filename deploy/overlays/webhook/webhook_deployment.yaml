@@ -59,6 +59,28 @@ spec:
             periodSeconds: 10
             successThreshold: 1
             failureThreshold: 3
+          # The replica reads the cluster configuration before it serves the
+          # health endpoints, which takes a while with a slow API server.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+              scheme: HTTP
+            timeoutSeconds: 1
+            periodSeconds: 3
+            successThreshold: 1
+            failureThreshold: 30
+          # A replica whose health server stops answering gets restarted, the
+          # readiness probe only takes it out of rotation.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+              scheme: HTTP
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
           resources:
             requests:
               memory: 32Mi

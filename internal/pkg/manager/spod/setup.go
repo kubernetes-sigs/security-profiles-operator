@@ -211,6 +211,11 @@ func (r *ReconcileSPOd) Setup(
 
 	r.skipAdmissionPolicies = !servesPolicies
 
+	r.spodPolicies, err = bindata.GetSpodAdmissionPolicies(r.namespace)
+	if err != nil {
+		return fmt.Errorf("get spod admission policies: %w", err)
+	}
+
 	if servesPolicies {
 		isAdmissionPolicy := builder.WithPredicates(predicate.NewPredicateFuncs(
 			func(obj client.Object) bool { return bindata.IsAdmissionPolicyName(obj.GetName()) },

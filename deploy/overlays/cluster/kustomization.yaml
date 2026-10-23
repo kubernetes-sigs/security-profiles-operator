@@ -8,6 +8,7 @@ resources:
 - ../../base-crds
 - ../../base
 - ../../kustomize-deployment
+- prometheus_role.yaml
 patches:
 - path: operator-profile.yaml
   target:

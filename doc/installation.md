@@ -729,7 +729,8 @@ A `namespaceSelector` or `objectSelector` in `webhook.options` replaces the defa
 the webhook instead of adding to it. A `namespaceSelector` for `binding.spo.io` or `recording.spo.io`
 therefore has to repeat the `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
 requirement, otherwise the webhook applies to every namespace the selector matches. Whatever the
-selector says, the operator keeps its own namespace excluded from `binding.spo.io`.
+selector says, the operator keeps its own namespace excluded from `binding.spo.io`, and the pods
+of the operator and the webhook excluded from `recording.spo.io`.
 
 `webhook.options` is a list, so a `--type=merge` patch replaces all of its entries. The OpenShift
 manifests of this repository, `deploy/openshift-dev.yaml` and `deploy/openshift-downstream.yaml`,
