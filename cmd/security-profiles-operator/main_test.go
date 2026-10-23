@@ -54,6 +54,7 @@ import (
 	seccompprofilev1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusv1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofilev1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodv1 "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/clidocs"
@@ -125,12 +126,12 @@ func TestRestrictOperandCache(t *testing.T) {
 		return cache.ByObject{Field: fields.OneTermEqualSelector("metadata.name", name)}
 	}
 
-	require.Len(t, opts.Cache.ByObject, 12)
+	require.Len(t, opts.Cache.ByObject, 13)
 
 	for obj, byObject := range opts.Cache.ByObject {
 		switch obj.(type) {
 		case *appsv1.DaemonSet, *appsv1.Deployment, *corev1.Service, *policyv1.PodDisruptionBudget,
-			*certmanagerv1.Issuer, *certmanagerv1.Certificate:
+			*spodv1.SecurityProfilesOperatorDaemon, *certmanagerv1.Issuer, *certmanagerv1.Certificate:
 			require.Equal(t, inNamespace, byObject, "%T", obj)
 		case *admissionregv1.MutatingWebhookConfiguration:
 			require.Equal(t, byName("spo-mutating-webhook-configuration"), byObject)
@@ -171,6 +172,7 @@ func TestRestrictOperandCacheWithoutAdmissionPolicies(t *testing.T) {
 		corev1.SchemeGroupVersion.WithKind("Pod"),
 		corev1.SchemeGroupVersion.WithKind("ConfigMap"),
 		policyv1.SchemeGroupVersion.WithKind("PodDisruptionBudget"),
+		spodv1.GroupVersion.WithKind("SecurityProfilesOperatorDaemon"),
 	} {
 		mapper.Add(gvk, meta.RESTScopeNamespace)
 	}
@@ -189,6 +191,7 @@ func TestRestrictOperandCacheWithoutAdmissionPolicies(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(scheme))
 	require.NoError(t, certmanagerv1.AddToScheme(scheme))
+	require.NoError(t, spodv1.AddToScheme(scheme))
 
 	newCache := func(served servedAPIs) error {
 		opts := ctrl.Options{}
@@ -225,7 +228,7 @@ func TestRestrictOperandCacheWithoutAdmissionPolicies(t *testing.T) {
 
 	opts := ctrl.Options{}
 	restrictOperandCache(&opts, "spo", servedAPIs{})
-	require.Len(t, opts.Cache.ByObject, 8)
+	require.Len(t, opts.Cache.ByObject, 9)
 
 	for obj := range opts.Cache.ByObject {
 		switch obj.(type) {

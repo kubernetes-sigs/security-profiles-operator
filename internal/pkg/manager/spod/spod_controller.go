@@ -137,6 +137,10 @@ type ReconcileSPOd struct {
 	// the kinds up again on every run.
 	skipAdmissionPolicies bool
 
+	// spodPolicies are the admission policies of the spod service account,
+	// which remember when they got applied. They are set in Setup.
+	spodPolicies *bindata.SpodAdmissionPolicies
+
 	// watchesCertManager is set in Setup when the controller watches the
 	// cert-manager resources of the operator, which requires the cluster to
 	// serve the cert-manager API.
@@ -201,9 +205,9 @@ func (r *ReconcileSPOd) SchemeBuilder() runtime.SchemeBuilder {
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons/finalizers,verbs=get;update;patch
 // Helpers:
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update
 //
@@ -237,6 +241,11 @@ func (r *ReconcileSPOd) SchemeBuilder() runtime.SchemeBuilder {
 // cached by name like the webhook configurations.
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=create
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,resourceNames=spo-recording-profiles,verbs=get;list;watch;update
+//
+// Needed for the spod admission policies, see bindata.SpodAdmissionPolicies.
+// They are read uncached:
+//nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,resourceNames=spo-spod-jobs;spo-spod-node-statuses;spo-spod-profiles;spo-spod-recordings,verbs=get;update
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `SPOD.Spec`.
@@ -315,6 +324,13 @@ func (r *ReconcileSPOd) Reconcile(
 		r.handleErrorStatus(ctx, spod, logger, err)
 
 		return reconcile.Result{}, err
+	}
+
+	// Nothing watches the spod admission policies, so the reconciliation
+	// repeats to create deleted ones again, see bindata.SpodAdmissionPolicies.
+	// Like any reconciliation, it only changes operands which differ.
+	if !r.skipAdmissionPolicies && r.spodPolicies != nil {
+		return reconcile.Result{RequeueAfter: bindata.SpodPolicyResync}, nil
 	}
 
 	return reconcile.Result{}, nil
@@ -764,7 +780,8 @@ func (r *ReconcileSPOd) recordingNamespaceSelector(
 // rest, because a failed apply does not trigger the watch. If the selector of
 // a static recording webhook cannot be read, the deployed policies stay, and
 // errAdmissionPoliciesPending is returned. A conflict is returned as well,
-// without reporting it.
+// without reporting it. The spod admission policies are not watched: missing
+// ones get created again by the next reconciliation.
 func (r *ReconcileSPOd) applyAdmissionPolicies(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
@@ -792,7 +809,19 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 
 	policies := bindata.GetAdmissionPolicies(selector)
 
-	if err := policies.Apply(ctx, r.client); err != nil {
+	apply := func() error {
+		if err := policies.Apply(ctx, r.client); err != nil {
+			return err
+		}
+
+		if r.spodPolicies == nil {
+			return nil
+		}
+
+		return r.spodPolicies.Apply(ctx, r.client, r.clientReader)
+	}
+
+	if err := apply(); err != nil {
 		// The API server may not serve the ValidatingAdmissionPolicy API, or
 		// a policy got deleted while it got updated, which the next
 		// reconciliation creates again. The error tells which.
@@ -1324,10 +1353,11 @@ func (r *ReconcileSPOd) configureRecording(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 		fmt.Sprintf("--with-recording=%t", enableRecording))
 
-	// addContainer adds the base container with the provided ID and passes
-	// the env var to the daemon, as the profile recorder is otherwise
-	// disabled. The profile recorder does not use the JSON enricher, so it
-	// has no env var.
+	// addContainer adds the base container with the provided ID and enables
+	// its feature in the profile recorder of the daemon through the env var.
+	// The profile recorder reads the SPOD as well, the env var makes it
+	// independent of its cache. The profile recorder does not use the JSON
+	// enricher, so it has no env var.
 	addContainer := func(id int, envKey string, configure func(*corev1.Container)) {
 		ctr := r.baseContainer(id)
 		ctr.Image = image
@@ -1763,19 +1793,6 @@ func envFlagsFromEnvironment() envFlags {
 	}
 }
 
-// byEnvKey returns the flag of the environment variable which the manager
-// passes on to the daemon.
-func (e envFlags) byEnvKey(key string) bool {
-	switch key {
-	case config.EnableLogEnricherEnvKey:
-		return e.enableLogEnricher
-	case config.EnableBpfRecorderEnvKey:
-		return e.enableBpfRecorder
-	default:
-		return false
-	}
-}
-
 func (r *ReconcileSPOd) isLogEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
 	return ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) || r.env.enableLogEnricher
 }
@@ -1825,11 +1842,13 @@ func sliceReplaceArg(slice []string, s string) bool {
 	return false
 }
 
-// addEnvVar passes the flag of the operator environment to the daemon.
+// addEnvVar enables the feature of the env var in the daemon. It is only
+// added together with the container of the feature, which the SPOD or the
+// environment of the operator enables.
 func (r *ReconcileSPOd) addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
 	envVar := corev1.EnvVar{
 		Name:  envVarKey,
-		Value: strconv.FormatBool(r.env.byEnvKey(envVarKey)),
+		Value: "true",
 	}
 
 	templateSpec.Containers[bindata.ContainerIDDaemon].Env = append(

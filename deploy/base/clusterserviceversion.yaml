@@ -52,11 +52,20 @@ spec:
       name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
       version: v1
       resources:
+      - kind: Certificate
+        name: metrics-cert
+        version: v1
+      - kind: Certificate
+        name: webhook-cert
+        version: v1
       - kind: DaemonSet
         name: spod
         version: v1
       - kind: Deployment
         name: security-profiles-operator-webhook
+        version: v1
+      - kind: Issuer
+        name: selfsigned-issuer
         version: v1
       - kind: PodDisruptionBudget
         name: security-profiles-operator-webhook
@@ -66,6 +75,9 @@ spec:
         version: v1
       - kind: Service
         name: webhook-service
+        version: v1
+      - kind: ServiceMonitor
+        name: security-profiles-operator-monitor
         version: v1
       specDescriptors:
       - description: Enables the AppArmor support of the daemon.

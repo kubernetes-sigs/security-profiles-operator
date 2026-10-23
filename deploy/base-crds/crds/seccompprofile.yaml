@@ -80,6 +80,10 @@ spec:
                   - SCMP_ARCH_PARISC
                   - SCMP_ARCH_PARISC64
                   - SCMP_ARCH_RISCV64
+                  - SCMP_ARCH_LOONGARCH64
+                  - SCMP_ARCH_M68K
+                  - SCMP_ARCH_SH
+                  - SCMP_ARCH_SHEB
                   type: string
                 type: array
                 x-kubernetes-list-type: set
@@ -137,7 +141,7 @@ spec:
                   listenerPath is the path of UNIX domain socket to contact a seccomp
                   agent for SCMP_ACT_NOTIFY.
                 maxLength: 107
-                pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
+                pattern: ^/var/run/security-profiles-operator/([a-zA-Z0-9_\-][a-zA-Z0-9_\-.]*|[.][a-zA-Z0-9_\-][a-zA-Z0-9_\-.]*|[.][.][a-zA-Z0-9_\-.]+)$
                 type: string
               state:
                 default: Enabled

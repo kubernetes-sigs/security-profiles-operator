@@ -1,0 +1,157 @@
+---
+# The spod service account writes the profiles of all nodes, but only needs a
+# few of these writes: the daemons add and remove their finalizers, label the
+# profiles for their node statuses and annotate the syscalls of seccomp
+# profiles, and the profile recorder creates and merges the recorded profiles.
+# RBAC cannot restrict the content of a write, so this policy limits the
+# writes of the spod service account to these. Otherwise a compromised node
+# could weaken a profile on all nodes, for example set an AppArmor profile to
+# complain mode or the default action of a seccomp profile to allow.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: spo-spod-profiles
+spec:
+  failurePolicy: Fail
+  # Requests for other versions are converted to v1, whose fields the specs
+  # variable lists.
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["security-profiles-operator.x-k8s.io"]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources:
+      - apparmorprofiles
+      - rawselinuxprofiles
+      - seccompprofiles
+      - selinuxprofiles
+  matchConditions:
+  # The profiles are cluster scoped, and the operator namespace is not known
+  # here, so this matches the spod service account of any namespace.
+  - name: spod-service-account
+    expression: >-
+      request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+  variables:
+  - name: labels
+    expression: >-
+      has(object.metadata.labels) ? object.metadata.labels : {}
+  - name: oldLabels
+    expression: >-
+      request.operation == 'UPDATE' && has(oldObject.metadata.labels) ?
+      oldObject.metadata.labels : {}
+  # The profile recorder only updates the profiles which it recorded, and
+  # never a raw SELinux profile.
+  - name: recorded
+    expression: >-
+      request.kind.kind != 'RawSelinuxProfile' &&
+      'spo.x-k8s.io/recording-id' in variables.oldLabels
+  # The new and the old spec, with the fields which are left out replaced by
+  # their zero values. The daemons write the profiles which they decoded, which
+  # drops the fields that are set to their zero value, so the specs differ
+  # without changing the profile. That also turns an empty inherit list of a
+  # SelinuxProfile into the default one. Every field of the specs has to be
+  # listed here, otherwise changing it is not detected, which the tests of
+  # internal/pkg/manifests check.
+  - name: specs
+    expression: >-
+      [object, oldObject].map(o, o.?spec.orValue({})).map(s,
+      request.kind.kind == 'SeccompProfile' ? [
+      dyn(s.?state.orValue('')),
+      dyn(s.?baseProfileName.orValue('')),
+      dyn(s.?defaultAction.orValue('')),
+      dyn(s.?architectures.orValue([])),
+      dyn(s.?listenerPath.orValue('')),
+      dyn(s.?listenerMetadata.orValue('')),
+      dyn(s.?flags.orValue([])),
+      dyn(s.?syscalls.orValue([]).map(c, [
+      dyn(c.?names.orValue([])),
+      dyn(c.?action.orValue('')),
+      dyn(c.?errnoRet.orValue(0)),
+      dyn(c.?args.orValue([]).map(a, [
+      dyn(has(a.index) ? [a.index] : []),
+      dyn(a.?value.orValue(0)),
+      dyn(a.?valueTwo.orValue(0)),
+      dyn(a.?op.orValue(''))]))]))] :
+      request.kind.kind == 'AppArmorProfile' ? [
+      dyn(s.?state.orValue('')),
+      dyn(s.?mode.orValue('')),
+      dyn(s.?abstract.?executable.hasValue() ? [
+      dyn(s.abstract.executable.?allowedExecutables.orValue([])),
+      dyn(s.abstract.executable.?allowedLibraries.orValue([]))] : []),
+      dyn(s.?abstract.?filesystem.hasValue() ? [
+      dyn(s.abstract.filesystem.?readOnlyPaths.orValue([])),
+      dyn(s.abstract.filesystem.?writeOnlyPaths.orValue([])),
+      dyn(s.abstract.filesystem.?readWritePaths.orValue([]))] : []),
+      dyn(s.?abstract.?network.hasValue() ? [
+      dyn(has(s.abstract.network.allowRaw) ? [s.abstract.network.allowRaw] : []),
+      dyn(has(s.abstract.network.allowedProtocols) ? [
+      dyn(has(s.abstract.network.allowedProtocols.allowTcp) ?
+      [s.abstract.network.allowedProtocols.allowTcp] : []),
+      dyn(has(s.abstract.network.allowedProtocols.allowUdp) ?
+      [s.abstract.network.allowedProtocols.allowUdp] : [])] : [])] : []),
+      dyn(s.?abstract.?capability.hasValue() ? [
+      dyn(s.abstract.capability.?allowedCapabilities.orValue([]))] : []),
+      dyn(s.?abstract.?ptrace.hasValue() ? [
+      dyn(s.abstract.ptrace.?allowedAccess.orValue([])),
+      dyn(s.abstract.ptrace.?peer.orValue(''))] : [])] :
+      request.kind.kind == 'SelinuxProfile' ? [
+      dyn(s.?state.orValue('')),
+      dyn(s.?mode.orValue('')),
+      dyn(s.?inherit.orValue([]).size() > 0 ? s.inherit.map(i, [
+      dyn(i.?kind.orValue('')), dyn(i.?name.orValue(''))]) :
+      [[dyn('System'), dyn('container')]]),
+      dyn(s.?allow.orValue({}))] :
+      [
+      dyn(s.?state.orValue('')),
+      dyn(s.?policy.orValue(''))])
+  validations:
+  - expression: >-
+      request.operation != 'CREATE' ||
+      (request.kind.kind != 'RawSelinuxProfile' &&
+      'spo.x-k8s.io/recording-id' in variables.labels &&
+      'spo.x-k8s.io/recording-namespace' in variables.labels)
+    message: The spod service account may only create recorded profiles
+    reason: Forbidden
+  - expression: >-
+      request.operation != 'UPDATE' || variables.recorded ||
+      variables.specs[0] == variables.specs[1]
+    message: >-
+      The spod service account may only change the spec of the profiles which
+      it recorded
+    reason: Forbidden
+  # A profile cannot become a recorded one, which would allow changing its
+  # spec.
+  - expression: >-
+      request.operation != 'UPDATE' ||
+      variables.labels[?'spo.x-k8s.io/recording-id'] ==
+      variables.oldLabels[?'spo.x-k8s.io/recording-id']
+    message: The spod service account must not change the spo.x-k8s.io/recording-id label
+    reason: Forbidden
+  # The daemons only add the label of the node statuses to the other
+  # profiles. A partial label, for example, would keep the daemons from
+  # installing changes to the profile.
+  - expression: >-
+      request.operation != 'UPDATE' || variables.recorded ||
+      (variables.oldLabels.all(k, k == 'spo.x-k8s.io/profile-id' ||
+      variables.labels[?k] == optional.of(variables.oldLabels[k])) &&
+      variables.labels.all(k, k == 'spo.x-k8s.io/profile-id' || k in variables.oldLabels))
+    message: >-
+      The spod service account may only add the spo.x-k8s.io/profile-id label
+      to the profiles which it did not record
+    reason: Forbidden
+  # The garbage collector deletes objects whose owners are gone, which the
+  # spod service account must not be able to do.
+  - expression: >-
+      request.operation != 'UPDATE' ||
+      object.metadata.?ownerReferences.orValue([]) ==
+      oldObject.metadata.?ownerReferences.orValue([])
+    message: The spod service account must not change the owner references
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: spo-spod-profiles
+spec:
+  policyName: spo-spod-profiles
+  validationActions: ["Deny"]

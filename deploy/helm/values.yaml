@@ -67,6 +67,8 @@ selinux:
     # allowedTypes: []
     # allowedClasses: []
     # allowedPermissions: []
+    # Permissive SelinuxProfiles bypass the denylist, false rejects them.
+    # allowPermissiveProfiles: true
 enableLogEnricher: false
 enableJsonEnricher: false
 enableAppArmor: false

@@ -920,6 +920,41 @@ func TestReconcileAggregatesWithoutStaleStatus(t *testing.T) {
 	require.Len(t, storedProfile(t, c).Finalizers, 2)
 }
 
+// The status of a node which stopped running the SPOd must not stand in for
+// the one of a new node, which did not report yet, although their number
+// matches.
+func TestReconcileWaitsForStatusOfNewNode(t *testing.T) {
+	t.Parallel()
+
+	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	tainted := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStatePending,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+	)
+
+	// worker-2 does not run a SPOd pod anymore, worker-3 got one instead.
+	r, c, _ := newTestReconciler(t, profile, live, tainted, selectingSpodDS(2, 2),
+		testNode("worker-1"), testNode("worker-2"), testNode("worker-3"),
+		spodPod("worker-1"), spodPod("worker-3"))
+
+	res, err := reconcileStatus(t, r, live)
+	require.NoError(t, err)
+	require.Equal(t, time.Second, res.RequeueAfter)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status)
+
+	err = c.Get(context.Background(), client.ObjectKeyFromObject(tainted),
+		&secprofnodestatusapi.SecurityProfileNodeStatus{})
+	require.True(t, kerrors.IsNotFound(err))
+
+	// Until worker-3 reports, the profile keeps waiting.
+	res, err = reconcileStatus(t, r, live)
+	require.NoError(t, err)
+	require.Equal(t, dsWait, res.RequeueAfter)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status)
+}
+
 func TestListStatusesForProfile(t *testing.T) {
 	t.Parallel()
 

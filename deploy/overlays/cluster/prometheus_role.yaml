@@ -1,10 +1,13 @@
 ---
-# Prometheus discovers the metrics endpoints of the ServiceMonitor in the
-# operator namespace, so it only needs to read the pods, services and
-# endpoints there. The spo-metrics-client ClusterRole keeps granting the
-# metrics paths only. Like every namespaced object of this overlay, the Role
-# and its binding name the security-profiles-operator namespace, and the
-# downstream packaging moves them into its own namespace.
+# The OpenShift cluster monitoring discovers the metrics endpoints of the
+# ServiceMonitor in the operator namespace, so its prometheus-k8s service
+# account only needs to read the pods, services and endpoints there. The
+# spo-metrics-client ClusterRole keeps granting the metrics paths only. The
+# OLM bundle and the OpenShift overlays build on this overlay. Other clusters
+# have no openshift-monitoring/prometheus-k8s service account, so the binding
+# has no effect there. Like every namespaced object of this overlay, the Role
+# and its binding name the security-profiles-operator namespace, which OLM
+# and the downstream packaging replace with their own.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

@@ -18,6 +18,7 @@ package recording
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"path"
 	"slices"
@@ -30,12 +31,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -47,6 +50,11 @@ import (
 // reasonConflictingRecording is the reason of the event of a recording which
 // does not record a container, because an older one records it already.
 const reasonConflictingRecording = "ConflictingRecording"
+
+// reasonContainerBound is the reason of the event of a logs recording which
+// does not record a container, because a binding enforces a profile of the
+// recorded kind on it.
+const reasonContainerBound = "ContainerBound"
 
 type podSeccompRecorder struct {
 	impl
@@ -76,6 +84,7 @@ func RegisterWebhook(
 
 // Security Profiles Operator Webhook RBAC permissions
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch
 
 //nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p *podSeccompRecorder) Handle(
@@ -132,6 +141,13 @@ func (p *podSeccompRecorder) Handle(
 	// which set them.
 	claimed := map[string]string{}
 
+	// bound are the containers which bindings bind, which only get listed
+	// once a logs recording selects the pod.
+	var (
+		bound    boundContainers
+		warnings []string
+	)
+
 	for i := range items {
 		item := items[i]
 		if !item.IsKindSupported() {
@@ -169,20 +185,32 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			if err := p.updatePod(pod, podName, &item, claimed); err != nil {
+			if bound == nil && item.Spec.Recorder == profilerecordingapi.ProfileRecorderLogs {
+				bound, err = p.boundContainers(ctx, pod, req.Namespace)
+				if err != nil {
+					p.log.Error(err, "Could not list profile bindings")
+
+					return admission.Errored(http.StatusInternalServerError, err)
+				}
+			}
+
+			skipped, err := p.updatePod(pod, podName, &item, claimed, bound)
+			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 
+			warnings = append(warnings, skipped...)
+
 			podMatched = true
 
-			// for any matched pod, check the name of the recording in case the recording
-			// is mergeable - in that case, the recording name will be used as a label
+			// The recording name is the value of the recording label of the
+			// recorded profiles.
 			p.warnEventIfNameTooLong(&item)
 		}
 	}
 
 	if !podMatched {
-		return admission.Allowed("pod unchanged")
+		return admission.Allowed("pod unchanged").WithWarnings(warnings...)
 	}
 
 	// The patch only touches the mutated fields, so that the fields of the
@@ -190,17 +218,130 @@ func (p *podSeccompRecorder) Handle(
 	// the security context of a pod whose recording annotations are set
 	// already, for example when the webhook gets invoked again after another
 	// webhook changed the security context.
-	return utils.PodPatchResponse(p.decoder, &req, pod)
+	return utils.PodPatchResponse(p.decoder, &req, pod).WithWarnings(warnings...)
+}
+
+// boundBinding is the binding which binds a container.
+type boundBinding struct {
+	name string
+
+	// uncached is true for a binding which the cache of the webhook does not
+	// know yet, so it may bind a profile of any kind to the container.
+	uncached bool
+}
+
+// boundContainers maps the profile kinds to the names of the containers which
+// a binding binds.
+type boundContainers map[profilebindingapi.ProfileBindingKind]map[string]boundBinding
+
+// boundContainers returns the containers of the pod which the bindings listed
+// in its applied bindings annotation bind, per profile kind. The binding
+// webhook runs before the recording webhook, by default in the namespaces
+// labeled spo.x-k8s.io/enable-binding except the one of the operator, and
+// replaces an annotation set by the pod author, so the annotation lists the
+// bindings applied to the pod. Where the binding webhook does not run, an
+// annotation of the pod author can only keep the containers of the pod from
+// being recorded. A binding which is missing from the cache, because the
+// cache of this replica lags behind the one of the replica which applied it,
+// counts as binding every container to a profile of each kind the logs
+// recorder sets, so that the recording does not replace a bound profile.
+func (p *podSeccompRecorder) boundContainers(
+	ctx context.Context, pod *corev1.Pod, namespace string,
+) (boundContainers, error) {
+	bound := boundContainers{}
+
+	applied := sets.New[string]()
+
+	for name := range strings.SplitSeq(pod.Annotations[profilebindingapi.AppliedBindingsAnnotation], ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			applied.Insert(name)
+		}
+	}
+
+	if applied.Len() == 0 {
+		return bound, nil
+	}
+
+	bindings, err := p.ListProfileBindings(
+		ctx, client.InNamespace(namespace), client.UnsafeDisableDeepCopy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bind := func(kind profilebindingapi.ProfileBindingKind, ctrName string, binding boundBinding) {
+		if bound[kind] == nil {
+			bound[kind] = map[string]boundBinding{}
+		}
+
+		bound[kind][ctrName] = binding
+	}
+
+	cached := sets.New[string]()
+
+	for i := range bindings.Items {
+		pb := &bindings.Items[i]
+		if !applied.Has(pb.Name) {
+			continue
+		}
+
+		cached.Insert(pb.Name)
+
+		kind := pb.Spec.ProfileRef.Kind
+
+		for _, ctr := range util.PodContainers(pod) {
+			if pb.Spec.Image != profilebindingapi.SelectAllContainersImage &&
+				!util.SameImage(pb.Spec.Image, ctr.Image) {
+				continue
+			}
+
+			// An image specific binding takes precedence over a wildcard
+			// one, the name is only used in messages.
+			if _, ok := bound[kind][ctr.Name]; !ok ||
+				pb.Spec.Image != profilebindingapi.SelectAllContainersImage {
+				bind(kind, ctr.Name, boundBinding{name: pb.Name})
+			}
+		}
+	}
+
+	for _, name := range sets.List(applied.Difference(cached)) {
+		p.log.Info(
+			"applied profile binding not found in the cache, assuming it binds every container",
+			"binding",
+			name,
+			"pod",
+			pod.Name,
+		)
+
+		for _, kind := range []profilebindingapi.ProfileBindingKind{
+			profilebindingapi.ProfileBindingKindSeccompProfile,
+			profilebindingapi.ProfileBindingKindSelinuxProfile,
+		} {
+			for _, ctr := range util.PodContainers(pod) {
+				if _, ok := bound[kind][ctr.Name]; !ok {
+					bind(kind, ctr.Name, boundBinding{name: name, uncached: true})
+				}
+			}
+		}
+	}
+
+	return bound, nil
 }
 
 // updatePod applies the recording to the containers of the pod which gets
 // created: they get their security context and a fresh recording annotation.
+// It returns the warnings about the containers which do not get recorded,
+// because the logs recorder would replace the profile a binding enforces on
+// them.
 func (p *podSeccompRecorder) updatePod(
 	pod *corev1.Pod,
 	podName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
 	claimed map[string]string,
-) error {
+	bound boundContainers,
+) ([]string, error) {
+	var warnings []string
+
 	// Collect containers as references to not copy them during modification
 	ctrs := slices.DeleteFunc(util.PodContainers(pod), func(c *corev1.Container) bool {
 		return !util.RecordsContainer(profileRecording, c.Name)
@@ -211,7 +352,22 @@ func (p *podSeccompRecorder) updatePod(
 
 		key, value, err := profileRecording.CtrAnnotation(ctr.Name)
 		if err != nil {
-			return err
+			return warnings, err
+		}
+
+		if binding, ok := boundBy(profileRecording, ctr, bound); ok {
+			warnings = append(
+				warnings,
+				p.containerBound(profileRecording, binding, podName, ctr.Name),
+			)
+
+			// A recording annotation of the pod author would still start a
+			// recording of the container, like the overwritten ones below.
+			if _, ok := claimed[key]; !ok {
+				delete(pod.Annotations, key)
+			}
+
+			continue
 		}
 
 		if owner, ok := claimed[key]; ok && owner != profileRecording.Name {
@@ -271,7 +427,54 @@ func (p *podSeccompRecorder) updatePod(
 			"workload", podName, "existingValue", existingValue, "newValue", value)
 	}
 
-	return nil
+	return warnings, nil
+}
+
+// boundBy returns the binding which enforces a profile of the recorded kind
+// on the container, if the recording replaces the security context. The
+// binding always replaces the security context of the pod author, so the
+// recording must not replace the bound profile either. Recorders which do not
+// change the security context record the container with the bound profile.
+func boundBy(
+	pr *profilerecordingapi.ProfileRecording,
+	ctr *corev1.Container,
+	bound boundContainers,
+) (boundBinding, bool) {
+	if pr.Spec.Recorder != profilerecordingapi.ProfileRecorderLogs {
+		return boundBinding{}, false
+	}
+
+	binding, ok := bound[profilebindingapi.ProfileBindingKind(pr.Spec.Kind)][ctr.Name]
+
+	return binding, ok
+}
+
+// containerBound records that the container is not recorded, because a
+// binding enforces a profile of the recorded kind on it, and returns a
+// warning for the admission response.
+func (p *podSeccompRecorder) containerBound(
+	pr *profilerecordingapi.ProfileRecording, binding boundBinding, podName, ctrName string,
+) string {
+	msg := fmt.Sprintf(
+		"profile recording %s does not record container %s of pod %s, because the profile "+
+			"binding %s binds a %s to it, which the logs recorder would replace",
+		pr.Name, ctrName, podName, binding.name, pr.Spec.Kind,
+	)
+	if binding.uncached {
+		msg = fmt.Sprintf(
+			"profile recording %s does not record container %s of pod %s, because the profile "+
+				"binding %s got applied to the pod, but is not known to the webhook yet, so it "+
+				"may bind a %s to the container, which the logs recorder would replace",
+			pr.Name, ctrName, podName, binding.name, pr.Spec.Kind,
+		)
+	}
+
+	p.log.Info(msg)
+	p.record.Eventf(
+		pr, nil, corev1.EventTypeWarning, reasonContainerBound, util.EventActionMutate, "%s", msg,
+	)
+
+	return msg
 }
 
 // keepRecordingAnnotations answers an update of the pod, whose recording

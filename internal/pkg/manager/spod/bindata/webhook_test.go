@@ -437,7 +437,19 @@ func TestRecordingWebhookSelectors(t *testing.T) {
 	namespaceSelector, objectSelector = RecordingWebhookSelectors(opts, false)
 	require.Equal(t, userSelector, namespaceSelector)
 	require.NotSame(t, userSelector, namespaceSelector)
-	require.Equal(t, userObjectSelector, objectSelector)
+
+	// The operator pods stay excluded, the user's options stay untouched.
+	require.Equal(t, &metav1.LabelSelector{
+		MatchLabels:      userObjectSelector.MatchLabels,
+		MatchExpressions: excludeOperatorPods.MatchExpressions,
+	}, objectSelector)
+	require.Empty(t, userObjectSelector.MatchExpressions)
+
+	// A selector which excludes them already does not get a duplicate.
+	_, excluding := RecordingWebhookSelectors([]spodapi.WebhookOptions{
+		{Name: RecordingWebhookName, ObjectSelector: &excludeOperatorPods},
+	}, false)
+	require.Equal(t, &excludeOperatorPods, excluding)
 
 	// They are the ones of the webhook which the operator deploys.
 	webhook := GetWebhook(

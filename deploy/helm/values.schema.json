@@ -95,7 +95,8 @@
             "deniedPermissions": { "type": "array", "items": { "type": "string" } },
             "allowedTypes": { "type": "array", "items": { "type": "string" } },
             "allowedClasses": { "type": "array", "items": { "type": "string" } },
-            "allowedPermissions": { "type": "array", "items": { "type": "string" } }
+            "allowedPermissions": { "type": "array", "items": { "type": "string" } },
+            "allowPermissiveProfiles": { "type": "boolean" }
           }
         }
       }

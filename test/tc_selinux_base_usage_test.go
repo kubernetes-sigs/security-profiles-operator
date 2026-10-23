@@ -315,6 +315,42 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	e.kubectl("delete", "selinuxprofile", permissiveProfileName)
 }
 
+// testCaseSelinuxDeniedPermissivePolicy checks that a SPOD which denies
+// permissive profiles keeps a permissive profile from being installed, until
+// they are allowed again.
+func (e *e2e) testCaseSelinuxDeniedPermissivePolicy(nodes []string) {
+	const profileName = "errorlogger-incomplete-denied-permissive"
+
+	e.selinuxOnlyTestCase()
+
+	e.logf("A permissive policy should be rejected while the SPOD denies permissive profiles")
+
+	// The daemons validate the profiles again when the SELinux options
+	// change, so there is no rollout to wait for.
+	e.kubectlOperatorNS("patch", "spod", "spod", "--type=merge",
+		"-p", `{"spec":{"selinux":{"options":{"allowPermissiveProfiles":false}}}}`)
+	e.cleanup(func() {
+		e.kubectlOperatorNS("patch", "spod", "spod", "--type=merge",
+			"-p", `{"spec":{"selinux":{"options":{"allowPermissiveProfiles":null}}}}`)
+	})
+
+	e.writeAndCreate(
+		fmt.Sprintf(errorloggerIncompletePolFmt, "denied-permissive", "mode", "Permissive"),
+		"errorlogger-policy-denied-permissive.yml")
+	e.kubectlCleanup("selinuxprofile", profileName)
+
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
+		"--for", "jsonpath={.status.status}=Error", "selinuxprofile", profileName)
+
+	e.logf("Allowing permissive profiles again installs the policy")
+	e.kubectlOperatorNS("patch", "spod", "spod", "--type=merge",
+		"-p", `{"spec":{"selinux":{"options":{"allowPermissiveProfiles":null}}}}`)
+
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
+		"--for", "condition=ready", "selinuxprofile", profileName)
+	e.assertSelinuxPolicyIsInstalled(nodes, e.getSELinuxPolicyName("selinuxprofile", profileName))
+}
+
 func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.selinuxOnlyTestCase()
 

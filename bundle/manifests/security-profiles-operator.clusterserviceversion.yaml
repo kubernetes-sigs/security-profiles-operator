@@ -37,15 +37,7 @@ metadata:
             "name": "spod",
             "namespace": "security-profiles-operator"
           },
-          "spec": {
-            "enableAppArmor": false,
-            "enricher": {
-              "enableLogEnricher": false
-            },
-            "selinux": {
-              "enable": false
-            }
-          }
+          "spec": {}
         },
         {
           "apiVersion": "security-profiles-operator.x-k8s.io/v1",
@@ -259,7 +251,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-10-22T05:40:41Z"
+    createdAt: "2026-10-23T07:19:22Z"
     olm.skipRange: '>=1.0.0 <1.1.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -301,11 +293,20 @@ spec:
       kind: SecurityProfilesOperatorDaemon
       name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
       resources:
+      - kind: Certificate
+        name: metrics-cert
+        version: v1
+      - kind: Certificate
+        name: webhook-cert
+        version: v1
       - kind: DaemonSet
         name: spod
         version: v1
       - kind: Deployment
         name: security-profiles-operator-webhook
+        version: v1
+      - kind: Issuer
+        name: selfsigned-issuer
         version: v1
       - kind: PodDisruptionBudget
         name: security-profiles-operator-webhook
@@ -315,6 +316,9 @@ spec:
         version: v1
       - kind: Service
         name: webhook-service
+        version: v1
+      - kind: ServiceMonitor
+        name: security-profiles-operator-monitor
         version: v1
       specDescriptors:
       - description: Enables the AppArmor support of the daemon.
@@ -438,6 +442,19 @@ spec:
         - apiGroups:
           - admissionregistration.k8s.io
           resourceNames:
+          - spo-spod-jobs
+          - spo-spod-node-statuses
+          - spo-spod-profiles
+          - spo-spod-recordings
+          resources:
+          - validatingadmissionpolicies
+          - validatingadmissionpolicybindings
+          verbs:
+          - get
+          - update
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resourceNames:
           - spo-validating-webhook-configuration
           resources:
           - validatingwebhookconfigurations
@@ -501,8 +518,6 @@ spec:
           - profilerecordings/status
           - rawselinuxprofiles/status
           - seccompprofiles/status
-          - securityprofilesoperatordaemons/finalizers
-          - securityprofilesoperatordaemons/status
           - selinuxprofiles/status
           verbs:
           - get
@@ -526,15 +541,6 @@ spec:
           - securityprofilenodestatuses
           verbs:
           - delete
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - securityprofilesoperatordaemons
-          verbs:
-          - create
           - get
           - list
           - watch
@@ -696,14 +702,6 @@ spec:
           - list
           - patch
           - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - securityprofilesoperatordaemons
-          verbs:
-          - get
-          - list
           - watch
         serviceAccountName: spod
       deployments:
@@ -903,6 +901,24 @@ spec:
           - patch
           - watch
         - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
+          - securityprofilesoperatordaemons
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
+          - securityprofilesoperatordaemons/finalizers
+          - securityprofilesoperatordaemons/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
           - security.openshift.io
           resourceNames:
           - restricted-v2
@@ -942,6 +958,14 @@ spec:
           verbs:
           - create
           - delete
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
+          - securityprofilesoperatordaemons
+          verbs:
           - get
           - list
           - watch

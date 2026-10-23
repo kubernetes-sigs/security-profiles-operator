@@ -644,6 +644,27 @@ func TestDeletePartialProfilesOnlyDeletesListed(t *testing.T) {
 	require.NoError(t, deletePartialProfiles(t.Context(), r.client, listed))
 }
 
+// A partial profile which is being deleted got merged already, merging it
+// again would add back what got removed from the merged profile since.
+func TestListPartialProfilesSkipsTerminating(t *testing.T) {
+	t.Parallel()
+
+	terminating := partialSeccomp("terminating", "ctr", "write")
+	terminating.Finalizers = []string{"spo.x-k8s.io/partial-profile-finalizer"}
+	terminating.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	r := newMergeReconciler(t, recording, partialSeccomp("first", "ctr", "read"), terminating)
+
+	perContainer, listed, err := listPartialProfiles(
+		t.Context(), r.client, &seccompprofile.SeccompProfileList{}, recording,
+	)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, "first", listed[0].GetName())
+	require.Len(t, perContainer["ctr"], 1)
+}
+
 // A conflict while releasing the recording is retried against the API server:
 // the cache may keep returning the version which lost the conflict.
 func TestReleaseRecordingRetriesAgainstAPIReader(t *testing.T) {

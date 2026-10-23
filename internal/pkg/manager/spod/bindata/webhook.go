@@ -702,7 +702,7 @@ func applyWebhookOptions(
 		for j := range opts {
 			if opts[j].Name == hook.Name {
 				applyWebhookOption(
-					&opts[j], hook.Name == binding.name, operatorNamespace,
+					&opts[j], hook.Name, operatorNamespace,
 					&hook.FailurePolicy, &hook.NamespaceSelector, &hook.ObjectSelector,
 				)
 			}
@@ -720,17 +720,18 @@ func applyBindingOptions(
 	for j := range opts {
 		if opts[j].Name == binding.name {
 			applyWebhookOption(
-				&opts[j], true, operatorNamespace,
+				&opts[j], binding.name, operatorNamespace,
 				&hook.FailurePolicy, &hook.NamespaceSelector, &hook.ObjectSelector,
 			)
 		}
 	}
 }
 
-// applyWebhookOption applies the user option to the fields of a webhook.
+// applyWebhookOption applies the user option to the fields of the webhook
+// with the name.
 func applyWebhookOption(
 	userOpt *spodapi.WebhookOptions,
-	isBinding bool,
+	hookName string,
 	operatorNamespace string,
 	failurePolicy **admissionregv1.FailurePolicyType,
 	namespaceSelector, objectSelector **metav1.LabelSelector,
@@ -745,13 +746,35 @@ func applyWebhookOption(
 		// A custom selector narrows or widens which namespaces opt in, but
 		// must not lift the operator namespace exclusion that makes binding a
 		// security boundary.
-		if isBinding {
+		if hookName == binding.name {
 			withOperatorNamespaceExcluded(*namespaceSelector, operatorNamespace)
 		}
 	}
 
 	if userOpt.ObjectSelector != nil {
 		*objectSelector = userOpt.ObjectSelector.DeepCopy()
+
+		// The recording webhook fails closed, so the pods of the operator
+		// and the webhook must not depend on it to start, like with the
+		// default selector. The operator namespace may be labeled for
+		// recording, the CI records the base profiles there.
+		if hookName == recording.name {
+			withOperatorPodsExcluded(*objectSelector)
+		}
+	}
+}
+
+// withOperatorPodsExcluded appends the requirements of excludeOperatorPods to
+// selector, unless they are already there.
+func withOperatorPodsExcluded(selector *metav1.LabelSelector) {
+	for _, exclusion := range excludeOperatorPods.MatchExpressions {
+		excluded := slices.ContainsFunc(
+			selector.MatchExpressions,
+			func(r metav1.LabelSelectorRequirement) bool { return reflect.DeepEqual(r, exclusion) },
+		)
+		if !excluded {
+			selector.MatchExpressions = append(selector.MatchExpressions, *exclusion.DeepCopy())
+		}
 	}
 }
 
@@ -1545,11 +1568,40 @@ var webhookDeployment = &appsv1.Deployment{
 						// rather than being cut off before it can.
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
-								Path:   "/readyz",
+								Path:   readyzPath,
 								Port:   intstr.FromInt32(config.HealthProbePort),
 								Scheme: corev1.URISchemeHTTP,
 							}},
 							TimeoutSeconds:   6,
+							PeriodSeconds:    10,
+							SuccessThreshold: 1,
+							FailureThreshold: 3,
+						},
+						// The replica reads the cluster configuration before
+						// it serves the health endpoints, which takes a while
+						// with a slow API server, like for the manager.
+						StartupProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+								Path:   healthzPath,
+								Port:   intstr.FromInt32(config.HealthProbePort),
+								Scheme: corev1.URISchemeHTTP,
+							}},
+							TimeoutSeconds:   1,
+							PeriodSeconds:    3,
+							SuccessThreshold: 1,
+							FailureThreshold: 30,
+						},
+						// A replica whose health server stops answering gets
+						// restarted, the readiness probe only takes it out of
+						// rotation. The values are the defaults of the API
+						// server.
+						LivenessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+								Path:   healthzPath,
+								Port:   intstr.FromInt32(config.HealthProbePort),
+								Scheme: corev1.URISchemeHTTP,
+							}},
+							TimeoutSeconds:   1,
 							PeriodSeconds:    10,
 							SuccessThreshold: 1,
 							FailureThreshold: 3,

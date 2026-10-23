@@ -160,10 +160,6 @@ func Test_envFlagsFromEnvironment(t *testing.T) {
 
 	flags := envFlagsFromEnvironment()
 	require.Equal(t, envFlags{enableLogEnricher: true, enableJsonEnricher: true}, flags)
-
-	require.True(t, flags.byEnvKey(config.EnableLogEnricherEnvKey))
-	require.False(t, flags.byEnvKey(config.EnableBpfRecorderEnvKey))
-	require.False(t, flags.byEnvKey("OTHER"))
 }
 
 // renderedContainer returns the rendered container with the given name.

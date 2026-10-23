@@ -5,10 +5,10 @@
 # operations make the build fail instead of changing the wrong rule if the
 # generated rules change.
 - op: test
-  path: /rules/5/resourceNames
+  path: /rules/6/resourceNames
   value: ["spo-validating-webhook-configuration"]
 - op: replace
-  path: /rules/5/verbs
+  path: /rules/6/verbs
   value: ["get", "list", "watch"]
 - op: test
   path: /rules/3/resources

@@ -126,7 +126,8 @@ func (v *imageUpdateValidator) Handle(
 
 	// The pod selector of a binding is ignored, because the labels of a
 	// running pod can change, so they do not tell whether the binding applied
-	// on creation.
+	// on creation. Any applying binding denies the change, the order only
+	// makes the denial name the same binding on every attempt.
 	for _, pb := range sortBindings(bindings.Items) {
 		for _, change := range changes {
 			if !bindsImage(pb, change.oldImage) && !bindsImage(pb, change.newImage) {

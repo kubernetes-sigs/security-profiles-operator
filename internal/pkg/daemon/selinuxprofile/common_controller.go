@@ -345,7 +345,7 @@ func (r *ReconcileSelinux) SchemeBuilder() runtime.SchemeBuilder {
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 
 // The policy reload Job is only ever created in the operator namespace, see
 // createPolicyReloadJob. Keeping this namespaced prevents a compromised node
@@ -885,14 +885,20 @@ func (r *ReconcileSelinux) conflictsWithSystemModule(
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
 ) (bool, error) {
+	// The policy file gets checked first, because scanning the module store
+	// is more expensive and the file exists on every resync of an installed
+	// profile.
+	_, statErr := os.Stat(r.policyPath(sp))
+	if statErr == nil {
+		return false, nil
+	}
+
 	if !isSELinuxModuleInstalled(r.selinuxModuleStorePath(), sp.GetPolicyName()) {
 		return false, nil
 	}
 
-	if _, err := os.Stat(r.policyPath(sp)); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
-		return false, fmt.Errorf("checking policy file: %w", err)
+	if !os.IsNotExist(statErr) {
+		return false, fmt.Errorf("checking policy file: %w", statErr)
 	}
 
 	state, err := nodeStatus.State(ctx)
@@ -1681,6 +1687,11 @@ func isSelinuxdReady(ctx context.Context, httpc *http.Client) (bool, error) {
 		return false, fmt.Errorf("failed to send a request to selinuxd: %w", err)
 	}
 	defer response.Body.Close()
+
+	// The body of an error response does not tell the readiness.
+	if response.StatusCode != http.StatusOK {
+		return false, errors.New("unexpected HTTP error code " + strconv.Itoa(response.StatusCode))
+	}
 
 	var status map[string]bool
 
