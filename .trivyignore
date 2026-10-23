@@ -1,0 +1,7 @@
+# Vulnerabilities the image scan ignores until a fixed package is available,
+# see "Vulnerability checks and assessments" in doc/hacking.md. Every entry
+# expires, so that the scan fails again if the fix is still missing then.
+
+# The fixed ca-certificates is in RHEL 9 but not yet in the UBI 9 repositories
+# the UBI image updates from.
+CVE-2026-114406 exp:2026-11-06

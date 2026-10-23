@@ -1,7 +1,8 @@
 name: Scan an image
 description: >-
   Scan an image for vulnerabilities which have a fix, after the suppressions
-  of .openvex.json, see doc/hacking.md. Run it after the checkout.
+  of .openvex.json and .trivyignore, see doc/hacking.md. Run it after the
+  checkout.
 inputs:
   image-ref:
     description: The reference of the image to scan
@@ -22,6 +23,7 @@ runs:
         input: ${{ inputs.input }}
         scanners: vuln
         ignore-unfixed: true
+        trivyignores: .trivyignore
         exit-code: "1"
         format: table
         version: v0.76.0
