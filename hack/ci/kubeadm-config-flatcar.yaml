@@ -14,3 +14,10 @@ controllerManager:
   extraArgs:
   - name: flex-volume-plugin-dir
     value: "/opt/libexec/kubernetes/kubelet-plugins/volume/exec/"
+---
+# The log enricher writes more than the default 10Mi of logs within a minute,
+# and the e2e tests read them, see spodContainerLogs in
+# test/tc_profilerecordings_test.go.
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+containerLogMaxSize: 50Mi

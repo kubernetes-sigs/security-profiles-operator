@@ -19,13 +19,20 @@ limitations under the License.
 package e2e_test
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/yaml"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -133,13 +140,21 @@ func (e *e2e) pollEnricherLogs(
 }
 
 // spodContainerLogs returns the logs of the container of all spod pods since
-// the provided time. kubectl logs ds/spod reads a single pod, which on a
-// cluster with several nodes need not be the one on the node of the workload,
-// and with a label selector it reads only the last 10 lines of each pod
-// unless --tail says otherwise. The error lets polling callers retry, since
-// the logs of a pod which is still starting cannot be read yet.
+// the provided time. kubectl logs reads only the current log file of a
+// container, which the kubelet rotates once it reaches containerLogMaxSize,
+// 10Mi by default. The log enricher writes that much within a minute while it
+// records busy workloads, so the lines of the files which got rotated since
+// then are read on the nodes if the cluster allows it, see readNodeLogFiles.
+// kubectl logs ds/spod reads a single pod, which on a cluster with several
+// nodes need not be the one on the node of the workload, and with a label
+// selector it reads only the last 10 lines of each pod unless --tail says
+// otherwise. The error lets polling callers retry, since the logs of a pod
+// which is still starting cannot be read yet.
 func (e *e2e) spodContainerLogs(since time.Time, container string) (string, error) {
-	return e.kubectlCommand(
+	// The current files get read first. Their lines which a rotation moves
+	// into a rotated file afterwards are read again from that file below,
+	// so a rotation never loses a line, but may repeat some.
+	current, err := e.kubectlSilentCommand(
 		"-n", config.OperatorName,
 		"logs",
 		"--since-time="+since.Format(time.RFC3339),
@@ -147,6 +162,265 @@ func (e *e2e) spodContainerLogs(since time.Time, container string) (string, erro
 		"-l", "name=spod",
 		"-c", container,
 	)
+	if err != nil || !e.readNodeLogFiles {
+		return current, err
+	}
+
+	rotated, err := e.rotatedSpodContainerLogs(since, container)
+	if err != nil {
+		return "", err
+	}
+
+	return rotated + current, nil
+}
+
+// podLogsDir is where the kubelet keeps the log files of the containers, the
+// default of its podLogsDir option.
+const podLogsDir = "/var/log/pods"
+
+// rotatedSpodContainerLogs returns the lines since the provided time of the
+// log files of the container of all spod pods which are not current anymore:
+// the rotated ones and the ones of earlier instances of the container. The
+// pods get read in parallel, the logs are in the order of the pods.
+func (e *e2e) rotatedSpodContainerLogs(since time.Time, container string) (string, error) {
+	pods, err := e.kubectlSilentCommand(
+		"-n", config.OperatorName, "get", "pods", "-l", "name=spod", "-o",
+		`jsonpath={range .items[*]}{.metadata.namespace}_{.metadata.name}_{.metadata.uid}`+
+			` {.spec.nodeName}{"\n"}{end}`,
+	)
+	if err != nil {
+		return "", fmt.Errorf("listing the spod pods: %w", err)
+	}
+
+	since = since.Truncate(time.Second)
+	podLines := strings.Split(pods, "\n")
+	logs := make([]string, len(podLines))
+
+	var g errgroup.Group
+
+	for i, podLine := range podLines {
+		// A pod which is not scheduled has no node and no log files.
+		podDir, node, _ := strings.Cut(strings.TrimSpace(podLine), " ")
+		if node == "" {
+			continue
+		}
+
+		g.Go(func() error {
+			podLogs, err := e.rotatedContainerLogs(
+				node, path.Join(podLogsDir, podDir, container), since,
+			)
+			if err != nil {
+				return fmt.Errorf("reading the rotated %s logs of %s on node %s: %w",
+					container, podDir, node, err)
+			}
+
+			logs[i] = podLogs
+
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return "", err
+	}
+
+	return strings.Join(logs, ""), nil
+}
+
+// listLogFilesScript prints the modification time and name of the log files
+// in the container directory $1. A missing directory belongs to a container
+// which did not start yet or a pod which is gone, it has no files. A file
+// which the kubelet still compresses ends with .tmp.
+const listLogFilesScript = `[[ -e $1 ]] || exit 0
+cd "$1"
+find . -maxdepth 1 -name '*.log*' ! -name '*.tmp' -printf '%T@ %f\n'`
+
+// readLogFilesScript prints the log files given after the container directory
+// $1, each followed by an empty line. It exits with 3 if one of them vanished,
+// which the kubelet does when it compresses a rotated file.
+const readLogFilesScript = `cd "$1"
+shift
+for f; do
+  if ! zcat -f -- "$f"; then
+    [[ -e $f ]] && exit 1
+    exit 3
+  fi
+  echo
+done`
+
+// rotatedLogFileReads bounds how often the log files get listed again after
+// one of them vanished while reading them.
+const rotatedLogFileReads = 3
+
+// rotatedContainerLogs returns the lines since the provided time of the log
+// files of the container directory on the node which are not current anymore.
+func (e *e2e) rotatedContainerLogs(node, dir string, since time.Time) (string, error) {
+	for range rotatedLogFileReads {
+		list, err := e.nodeCommand(node, "bash", "-c", listLogFilesScript, "bash", dir)
+		if err != nil {
+			return "", fmt.Errorf("listing the log files: %w", commandError(err))
+		}
+
+		files := rotatedLogFiles(list, since)
+		if len(files) == 0 {
+			return "", nil
+		}
+
+		content, err := e.nodeCommand(node,
+			append([]string{"bash", "-c", readLogFilesScript, "bash", dir}, files...)...)
+		if err == nil {
+			var b strings.Builder
+
+			writeCRILogMessages(&b, content, since)
+
+			return b.String(), nil
+		}
+
+		if status, ok := errors.AsType[*command.Status](err); !ok || status.ExitCode() != 3 {
+			return "", fmt.Errorf("reading the log files %v: %w", files, commandError(err))
+		}
+	}
+
+	return "", fmt.Errorf("the log files kept vanishing while reading them %d times",
+		rotatedLogFileReads)
+}
+
+// commandError returns the error output of a failed command without the
+// command line, which can be long, like with a script.
+func commandError(err error) error {
+	if status, ok := errors.AsType[*command.Status](err); ok {
+		return fmt.Errorf("exit code %d: %s", status.ExitCode(), strings.TrimSpace(status.Error()))
+	}
+
+	return err
+}
+
+// logFileName matches the names of the log files of a container: the
+// current file of each instance of the container, and its rotated files with
+// the time of the rotation, compressed except for the latest.
+var logFileName = regexp.MustCompile(`^(\d+)\.log(?:\.(\d{8}-\d{6})(\.gz)?)?$`)
+
+// rotatedLogFiles returns the files of the listing which are not current, in
+// the order they got written: by instance of the container, then the rotated
+// files by the time of their rotation and the current file of the instance
+// last. Files modified before the provided time are left out, the current
+// file of the latest instance as well, which kubectl logs reads. The kubelet
+// gives a compressed file a new modification time, so that it cannot order
+// them. An uncompressed file is left out if it got compressed meanwhile.
+func rotatedLogFiles(list string, since time.Time) []string {
+	type logFile struct {
+		name     string
+		instance int
+		rotated  string
+		modified time.Time
+	}
+
+	var files []logFile
+
+	names := map[string]bool{}
+	latest := -1
+
+	for line := range strings.Lines(list) {
+		mtime, name, ok := strings.Cut(strings.TrimSpace(line), " ")
+		match := logFileName.FindStringSubmatch(name)
+
+		seconds, err := strconv.ParseFloat(mtime, 64)
+		if !ok || match == nil || err != nil {
+			continue
+		}
+
+		instance, err := strconv.Atoi(match[1])
+		if err != nil {
+			continue
+		}
+
+		latest = max(latest, instance)
+		names[name] = true
+		files = append(files, logFile{
+			name:     name,
+			instance: instance,
+			rotated:  match[2],
+			modified: time.Unix(0, int64(seconds*float64(time.Second))),
+		})
+	}
+
+	files = slices.DeleteFunc(files, func(f logFile) bool {
+		return f.modified.Before(since) ||
+			(f.rotated == "" && f.instance == latest) ||
+			names[f.name+".gz"]
+	})
+
+	slices.SortFunc(files, func(a, b logFile) int {
+		if a.instance != b.instance {
+			return cmp.Compare(a.instance, b.instance)
+		}
+
+		// The current file of an instance has no rotation time.
+		if (a.rotated == "") != (b.rotated == "") {
+			if a.rotated == "" {
+				return 1
+			}
+
+			return -1
+		}
+
+		return strings.Compare(a.rotated, b.rotated)
+	})
+
+	result := make([]string, 0, len(files))
+	for _, f := range files {
+		result = append(result, f.name)
+	}
+
+	return result
+}
+
+// writeCRILogMessages writes the messages of the container log lines since
+// the provided time to b, one per line. The lines are in the format of the
+// CRI: the time, the stream, the tag and the message. A message which did not
+// fit into a single line continues in the next line of its stream, all but the
+// last part have the tag P. An empty line separates two files, which never
+// continue each other's messages.
+func writeCRILogMessages(b *strings.Builder, lines string, since time.Time) {
+	partial := map[string]string{}
+
+	for line := range strings.Lines(lines) {
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			clear(partial)
+
+			continue
+		}
+
+		fields := strings.SplitN(line, " ", 4)
+		if len(fields) < 3 {
+			continue
+		}
+
+		stamp, stream, tag := fields[0], fields[1], fields[2]
+
+		message := ""
+		if len(fields) == 4 {
+			message = fields[3]
+		}
+
+		if tag == "P" {
+			partial[stream] += message
+
+			continue
+		}
+
+		message = partial[stream] + message
+		delete(partial, stream)
+
+		t, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil || t.Before(since) {
+			continue
+		}
+
+		b.WriteString(message)
+		b.WriteByte('\n')
+	}
 }
 
 // pollEnricherContainerLogs polls the logs of the enricher container of the

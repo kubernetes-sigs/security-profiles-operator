@@ -5,3 +5,10 @@ nodes:
   - role: control-plane
   - role: worker
   - role: worker
+# The log enricher writes more than the default 10Mi of logs within a minute,
+# and the suite reads them, see spodContainerLogs in
+# test/tc_profilerecordings_test.go.
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    containerLogMaxSize: 50Mi
