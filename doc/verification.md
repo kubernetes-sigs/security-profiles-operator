@@ -132,13 +132,18 @@ jobs that run no repository code sign the artifacts and attach them to the
 release. The release builds take their nix dependencies only from
 `cache.nixos.org` or build them, never from the project's Cachix cache, which
 CI jobs running repository code can write to. Development builds of `main` may
-use that cache, so only the provenance of releases makes the L3 claim.
+use that cache, so for `spoc` and the Helm chart only the provenance of
+releases makes the L3 claim.
 
 The container images, the operator bundle and catalog, the security profiles
-and the development charts of `main` are built on Cloud Build and meet SLSA
-Build L1 only, apart from the per-arch images of releases, see below. Their
-provenance is generated and signed by the build itself, with the same service
-account as the build steps, so the build steps could forge it. Its
+and the development charts of `main` are built on Cloud Build, whose
+provenance meets SLSA Build L1 only. The per-arch images, the bundle and the
+catalog of releases, see below and
+[Bundle and catalog](release.md#bundle-and-catalog), and the security profiles
+of `main`, see [Security profiles](release.md#security-profiles), have SLSA
+Build L3 provenance from GitHub Actions next to it. The Cloud Build provenance
+is generated and signed by the build itself, with the same service account as
+the build steps, so the build steps could forge it. Its
 `runDetails.builder.id` therefore names the Cloud Build configuration and
 service account of the staging project, not Google's build platform, and its
 `buildType` points to the documentation of the built commit.
@@ -158,8 +163,9 @@ anything, and fails if their digests differ from the staging images Cloud
 Build pushed for the commit. This doesn't change the build level of the
 provenance from Cloud Build, which lists the BuildKit image as a dependency
 and stays at L1. For a release, the same workflow builds the per-arch images
-of the tagged commit and has their digests attested like `spoc`, which gives
-the per-arch images of a release SLSA Build L3 provenance as well, see
+of the tagged commit and has their digests, and the ones of the bundle and the
+catalog, attested like `spoc`, which gives them SLSA Build L3 provenance as
+well, see
 [GitHub provenance of the container images](#github-provenance-of-the-container-images).
 Images of commits from before the BuildKit image was pinned are not
 reproducible. To rebuild the images of a commit yourself and compare them
@@ -208,7 +214,7 @@ type, here the provenance of the `amd64` image:
 [Staging attestations](release.md#staging-attestations) lists the other
 predicate types, and the operator bundle, the catalog and the profiles verify
 in the same way in their own repositories. That provenance is SLSA Build L1,
-the one of the next section is L3, see [SLSA build levels](#slsa-build-levels).
+the one from GitHub Actions is L3, see [SLSA build levels](#slsa-build-levels).
 
 The platform images of the manifest list are the per-arch images, with the
 same digests, so the attested image is the one a node pulls. The last two
@@ -253,6 +259,12 @@ per-arch image of your architecture with the GitHub attestation store, or with
     --source-ref refs/tags/$VERSION \
     --deny-self-hosted-runners
 ```
+
+The bundle and the catalog of a release are subjects of `images.intoto.jsonl`
+as well, as `security-profiles-operator-bundle` and
+`security-profiles-operator-catalog`, and verify the same way in their own
+repositories, see [bundle and catalog](release.md#bundle-and-catalog). The
+ones of v1.1.1 and [older releases](#older-releases) are not.
 
 The manifest list is no subject, but its platform images are the per-arch
 images, with the same digests, so

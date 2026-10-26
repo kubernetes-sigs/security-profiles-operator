@@ -239,6 +239,7 @@ func (e *e2e) testCases() []testCase {
 			fn:              e.testCaseSelinuxDeniedPermissivePolicy,
 			clusterWideOnly: true,
 			flaky:           true,
+			issue:           newTestCaseIssue,
 		},
 		{
 			description:     "Selinux: Verify the policy can be marked as permissive: disabled",
@@ -419,6 +420,9 @@ const (
 	// doc/hacking.md. A quarantined case which fails on retry fails the
 	// flaky test step, so it gets enabled once it passed on a node.
 	bpfEnricherIssue = "needs nodes with AppArmor for its kprobe on aa_audit, not proven in CI yet"
+	// newTestCaseIssue marks new test cases, which start quarantined, see
+	// doc/hacking.md.
+	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {

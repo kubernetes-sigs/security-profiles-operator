@@ -236,6 +236,16 @@ helm install security-profiles-operator --namespace security-profiles-operator \
   https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
 
+Some clusters limit the pods of the `system-cluster-critical` and
+`system-node-critical` priority classes to a few namespaces through a
+`ResourceQuota` admission configuration. There, the operator and webhook pods
+only get admitted with a `ResourceQuota` in the operator namespace which allows
+`system-cluster-critical`, and the `spod` daemon pods with one which allows
+`system-node-critical`. Alternatively, `priorityClassName` of the Helm chart
+sets the class of the operator pods, and `spod.spec.scheduling.priorityClassName`
+the one of the daemon and the webhook pods, see
+[Set a custom priority class name for spod daemon pod](#set-a-custom-priority-class-name-for-spod-daemon-pod).
+
 #### Troubleshooting and maintenance
 
 These CRDs are not templated, but will be installed by default when running a helm install for the chart.
@@ -782,7 +792,9 @@ $ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -o
 The webhook configuration and its related resources can also be deployed statically, for example by using the
 `deploy/webhook-operator.yaml` manifest, which runs the operator with `--webhook=false`. In this case, the operator
 sets `webhook.staticConfig` to `true` in the SPOD it creates, and does not create or update the webhook configuration
-and its related resources, so `webhook.options` do not apply either.
+and its related resources, so `webhook.options` do not apply either. Its MutatingWebhookConfiguration only registers the
+`binding.spo.io` and `recording.spo.io` webhooks. The `execmetadata.spo.io` and `nodedebuggingpod.spo.io` webhooks of the
+JSON Log Enricher below are not part of it, add them to the static configuration to use them.
 
 The Exec Metadata and Node Debugging Pod Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is
 enabled, and `spec.enricher.enableExecMetadata: false` removes both the `execmetadata.spo.io` and the

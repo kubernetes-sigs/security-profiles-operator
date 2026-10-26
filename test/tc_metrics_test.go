@@ -210,6 +210,7 @@ spec:
 	e.logf("Creating test profile")
 
 	e.writeAndCreate(profile, "metrics-profile*.yaml")
+	e.kubectlCleanup("sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)

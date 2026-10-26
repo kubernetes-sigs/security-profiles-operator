@@ -43,10 +43,11 @@
 
 The next sections will describe how to record and install security profiles for a container. The namespace
 where the recording takes place needs to be labeled with `spo.x-k8s.io/enable-recording` in order to enable
-recording in that namespace, as following:
+recording in that namespace. The examples without a namespace run in the `default` namespace, which gets
+labeled as following:
 
 ```sh
-$ kubectl label ns spo-test spo.x-k8s.io/enable-recording=
+$ kubectl label ns default spo.x-k8s.io/enable-recording=
 ```
 
 Note that the label value is not important, only its presence matters.
@@ -1142,7 +1143,7 @@ Each object within the JSON array encoded in `jsonEnricherFilters` or `logEnrich
 | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | priority    | integer       | Required. Defines the order of rule application. Rules with lower priority numbers are evaluated first (higher priority).                                                                                                                                                                                                   | 10, 100                       |
 | level       | string        | Required. Determines the action to take if this rule matches a log line: <br/>- "Metadata": The log line is emitted (logged). <br/>- "None": The log line is dropped (not logged).                                                                                                                                          | "Metadata", "None"            |
-| matchKeys   | array<string> | Required. An array of log statement keys (field names). The rule can match if any of them is present in the incoming log line.                                                                                                                                                                                              | ["namespace"], ["requestUID"] |
+| matchKeys   | array<string> | Required. An array of log statement keys (field names). The rule can match if any of them is present in the incoming log line. A key with a `/` names a nested field of the JSON enricher, see below.                                                                                                                       | ["namespace"], ["resource/namespace"], ["requestUID"] |
 | matchValues | array<string> | Optional. An array of values. If provided, the values associated with any of the matchKeys (that were found in the log line) must match at least one of these matchValues. <br/>If matchValues is an empty array ([]) or omitted, the mere presence of any of the matchKeys is sufficient for a match, regardless of their values. | ["default"], ["test"]         |
 
 #### Rule Evaluation Logic
@@ -1152,7 +1153,11 @@ When the enrichers start, all configured filter rules are parsed and loaded. For
 - Rules are evaluated strictly in ascending order of their priority (lower numbers are evaluated first).
 - The first rule that a log statement matches determines its fate. No subsequent rules will be evaluated for that particular log line.
 - A log statement is considered a match for a rule if:
-  - Any keys specified in matchKeys are present in the log statement.
+  - Any keys specified in matchKeys are present in the log statement. The log enricher emits flat
+    fields like `namespace`, `pod` and `container`. The JSON enricher nests them below `resource`
+    and the node name below `node`, which a key selects with a `/`, like `resource/namespace`,
+    `resource/pod`, `resource/container` or `node/name`. A plain `namespace` key never matches a
+    line of the JSON enricher.
   - AND (if matchValues is provided and not empty): At least one of the values associated with the matched matchKeys in the log statement matches at least one string in the rule's matchValues.
   - Also note that int values although provided as string will be converted to int
   - A value which is a list, like the `syscalls` of the JSON enricher, matches if any of its
@@ -1429,10 +1434,11 @@ if you are deploying a public application, you can use the ProfileBinding
 resource to bind a security profile to a container's securityContext.
 
 You need to enable the profile binding for a namespace by applying the label
-`spo.x-k8s.io/enable-binding` as following:
+`spo.x-k8s.io/enable-binding`, as following for the `default` namespace of the
+examples below:
 
 ```sh
-$ kubectl label ns spo-test spo.x-k8s.io/enable-binding=
+$ kubectl label ns default spo.x-k8s.io/enable-binding=
 ```
 
 To bind a Pod that uses an `nginx:1.23.2` image to the `profile-complain-unsafe`
@@ -1648,7 +1654,6 @@ spec:
       labels:
         app: sp-record
     spec:
-      serviceAccountName: spo-record-sa
       containers:
         - name: nginx-record
           image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
@@ -1852,9 +1857,10 @@ are:
 | `ptrace.peer`                                   | Limits the ptrace rule to processes confined by matching profiles, for example `@{profile_name}` for the profile itself. Without it, the rule applies to every process.                                           |
 
 The paths are absolute and may use the AppArmor globs `*`, `**` and `?` as well as variables like
-`@{pid}`. Commas, quotes and braces outside of variables are rejected. AppArmor denies everything
-which the policy does not allow, apart from the `abstractions/base` rules that every generated policy
-includes.
+`@{pid}`. Apart from variables, they may only contain letters, digits, spaces and the characters
+`_`, `.`, `/`, `*`, `?`, `+`, `@` and `-`. Other characters, like commas, quotes, braces, `:`, `=` or
+the AppArmor character classes in `[]`, are rejected. AppArmor denies everything which the policy
+does not allow, apart from the `abstractions/base` rules that every generated policy includes.
 
 Entries of the form `ptrace (read),` in the path lists of `filesystem` or `executable` are deprecated
 and will be removed in a future API version. They are still accepted and rendered as ptrace rules

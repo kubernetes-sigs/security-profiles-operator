@@ -69,14 +69,17 @@ kubectl -n security-profiles-operator logs ds/spod -c security-profiles-operator
 ```
 
 Seccomp profiles are cluster scoped and the daemon writes them to
-`/var/lib/kubelet/seccomp/operator` on every node. Confirm that the profile
-files exist:
+`/var/lib/kubelet/seccomp/operator` on every node. The operator image has no
+shell or `ls`, so confirm that the profile files exist from a debug pod on the
+node, which mounts the root of the node at `/host`:
 
 ```sh
-$ kubectl -n security-profiles-operator exec ds/spod -c security-profiles-operator -- ls /var/lib/kubelet/seccomp/operator
+$ kubectl debug node/<node> -it --image=busybox -- chroot /host ls /var/lib/kubelet/seccomp/operator
 profile-block-all.json
 profile-complain-unsafe.json
 ```
+
+`kubectl debug` leaves the `node-debugger-*` pod behind, delete it afterwards.
 
 Please note that corrupted seccomp profiles can disrupt your workloads.
 Therefore, do not allow other workloads to write to any part of the path
@@ -383,8 +386,17 @@ kubectl delete namespace security-profiles-operator
 ```
 
 For OLM installations, remove the `Subscription` and `ClusterServiceVersion`
-instead. Neither Helm nor OLM removes the CRDs, which can be deleted afterwards
-if no profiles should be kept:
+instead, and then the namespace of the operator. OLM only removes what the
+bundle ships, while the operator creates the `spod` DaemonSet, the webhook
+Deployment and their services, certificates and service monitor at runtime.
+They keep running without the operator until the namespace is deleted:
+
+```sh
+kubectl delete namespace security-profiles-operator
+```
+
+Neither Helm nor OLM removes the CRDs, which can be deleted afterwards if no
+profiles should be kept:
 
 ```sh
 kubectl get crds -o name | grep security-profiles-operator.x-k8s.io | xargs kubectl delete

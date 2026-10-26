@@ -46,7 +46,7 @@ signature of the release manager on the tag:
 | -------- | ------------ | -------- |
 | Release manager | version bump PR, release tag, GitHub release, promotion PR, back-to-dev PR | the git signing key of the tag |
 | Prow with Cloud Build, in the `k8s-staging-images` project | builds every push to `main` and pushes the images, the bundle, the catalog and the profiles to staging with their attestations (`post-security-profiles-operator-push-image`); publishes `spoc` and the chart of a `v*` tag to staging and attaches the GitHub provenance (`post-security-profiles-operator-push-release-artifacts`) | `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com` |
-| GitHub Actions | builds `spoc`, the SBOMs and the chart and attaches them with their SLSA Build L3 provenance to the GitHub release, rebuilds the per-arch images and attaches the provenance of their digests | the `build.yml` and `helm-chart-package.yaml` workflows of the tag for the signatures, the `provenance.yml` workflow of the tag for the provenance |
+| GitHub Actions | builds `spoc`, the SBOMs and the chart and attaches them with their SLSA Build L3 provenance to the GitHub release, rebuilds the per-arch images, the bundle and the catalog and attaches the provenance of their digests | the `build.yml` and `helm-chart-package.yaml` workflows of the tag for the signatures, the `provenance.yml` workflow of the tag for the provenance |
 | Image promoter, the promotion jobs of [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io) | verifies the staging attestations against the provenance policy, copies the artifacts by digest to `registry.k8s.io`, carries the attestations and writes a verification summary | `krel-trust@k8s-releng-prod.iam.gserviceaccount.com`, and `promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com` for the summaries |
 
 The steps of a release in their order, the sections below describe each of
@@ -67,13 +67,13 @@ sequenceDiagram
     GH->>CB: Push to main
     CB->>ST: Images, bundle, catalog and profiles,<br/>signed and attested (SLSA Build L1)
     GH->>GA: Push to main
-    ST-->>GA: Per-arch image digests, compared with<br/>a rebuild (image-reproducible)
+    ST-->>GA: Per-arch image, bundle and catalog digests,<br/>compared with a rebuild (image-reproducible)
     RM->>GH: Signed tag vx.y.z (hack/tag-release.sh)<br/>and GitHub pre-release
     GH->>CB: Tag pushed, the release artifacts job<br/>waits for the release assets
     GH->>GA: Release published
-    GA->>GH: Release assets with signatures and<br/>SLSA Build L3 provenance (spoc, SBOMs,<br/>chart, per-arch image digests)
+    GA->>GH: Release assets with signatures and<br/>SLSA Build L3 provenance (spoc, SBOMs,<br/>chart, per-arch image, bundle and<br/>catalog digests)
     GH-->>CB: Release assets, verified against the<br/>provenance workflow of the tag
-    CB->>ST: spoc and chart with GitHub provenance,<br/>signatures and SBOMs, GitHub provenance<br/>for the per-arch images
+    CB->>ST: spoc and chart with GitHub provenance,<br/>signatures and SBOMs, GitHub provenance<br/>for the per-arch images, bundle and catalog
     RM->>KP: Promotion PR in kubernetes/k8s.io (kpromo pr)
     ST-->>KP: Staging attestations, verified against<br/>the provenance policy
     KP->>REG: Artifacts by digest, krel-trust signatures,<br/>carried attestations, promotion records<br/>and verification summaries
@@ -135,8 +135,8 @@ directly](https://prow.k8s.io/?job=post-security-profiles-operator-push-image).
 Before tagging, also check that the
 [`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
 succeeded for the push of the version bump commit to `main`. It rebuilds the
-per-arch images on GitHub Actions and compares them with the ones Cloud Build
-pushed to staging for the commit. The release attests the digests of its own
+per-arch images, the bundle and the catalog on GitHub Actions and compares
+them with the ones Cloud Build pushed to staging for the commit. The release attests the digests of its own
 rebuild, so staging images that are not reproducible fail the release
 artifacts job later, see [per-arch images](#per-arch-images).
 
@@ -218,9 +218,10 @@ the `helm-chart-package` workflow does not upload because the release keeps
 the assets of the first run.
 
 The [`image-reproducible`](../.github/workflows/image-reproducible.yml)
-workflow builds the per-arch images of the tagged commit once more and
-attaches their SLSA build provenance (`images.intoto.jsonl`) to the release,
-see [per-arch images](#per-arch-images). Verify that it is present too. If a
+workflow builds the per-arch images, the bundle and the catalog of the tagged
+commit once more and attaches their SLSA build provenance
+(`images.intoto.jsonl`) to the release, see
+[per-arch images](#per-arch-images). Verify that it is present too. If a
 job of it fails, re-run the failed jobs, the release keeps the provenance of
 the first run.
 
@@ -231,7 +232,8 @@ binaries and the Helm chart from them to the staging registry, as
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:vx.y.z` and
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator:x.y.z`.
 After that, it waits up to 45 more minutes for the provenance of the
-per-arch images, attaches it to the staging images of the tagged commit, and
+per-arch images, the bundle and the catalog, attaches it to the staging
+images of the tagged commit, and
 fails if their digests are not the attested ones, see
 [per-arch images](#per-arch-images). A late or failed `image-reproducible`
 workflow only fails the job at the end, after `spoc` and the chart are

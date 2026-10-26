@@ -1,4 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-make test-e2e
+# Prow uploads $ARTIFACTS: the diagnostics of failed test cases go there, and
+# a JUnit report of the test cases for testgrid. gotestsum reads the JSON
+# output of the tests from make, which runs silently so that the output is
+# only JSON.
+if [[ -z "${ARTIFACTS:-}" ]]; then
+  make test-e2e
+  exit
+fi
+
+export E2E_ARTIFACTS_DIR="$ARTIFACTS/e2e"
+
+# Without gotestsum the tests still run, only without the JUnit report.
+GOTESTSUM_VERSION=$(sed -n 's/^GOTESTSUM_VERSION = //p' Makefile)
+GOTESTSUM=$(mktemp -d)/gotestsum
+if ! GOFLAGS='' GOBIN=$(dirname "$GOTESTSUM") go install "gotest.tools/gotestsum@$GOTESTSUM_VERSION"; then
+  echo "Cannot install gotestsum, running the tests without a JUnit report"
+  make test-e2e
+  exit
+fi
+
+"$GOTESTSUM" \
+  --format standard-verbose \
+  --junitfile "$ARTIFACTS/junit_e2e.xml" \
+  --raw-command \
+  -- make -s test-e2e ARGS=-json

@@ -541,6 +541,7 @@ the suite are documented next to their definition in
 | `E2E_RETRY_TIMEOUT`         | `30m`                              | `Makefile`: the timeout of `make test-flaky-e2e`.                                                                                                                                                                                                                                                                                        |
 | `E2E_TEST_FLAKY_TESTS_ONLY` | `false`                            | CI scripts in `hack/ci`: run `make test-flaky-e2e` instead of `make test-e2e`.                                                                                                                                                                                                                                                           |
 | `E2E_FEDORA_SUITE`          | `enricher`                         | `hack/ci/e2e-fedora.sh`: the test cases of the Fedora job, `enricher` or `selinux`.                                                                                                                                                                                                                                                      |
+| `E2E_SPOC_REQUIRE_BPF_LSM`  | `false`                            | `test/spoc`: fail the spoc AppArmor recording tests instead of skipping them without the BPF LSM.                                                                                                                                                                                                                                        |
 
 The suite deploys copies of the manifests below `build/e2e-manifests`, the
 tracked manifests stay untouched.
@@ -565,23 +566,26 @@ quarantined, ideally with a link to the issue which tracks it.
   only one which covers the quarantined seccomp test cases.
 - [`test/ci/junit-flakes.py`](../test/ci/junit-flakes.py) takes the reports
   of several runs, oldest first. It fails for test cases which are not
-  quarantined but passed only on retry in the last three runs, and lists the
-  quarantined ones which passed on the first try in the last ten runs. To
-  cover all test cases, run the whole suite with retries:
+  quarantined but passed only on retry in at least two of the last ten runs,
+  and lists the quarantined ones which passed on the first try in the last ten
+  runs. `TestSuite` and its methods only fail on their own when their setup
+  does, like the one of the cluster, so they are listed apart and do not fail
+  the check. To cover all test cases, run the whole suite with retries:
   `make test-flaky-e2e E2E_RETRY_RUN=^TestSuite E2E_RETRY_TIMEOUT=120m`.
   A test case skipped in some environments counts with its outcome in the
   others. `python3 test/ci/junit-flakes.py --self-test` runs the tests of the
   script.
 - The nightly [e2e-flakes workflow](../.github/workflows/e2e-flakes.yml) does
-  that on kubernix and runs the script over the reports of its last runs, and
-  over the reports of the last runs of the test workflow on `main`, which
-  cover the quarantined test cases on all e2e environments. It downloads the
-  reports of 15 runs, so that a run without reports, like a cancelled one,
-  does not keep a test case from getting promoted. A run which failed partway
-  and uploaded a partial report counts, and a test case missing from it did
-  not pass in that run. It fails when a test case needs to be quarantined and
-  lists the ones to promote in the job summary. A failed scheduled run opens
-  an issue, or comments on the open one.
+  that on kubernix, on kind for the seccomp test cases and in the Fedora VM for
+  the SELinux and bpf recorder ones. It runs the script over the reports of
+  its last runs, and over the reports of the last runs of the test workflow
+  on `main`, which cover the quarantined test cases on all e2e environments.
+  It downloads the reports of 15 runs, so that a run without reports, like a
+  cancelled one, does not keep a test case from getting promoted. A run which
+  failed partway and uploaded a partial report counts, and a test case missing
+  from it did not pass in that run. It fails when a test case needs to be
+  quarantined and lists the ones to promote in the job summary. A failed
+  scheduled run opens an issue, or comments on the open one.
 
 To quarantine a flaky test case, set `flaky: true` and its `issue`. To promote
 it, remove both again. New test cases start quarantined until they pass

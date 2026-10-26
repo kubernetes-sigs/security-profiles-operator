@@ -92,6 +92,12 @@ func recordTest(t *testing.T) {
 
 func recordAppArmorTest(t *testing.T) {
 	if !bpfrecorder.BPFLSMEnabled() {
+		// CI sets it where the AppArmor recording tests have to run, so that
+		// they do not turn into silent skips there.
+		if os.Getenv("E2E_SPOC_REQUIRE_BPF_LSM") == "true" {
+			t.Fatal("BPF LSM disabled while E2E_SPOC_REQUIRE_BPF_LSM is true")
+		}
+
 		t.Skip("BPF LSM disabled")
 	}
 
