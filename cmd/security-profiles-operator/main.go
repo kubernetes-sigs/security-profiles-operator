@@ -67,6 +67,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	apparmorprofilev1 "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingv1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingv1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofilev1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -79,6 +80,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
@@ -1062,6 +1064,49 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	return controllers
 }
 
+// getReleaseControllers returns the controllers which release the deleted
+// profiles of the kinds which the daemon does not reconcile, see
+// common.ReleaseController. The profiles installed while the kind was enabled
+// carry the finalizer of the node, which only these controllers remove once
+// the SPOD disabled the kind.
+func getReleaseControllers(ctx *cli.Context) []controller.Controller {
+	controllers := []controller.Controller{}
+
+	if !ctx.Bool(seccompFlag) {
+		controllers = append(controllers, common.NewReleaseController(
+			"seccomp-spod",
+			func() profilebase.SecurityProfileBase { return &seccompprofilev1.SeccompProfile{} },
+			seccompprofilev1.SchemeBuilder,
+		))
+	}
+
+	if !ctx.Bool(selinuxFlag) {
+		controllers = append(controllers, common.NewReleaseController(
+			"selinuxprofile-spod",
+			func() profilebase.SecurityProfileBase { return &selinuxprofilev1.SelinuxProfile{} },
+			selinuxprofilev1.SchemeBuilder,
+		))
+	}
+
+	if !ctx.Bool(selinuxFlag) || !ctx.Bool(rawSelinuxFlag) {
+		controllers = append(controllers, common.NewReleaseController(
+			"rawselinuxprofile-spod",
+			func() profilebase.SecurityProfileBase { return &selinuxprofilev1.RawSelinuxProfile{} },
+			selinuxprofilev1.SchemeBuilder,
+		))
+	}
+
+	if !ctx.Bool(apparmorFlag) {
+		controllers = append(controllers, common.NewReleaseController(
+			"apparmor-spod",
+			func() profilebase.SecurityProfileBase { return &apparmorprofilev1.AppArmorProfile{} },
+			apparmorprofilev1.SchemeBuilder,
+		))
+	}
+
+	return controllers
+}
+
 // newDaemonCache creates the cache used by the daemon controllers.
 //
 // The daemon only ever acts on pods scheduled to its own node, so the pod cache
@@ -1424,6 +1469,8 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	if len(enabledControllers) == 0 {
 		return errors.New("no controllers enabled")
 	}
+
+	enabledControllers = append(enabledControllers, getReleaseControllers(ctx)...)
 
 	maxSeries := ctx.Int(maxMetricSeriesFlag)
 	if maxSeries < 0 {
@@ -2009,9 +2056,9 @@ func runForwardingSignals(c *exec.Cmd, stderr io.Writer) error {
 }
 
 // forwardSignals forwards the signals to the process until done gets closed,
-// and reports the failures to stderr. The SIGINT of Ctrl+C reaches spoc
-// directly while it runs in the foreground of the terminal, which
-// inForeground tells, so it is not forwarded then.
+// and reports the failures to stderr. The SIGINT of Ctrl+C and the SIGQUIT of
+// Ctrl+\ reach spoc directly while it runs in the foreground of the terminal,
+// which inForeground tells, so they are not forwarded then.
 func forwardSignals(
 	signals <-chan os.Signal,
 	process *os.Process,
@@ -2022,7 +2069,7 @@ func forwardSignals(
 	for {
 		select {
 		case sig := <-signals:
-			if sig == os.Interrupt && inForeground(process.Pid) {
+			if (sig == os.Interrupt || sig == syscall.SIGQUIT) && inForeground(process.Pid) {
 				continue
 			}
 

@@ -1465,6 +1465,28 @@ func TestPullResultValuesTheCRDCannotHold(t *testing.T) {
 	})
 }
 
+func TestPullResultSeveralDocuments(t *testing.T) {
+	t.Parallel()
+
+	content := []byte("kind: SeccompProfile\n---\nkind: ClusterRoleBinding\n")
+	sut := New(logr.Discard())
+	sut.impl = &artifactfakes.FakeImpl{
+		ReadProfileStub: func([]byte) (client.Object, error) {
+			return &seccompprofileapi.SeccompProfile{}, nil
+		},
+	}
+
+	// The daemon only uses the decoded profile.
+	result, err := sut.pullResult("profile", content, false, false)
+	require.NoError(t, err)
+	require.Equal(t, PullResultTypeSeccompProfile, result.Type())
+
+	// spoc pull writes the content out as is.
+	result, err = sut.pullResult("profile", content, false, true)
+	require.ErrorIs(t, err, ErrMultipleDocuments)
+	require.Nil(t, result)
+}
+
 func TestNameFromReference(t *testing.T) {
 	t.Parallel()
 

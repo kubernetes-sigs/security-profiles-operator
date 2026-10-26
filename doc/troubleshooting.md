@@ -55,6 +55,19 @@ kubectl get seccompprofiles \
   -o custom-columns=NAME:.metadata.name,STATUS:.status.status,REASON:'.status.conditions[?(@.type=="Ready")].reason'
 ```
 
+A node which does not support the kind of the profile, like a node without
+AppArmor in a cluster with `enableAppArmor`, reports a node status with the
+`spo.x-k8s.io/kind-unsupported` label, whose `status.message` tells why. The
+state of the profile leaves these nodes out, and the message of its `Ready`
+condition names them. Pods using the profile fail to start on these nodes. If
+no node supports the kind, the profile gets the state of these node statuses,
+like `Error`. To list the nodes which do not support a profile:
+
+```sh
+kubectl get securityprofilenodestatuses -l spo.x-k8s.io/kind-unsupported \
+  -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName,MESSAGE:.status.message
+```
+
 The events of the profile carry the error message of a failed installation:
 
 ```sh

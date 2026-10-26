@@ -156,8 +156,8 @@ be looked up, the command does not run at all instead of running as root.
 `spoc run` drops the privileges the same way and accepts `--privileged` as
 well. With `--no-proc-start`, `spoc record` does not start a command at all,
 but records all processes matching the command name until it receives
-`SIGINT` (Ctrl^C), `SIGTERM` or `SIGHUP`. This is useful for processes which
-are started by another tool, like a service manager:
+`SIGINT` (Ctrl^C), `SIGTERM`, `SIGHUP` or `SIGQUIT`. This is useful for
+processes which are started by another tool, like a service manager:
 
 ```console
 > sudo spoc record --no-proc-start my-daemon
@@ -182,19 +182,18 @@ If we now modify the profile, for example by forbidding `chmod`:
 > jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' profile.json > profile-chmod.json
 ```
 
-`spoc run` reads raw JSON profiles if the file name ends with `.json`, and
-`SeccompProfile` CRDs in YAML otherwise. A file with another name which holds
-JSON without a `kind`, like the one `spoc pull --output-file` saves for a
-runtime format artifact, is read as raw JSON profile too. Other kinds and
-profiles with a `baseProfileName` are rejected, because the syscalls of the
-base profile would be missing. The `--type` / `-t` flag selects the profile
-type, which is `seccomp`, the only supported type for now. The profile is
-loaded in the process of the command right before it gets executed, so `spoc`
-itself is not confined. `SIGINT`, `SIGTERM` and `SIGHUP` are forwarded to the
-command, and `spoc run` exits with the exit code of the command. While the
-command runs and shortly after it exits, `spoc run` prints the seccomp,
-SELinux and AppArmor audit log lines of the process it started and of the
-processes it forks, like the syscalls their profile denies or logs.
+`spoc run` reads `SeccompProfile` CRDs, in YAML or JSON, and raw JSON
+profiles, which have no `kind`, like the one `spoc pull --output-file` saves
+for a runtime format artifact. A raw profile needs a `defaultAction`. Other
+kinds and profiles with a `baseProfileName` are rejected, because the syscalls
+of the base profile would be missing. The `--type` / `-t` flag selects the
+profile type, which is `seccomp`, the only supported type for now. The profile
+is loaded in the process of the command right before it gets executed, so
+`spoc` itself is not confined. `SIGINT`, `SIGTERM`, `SIGHUP` and `SIGQUIT` are
+forwarded to the command, and `spoc run` exits with the exit code of the
+command. While the command runs and shortly after it exits, `spoc run` prints
+the seccomp, SELinux and AppArmor audit log lines of the process it started
+and of the processes it forks, like the syscalls their profile denies or logs.
 
 Then running `chmod` via `spoc run` will now throw an error, because the syscall
 is not allowed any more:
@@ -290,11 +289,12 @@ lists:
 
 The profile can now be found in `profile.yaml` in the current directory, or in
 `profile.json` for runtime format artifacts like the base profile above, unless
-the output file is specified with `--output-file` / `-o`. New files are
-created with the permissions `0644` minus the umask, an existing file keeps its
-permissions. If username and password authentication is required, either
-use the `--username`, `-u` flag or export the `SPOC_USERNAME` environment
-variable. To set the password, export the `SPOC_PASSWORD` environment variable
+the output file is specified with `--output-file` / `-o`. Artifacts whose
+profile is followed by more YAML documents are rejected, since they would be
+saved along with it. New files are created with the permissions `0644` minus
+the umask, an existing file keeps its permissions. If username and password
+authentication is required, either use the `--username`, `-u` flag or export
+the `SPOC_USERNAME` environment variable. To set the password, export the `SPOC_PASSWORD` environment variable
 or pass it on stdin with `--password-stdin`. Giving only one of both is an
 error. Without any of them, the credentials of the docker config (for example
 from `docker login`) are used. The former `USERNAME` and `PASSWORD` environment

@@ -78,8 +78,17 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("open profile: %w", err)
 	}
 
-	if filepath.Ext(r.options.profile) != seccompprofileapi.ExtJSON {
-		log.Print("Assuming YAML profile")
+	// A profile CRD can be stored as JSON as well, like the output of
+	// kubectl get -o json, which tells it apart by its kind.
+	isJSON := filepath.Ext(r.options.profile) == seccompprofileapi.ExtJSON
+	if isJSON && hasKind(content) {
+		log.Print("JSON profile has a kind, using it as profile CRD")
+	}
+
+	if !isJSON || hasKind(content) {
+		if !isJSON {
+			log.Print("Assuming YAML profile")
+		}
 
 		spec, crdErr := specFromCRD(content)
 
@@ -98,6 +107,12 @@ func (r *Runner) Run() error {
 	runtimeSpecConfig := &specs.LinuxSeccomp{}
 	if err := json.Unmarshal(content, runtimeSpecConfig); err != nil {
 		return fmt.Errorf("unmarshal JSON profile: %w", err)
+	}
+
+	// The run helper takes a profile without a default action for no
+	// profile at all, and fails only once the command got started.
+	if runtimeSpecConfig.DefaultAction == "" {
+		return fmt.Errorf("convert profile: %w", artifact.ErrNoDefaultAction)
 	}
 
 	// The profile gets loaded by the run helper, check it before starting
@@ -159,6 +174,16 @@ func (r *Runner) Run() error {
 	}
 
 	return nil
+}
+
+// hasKind reports whether the JSON content is an object with a kind, like a
+// profile CRD.
+func hasKind(content []byte) bool {
+	var object struct {
+		Kind string `json:"kind"`
+	}
+
+	return json.Unmarshal(content, &object) == nil && object.Kind != ""
 }
 
 // specFromCRD returns the spec of a SeccompProfile CRD as runtime-spec JSON.

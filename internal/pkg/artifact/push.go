@@ -110,7 +110,7 @@ func (a *Artifact) Push(
 	defer cancel()
 
 	repo, pushed, err := a.copyToRepository(
-		ctx, store, &manifestDescriptor, to, username, password, opts.PlainHTTP,
+		ctx, store, &manifestDescriptor, ref, username, password, opts.PlainHTTP,
 	)
 	if err != nil {
 		return err
@@ -240,16 +240,10 @@ func (a *Artifact) copyToRepository(
 	ctx context.Context,
 	store *file.Store,
 	manifestDescriptor *v1.Descriptor,
-	to, username, password string,
+	parsedRef ggcrname.Reference,
+	username, password string,
 	plainHTTP bool,
 ) (*remote.Repository, v1.Descriptor, error) {
-	a.logger.Info("Verifying reference", "ref", to)
-
-	parsedRef, err := a.ParseReference(to)
-	if err != nil {
-		return nil, v1.Descriptor{}, fmt.Errorf("parse reference: %w", err)
-	}
-
 	tag := parsedRef.Identifier()
 
 	a.logger.Info("Using tag", "tag", tag)
@@ -289,7 +283,6 @@ type profileEntry struct {
 	content        []byte
 	name           string
 	layerMediaType string
-	runtimeSpec    bool
 }
 
 // profileEntries reads the provided files and derives the layer name and
@@ -351,7 +344,6 @@ func (a *Artifact) profileEntries(
 			}
 
 			runtimeSpecProfiles++
-			entry.runtimeSpec = true
 			entry.platform = nil
 			entry.name = defaultProfileJSON
 			entry.layerMediaType = layerMediaTypeJSON

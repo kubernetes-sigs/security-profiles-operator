@@ -49,6 +49,12 @@ func IgnoreDuplicateSignals(ch <-chan os.Signal, stop func()) {
 	}
 }
 
+// TerminationSignals are the signals which terminate spoc by default. spoc
+// handles them itself, so that its commands can clean up, write their results
+// or forward them to the command they run. The spoc command of the operator
+// forwards the same ones.
+var TerminationSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT}
+
 // SignalContext returns a context which gets canceled on the signals which
 // terminate spoc otherwise, so that commands can clean up, for example their
 // temporary files. The returned function restores the default handling.
@@ -60,7 +66,7 @@ func IgnoreDuplicateSignals(ch <-chan os.Signal, stop func()) {
 // ignored.
 func SignalContext() (context.Context, context.CancelFunc) {
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(signals, TerminationSignals...)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

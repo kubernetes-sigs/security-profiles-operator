@@ -53,13 +53,18 @@ func RemoveStaleTempFiles(log logr.Logger, dir string) {
 }
 
 // RemoveStaleTempFilesOnStart removes the stale temporary files of dir like
-// RemoveStaleTempFiles, and once more after StaleTempFileAge: a daemon which
-// crashed right before this one started leaves files which are too young for
-// the first pass.
+// RemoveStaleTempFiles, see SweepStaleTempFilesOnStart.
 func RemoveStaleTempFilesOnStart(log logr.Logger, dir string) {
-	RemoveStaleTempFiles(log, dir)
+	SweepStaleTempFilesOnStart(func() { RemoveStaleTempFiles(log, dir) })
+}
 
-	time.AfterFunc(StaleTempFileAge, func() { RemoveStaleTempFiles(log, dir) })
+// SweepStaleTempFilesOnStart runs sweep, which removes stale temporary files,
+// and once more after StaleTempFileAge: a daemon which crashed right before
+// this one started leaves files which are too young for the first pass.
+func SweepStaleTempFilesOnStart(sweep func()) {
+	sweep()
+
+	time.AfterFunc(StaleTempFileAge, sweep)
 }
 
 // GetSPODName returns the name of the SPOD instance we're currently running

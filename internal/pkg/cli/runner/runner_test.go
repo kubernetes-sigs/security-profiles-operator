@@ -29,6 +29,7 @@ import (
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/stretchr/testify/require"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner/runnerfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
@@ -112,6 +113,31 @@ func TestRun(t *testing.T) {
 				t.Helper()
 
 				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name:    "success with JSON profile CRD",
+			profile: "profile.json",
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte(`{"apiVersion":"security-profiles-operator.x-k8s.io/v1",`+
+					`"kind":"SeccompProfile","spec":{"defaultAction":"SCMP_ACT_ERRNO"}}`), nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "failure on JSON profile without default action",
+			profile: "profile.json",
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte(`{}`), nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, artifact.ErrNoDefaultAction)
 			},
 		},
 		{

@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -174,6 +175,56 @@ func (u *UnsupportedReports) Report(
 	reporter.ReportRelated(util.EventNode(nodeName), obj, reason, util.EventActionInstall, err)
 
 	return false
+}
+
+// ReconcileUnsupported reconciles a profile on a node which is known not to
+// support its kind, like after a reboot without the LSM. A profile which is
+// being deleted gets released, see ReleaseUnsupported. Every other profile
+// gets a node status which is marked as unsupported, see
+// nodestatus.StatusClient.MarkUnsupported: the error state with the message
+// of unsupportedErr, the disabled state for a disabled profile and the
+// partial state for a partial one. The manager counts the node as reported
+// then, but leaves its state out of the one of the profile. Nothing gets
+// written for a profile which could not be read, the next resync tries again.
+func ReconcileUnsupported(
+	ctx context.Context,
+	c client.Client,
+	reader client.Reader,
+	profile profilebase.SecurityProfileBase,
+	nodeName string,
+	written *nodestatus.WrittenStates,
+	unsupportedErr error,
+) error {
+	if profile.GetName() == "" {
+		return nil
+	}
+
+	if !profile.GetDeletionTimestamp().IsZero() {
+		return ReleaseUnsupported(ctx, c, reader, profile, nodeName, written)
+	}
+
+	nsc, err := nodestatus.NewForProfileOnNode(profile, c, nodeName)
+	if err != nil {
+		return fmt.Errorf("cannot create nodeStatus: %w", err)
+	}
+
+	nsc.WithAPIReader(reader)
+	nsc.WithWrittenStates(written)
+
+	state, message := secprofnodestatusapi.ProfileStateError, unsupportedErr.Error()
+
+	switch {
+	case profile.IsDisabled() && !profile.IsPartial():
+		state, message = secprofnodestatusapi.ProfileStateDisabled, ""
+	case profile.IsPartial():
+		state, message = secprofnodestatusapi.ProfileStatePartial, ""
+	}
+
+	if err := nsc.MarkUnsupported(ctx, state, message); err != nil {
+		return fmt.Errorf("setting the node status of an unsupported profile: %w", err)
+	}
+
+	return nil
 }
 
 // ReleaseUnsupported removes the finalizer and the node status of the node

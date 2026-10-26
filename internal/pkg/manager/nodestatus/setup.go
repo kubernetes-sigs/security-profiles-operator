@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	nodestatusclient "sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -290,7 +291,8 @@ func deletingProfileNodeFinalizers(obj client.Object) []string {
 }
 
 // nodeStatusChanged passes the updates of a node status which matter for the
-// aggregation: the state, the node, the owner and the profile label. The daemon
+// aggregation: the state, the node, the owner, the profile label and whether
+// the node supports the kind of the profile. The daemon
 // also keeps a state label and annotations on the status, whose updates would
 // otherwise trigger an aggregation of their own.
 func nodeStatusChanged() predicate.Funcs {
@@ -303,7 +305,11 @@ func nodeStatusChanged() predicate.Funcs {
 				return true
 			}
 
-			return oldStatus.Status != newStatus.Status ||
+			unsupportedChanged := nodestatusclient.IsUnsupported(oldStatus) !=
+				nodestatusclient.IsUnsupported(newStatus)
+
+			return unsupportedChanged ||
+				oldStatus.Status != newStatus.Status ||
 				oldStatus.Spec != newStatus.Spec ||
 				!newStatus.DeletionTimestamp.Equal(oldStatus.DeletionTimestamp) ||
 				!equality.Semantic.DeepEqual(

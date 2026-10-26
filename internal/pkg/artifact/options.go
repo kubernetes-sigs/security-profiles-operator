@@ -101,9 +101,10 @@ type PullOptions struct {
 	// KeepRawRuntimeProfile keeps a raw runtime-spec seccomp profile whose
 	// values the SeccompProfile CRD cannot express, instead of failing the
 	// pull. The SeccompProfile of the result then has an empty spec and
-	// only the content holds the profile. Callers which write the content
-	// out as is, like spoc pull, set this; callers which need the spec
-	// leave it off.
+	// only the content holds the profile. It also rejects profile CRDs
+	// followed by more YAML documents, which writing the content out would
+	// carry along. Callers which write the content out as is, like spoc
+	// pull, set this; callers which need the spec leave it off.
 	KeepRawRuntimeProfile bool
 }
 

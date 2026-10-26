@@ -73,8 +73,13 @@ func selinuxProfileControllerBuild(b *ctrl.Builder, r *ReconcileSelinux) error {
 	return b.Named("selinuxprofile").
 		For(&selinuxprofileapi.SelinuxProfile{}, builder.WithPredicates(
 			// The resyncs reinstall a policy which got removed from the
-			// node.
-			predicate.Or(predicate.GenerationChangedPredicate{}, common.ResyncPredicate),
+			// node. A label change reconciles a profile which stopped
+			// being partial.
+			predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.LabelChangedPredicate{},
+				common.ResyncPredicate,
+			),
 		)).
 		// A RawSelinuxProfile of the same name has the same policy name, so
 		// its creation or removal changes which of them owns the policy.

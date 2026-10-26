@@ -48,6 +48,7 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	nodestatusclient "sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -340,15 +341,19 @@ func (r *StatusReconciler) reconcileNodeStatus(
 	// shows a state while the aggregation below waits for the other nodes.
 	// A single node must not make the profile Installed or Ready while other
 	// nodes have not reported yet, so the state of this node only counts if
-	// it is worse than Pending, like Error or Terminating.
+	// it is worse than Pending, like Error or Terminating. The state of a node
+	// which does not support the kind does not count, see lowestState.
 	if prof.GetStatusBase().Status == "" {
 		lprof.Info("Initializing Profile status")
 
-		targetStatus := secprofnodestatusapi.LowerOfTwoStates(
-			secprofnodestatusapi.ProfileStatePending, instance.Status.Status,
-		)
+		targetStatus := secprofnodestatusapi.ProfileStatePending
+		if !nodestatusclient.IsUnsupported(instance) {
+			targetStatus = secprofnodestatusapi.LowerOfTwoStates(
+				targetStatus, instance.Status.Status,
+			)
+		}
 
-		prof, err = r.reconcileStatus(ctx, prof, aggregation{state: targetStatus}, lprof)
+		prof, err = r.reconcileStatus(ctx, prof, &aggregation{state: targetStatus}, lprof)
 		if err != nil || prof == nil {
 			return reconcile.Result{}, err
 		}
@@ -554,7 +559,7 @@ func (r *StatusReconciler) aggregateStatuses(
 
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", agg.state)
 
-	_, err = r.reconcileStatus(ctx, prof, agg, logger)
+	_, err = r.reconcileStatus(ctx, prof, &agg, logger)
 
 	return requeue, err
 }
@@ -690,7 +695,7 @@ func (r *StatusReconciler) aggregateAvailableStatuses(
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", agg.state,
 		"unavailableNodes", len(agg.unavailableNodes)+agg.unnamedUnavailable)
 
-	_, err = r.reconcileStatus(ctx, prof, agg, logger)
+	_, err = r.reconcileStatus(ctx, prof, &agg, logger)
 
 	return requeue, err
 }
@@ -723,6 +728,27 @@ type aggregation struct {
 	// such nodes whose names are unknown.
 	unavailableNodes   []string
 	unnamedUnavailable int
+
+	// unsupportedNodes are the nodes which do not support the kind of the
+	// profile, which the state leaves out unless onlyUnsupported is set, see
+	// lowestState.
+	unsupportedNodes []string
+	onlyUnsupported  bool
+}
+
+// unsupportedMessage returns the part of the message of the Ready condition
+// which names the nodes that do not support the kind of the profile, if any.
+func (a *aggregation) unsupportedMessage() string {
+	if len(a.unsupportedNodes) == 0 {
+		return ""
+	}
+
+	msg := "nodes " + nodeList(a.unsupportedNodes, 0) + " do not support the profile kind"
+	if !a.onlyUnsupported {
+		msg += ", which the state leaves out"
+	}
+
+	return msg
 }
 
 // unavailableMessage returns the part of the message of the Ready condition
@@ -747,12 +773,30 @@ func (a *aggregation) unavailableNodeList() string {
 }
 
 // lowestState aggregates the node statuses into their lowest state and the
-// nodes whose profile is in the Error state.
+// nodes whose profile is in the Error state. The statuses of the nodes which do
+// not support the kind of the profile, like nodes without AppArmor in a mixed
+// cluster, are left out of the state, so that they do not keep the profile
+// from getting installed on the other nodes. Only if no node supports the kind
+// their states count, like the error which tells that the profile cannot be
+// installed anywhere, instead of claiming an installed profile.
 func lowestState(statuses []secprofnodestatusapi.SecurityProfileNodeStatus) aggregation {
 	agg := aggregation{state: secprofnodestatusapi.LowestState}
+	unsupportedState := secprofnodestatusapi.LowestState
+	supported := 0
 
 	for i := range statuses {
 		status := &statuses[i]
+
+		if nodestatusclient.IsUnsupported(status) {
+			agg.unsupportedNodes = append(agg.unsupportedNodes, status.Spec.NodeName)
+			unsupportedState = secprofnodestatusapi.LowerOfTwoStates(
+				unsupportedState, status.Status.Status,
+			)
+
+			continue
+		}
+
+		supported++
 		agg.state = secprofnodestatusapi.LowerOfTwoStates(agg.state, status.Status.Status)
 
 		if status.Status.Status == secprofnodestatusapi.ProfileStateError {
@@ -760,7 +804,13 @@ func lowestState(statuses []secprofnodestatusapi.SecurityProfileNodeStatus) aggr
 		}
 	}
 
+	if supported == 0 && len(agg.unsupportedNodes) > 0 {
+		agg.state = unsupportedState
+		agg.onlyUnsupported = true
+	}
+
 	slices.Sort(agg.failedNodes)
+	slices.Sort(agg.unsupportedNodes)
 
 	return agg
 }
@@ -1263,7 +1313,7 @@ func profilesOf(list client.ObjectList) ([]client.Object, error) {
 func (r *StatusReconciler) reconcileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
-	agg aggregation,
+	agg *aggregation,
 	l logr.Logger,
 ) (profilebaseapi.StatusBaseUser, error) {
 	key := client.ObjectKeyFromObject(prof)
@@ -1333,7 +1383,7 @@ func nodeList(nodes []string, unnamed int) string {
 func (r *StatusReconciler) updateProfileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
-	agg aggregation,
+	agg *aggregation,
 	l logr.Logger,
 ) (profilebaseapi.StatusBaseUser, error) {
 	pCopy := prof.DeepCopyToStatusBaseIf()
@@ -1367,7 +1417,17 @@ func (r *StatusReconciler) updateProfileStatus(
 		condition = common.Deleting()
 	case secprofnodestatusapi.ProfileStateError:
 		outStatus.Status = secprofnodestatusapi.ProfileStateError
-		condition = common.Unavailable(errorConditionMessage(agg.failedNodes))
+
+		// The unsupportedMessage names the nodes. The nodes whose SPOd pod
+		// is not available may support the kind.
+		switch {
+		case agg.onlyUnsupported && agg.unavailableMessage() != "":
+			condition = common.Unavailable("profile cannot be installed on any available node")
+		case agg.onlyUnsupported:
+			condition = common.Unavailable("profile cannot be installed on any node")
+		default:
+			condition = common.Unavailable(errorConditionMessage(agg.failedNodes))
+		}
 	case secprofnodestatusapi.ProfileStatePartial:
 		outStatus.Status = secprofnodestatusapi.ProfileStatePartial
 		condition = common.Unavailable(
@@ -1383,7 +1443,11 @@ func (r *StatusReconciler) updateProfileStatus(
 	}
 
 	if condition.Type != "" {
-		if msg := agg.unavailableMessage(); msg != "" {
+		for _, msg := range []string{agg.unsupportedMessage(), agg.unavailableMessage()} {
+			if msg == "" {
+				continue
+			}
+
 			if condition.Message != "" {
 				msg = condition.Message + "; " + msg
 			}
@@ -1416,7 +1480,7 @@ func (r *StatusReconciler) updateProfileStatus(
 // with it, so it repeats only when the named nodes change, not on every
 // requeue.
 func (r *StatusReconciler) reportUnavailableNodes(
-	old, updated profilebaseapi.StatusBaseUser, agg aggregation,
+	old, updated profilebaseapi.StatusBaseUser, agg *aggregation,
 ) {
 	cond := updated.GetStatusBase().GetReadyCondition()
 	if cond.Reason != string(profilebaseapi.ReasonInstalledOnAvailableNodes) {

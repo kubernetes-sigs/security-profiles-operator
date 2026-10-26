@@ -121,8 +121,12 @@ type BpfProcessCache struct {
 var errProcessReplaced = errors.New("another process runs with the PID since its exec")
 
 func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
+	recorder := New("", logger, false, false)
+	recorder.lostRingbufImpact = "enriched audit records may miss the command line " +
+		"and the request UID of their process"
+
 	bpfProcCache := &BpfProcessCache{
-		recorder: New("", logger, false, false),
+		recorder: recorder,
 		logger:   logger,
 		cache: ttlcache.New(
 			ttlcache.WithTTL[int, *BpfProcessInfo](processCacheTimeout),
@@ -197,7 +201,7 @@ func (b *BpfProcessCache) Load() (err error) {
 		return fmt.Errorf("load bpf object: %w", err)
 	}
 
-	if err := b.recorder.loadPrograms(procCacheHooks); err != nil {
+	if _, err := b.recorder.attachPrograms(procCacheHooks); err != nil {
 		return fmt.Errorf("loading base hooks: %w", err)
 	}
 
@@ -205,6 +209,17 @@ func (b *BpfProcessCache) Load() (err error) {
 	if err != nil {
 		return fmt.Errorf("getting `is_recording` map: %w", err)
 	}
+
+	// A full ring buffer drops exec events, which leaves the enriched
+	// records without the command line.
+	lostEvents, err := b.recorder.GetMap(b.recorder.module, mapLostEvents)
+	if err != nil {
+		return fmt.Errorf("getting `%s` map: %w", mapLostEvents, err)
+	}
+
+	b.recorder.lostEventsMu.Lock()
+	b.recorder.lostEventsBpfMap = lostEvents
+	b.recorder.lostEventsMu.Unlock()
 
 	const timeout = 300
 
@@ -222,6 +237,7 @@ func (b *BpfProcessCache) Load() (err error) {
 	b.recorder.PollRingBuffer(ringbuf, timeout)
 
 	go b.processEvents(events)
+	go b.recorder.reportLostEvents()
 
 	b.logger.Info("BPF module successfully loaded.")
 

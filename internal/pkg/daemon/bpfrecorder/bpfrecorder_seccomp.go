@@ -60,11 +60,6 @@ func (s *SeccompRecorder) Load(b *BpfRecorder) error {
 	return nil
 }
 
-func (s *SeccompRecorder) StartRecording(b *BpfRecorder) error {
-	// This uses one of the base hooks, no need to attach here.
-	return nil
-}
-
 func (s *SeccompRecorder) StopRecording(b *BpfRecorder) error {
 	if err := clearBpfMap(b, s.syscalls); err != nil {
 		return fmt.Errorf("failed to clean up syscalls map: %w", err)

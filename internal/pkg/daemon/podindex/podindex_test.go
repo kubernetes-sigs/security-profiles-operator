@@ -252,6 +252,26 @@ func TestLookupFailsRightAwayWithoutPendingContainers(t *testing.T) {
 	require.Less(t, time.Since(start), 10*time.Second)
 }
 
+// A container may show up while a pod of the node has a pending container,
+// but not once all of them are running.
+func TestMayShowUp(t *testing.T) {
+	t.Parallel()
+
+	lw := podindextest.New(
+		*podindextest.Pod("ns", "pod", "container", idRegular),
+		*podindextest.Pod("ns", "creating", "container", ""),
+	)
+	idx := startIndex(t, lw)
+
+	require.True(t, idx.MayShowUp(idRegular))
+	require.True(t, idx.MayShowUp(idOther))
+
+	lw.Modify(podindextest.Pod("ns", "creating", "container", idEphemeral))
+	require.Eventually(t, func() bool { return !idx.MayShowUp(idOther) },
+		time.Minute, time.Millisecond)
+	require.True(t, idx.MayShowUp(idEphemeral))
+}
+
 // The wait ends once no container is pending anymore, even though the
 // deletion of a pod is not signalled as a change.
 func TestLookupStopsWaitingWithoutPendingContainers(t *testing.T) {

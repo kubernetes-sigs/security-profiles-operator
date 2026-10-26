@@ -132,7 +132,7 @@ func TestHandleDeletionOwnership(t *testing.T) {
 			nodeStatus, err := nodestatus.NewForProfileOnNode(profile, rec.client, "worker-1")
 			require.NoError(t, err)
 
-			err = rec.handleDeletion(t.Context(), profile, nodeStatus, log.Log)
+			err = rec.handleDeletion(t.Context(), profile, nodeStatus, false, log.Log)
 			if tc.wantErr {
 				require.Error(t, err)
 

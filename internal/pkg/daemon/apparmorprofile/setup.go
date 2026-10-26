@@ -19,7 +19,6 @@ package apparmorprofile
 import (
 	"context"
 	"os"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -58,11 +57,7 @@ func (r *Reconciler) Setup(
 	)
 
 	if enabled {
-		removeStaleTempFiles(r.log)
-
-		// A daemon which crashed right before this one started leaves
-		// files which are too young for the first pass.
-		time.AfterFunc(common.StaleTempFileAge, func() { removeStaleTempFiles(r.log) })
+		common.SweepStaleTempFilesOnStart(func() { removeStaleTempFiles(r.log) })
 	}
 
 	// Register the regular reconciler to manage AppArmorProfiles

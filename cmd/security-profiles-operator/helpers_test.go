@@ -201,6 +201,37 @@ func TestGetEnabledControllers(t *testing.T) {
 	require.Equal(t, []string{"seccomp-spod", "apparmor-spod"}, names("--with-apparmor"))
 }
 
+func TestGetReleaseControllers(t *testing.T) {
+	t.Parallel()
+
+	flags := daemonCommand(&version.Info{}).Flags
+
+	names := func(args ...string) []string {
+		controllers := getReleaseControllers(newCLIContext(t, flags, args...))
+
+		res := make([]string, 0, len(controllers))
+		for _, c := range controllers {
+			res = append(res, c.Name())
+		}
+
+		return res
+	}
+
+	require.Equal(t, []string{
+		"selinuxprofile-spod-release", "rawselinuxprofile-spod-release", "apparmor-spod-release",
+	}, names())
+	require.Equal(t, []string{
+		"seccomp-spod-release", "selinuxprofile-spod-release",
+		"rawselinuxprofile-spod-release", "apparmor-spod-release",
+	}, names("--with-seccomp=false"))
+	require.Equal(t, []string{"rawselinuxprofile-spod-release", "apparmor-spod-release"},
+		names("--with-selinux"))
+	require.Equal(t, []string{"apparmor-spod-release"},
+		names("--with-selinux", "--with-raw-selinux"))
+	require.Equal(t, []string{"selinuxprofile-spod-release", "rawselinuxprofile-spod-release"},
+		names("--with-apparmor"))
+}
+
 func TestDaemonCacheOptions(t *testing.T) {
 	t.Parallel()
 

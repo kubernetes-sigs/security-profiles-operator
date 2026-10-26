@@ -263,6 +263,9 @@ type BpfRecorder struct {
 	// lostEventsMu.
 	lostEvents   [lostReasons]uint64
 	lostEventsMu sync.Mutex
+	// lostRingbufImpact tells what a full ring buffer costs, see
+	// checkLostEvents. The recorder uses the default message.
+	lostRingbufImpact string
 	// uniqueKeys is set if the BPF program stores the recorded data under
 	// keys which are never reused.
 	uniqueKeys bool
@@ -1388,7 +1391,7 @@ func (b *BpfRecorder) Load() (err error) {
 		b.logger.Info("Excluding mount namespace", "mntns", b.excludeMountNamespace)
 	}
 
-	if err := b.loadPrograms(b.recorderHooks()); err != nil {
+	if _, err := b.attachPrograms(b.recorderHooks()); err != nil {
 		return fmt.Errorf("loading base hooks: %w", err)
 	}
 
@@ -1581,8 +1584,13 @@ func (b *BpfRecorder) checkLostEvents() {
 
 		switch reason {
 		case lostRingbuf:
+			impact := b.lostRingbufImpact
+			if impact == "" {
+				impact = "recorded profiles may be incomplete"
+			}
+
 			b.logger.Info(
-				"WARNING: the BPF ring buffer was full, recorded profiles may be incomplete",
+				"WARNING: the BPF ring buffer was full, "+impact,
 				"lostEvents", lost, "lostEventsTotal", total,
 			)
 		case lostFileEventBusy:
@@ -1605,7 +1613,8 @@ func (b *BpfRecorder) checkLostEvents() {
 			)
 		case lostUnresolvedPath:
 			b.logger.Info(
-				"WARNING: paths which are too long or too deep are not recorded, "+
+				"WARNING: paths which cannot be resolved, like too long or too deep ones, "+
+					"are not recorded, "+
 					"recorded AppArmor profiles may be incomplete",
 				"lostFileEvents", lost, "lostFileEventsTotal", total,
 			)
@@ -1645,12 +1654,6 @@ func (b *BpfRecorder) recorderHooks() []string {
 	}
 
 	return slices.Concat(baseHooks, filterHooks)
-}
-
-func (b *BpfRecorder) loadPrograms(programNames []string) error {
-	_, err := b.attachPrograms(programNames)
-
-	return err
 }
 
 // attachPrograms attaches the named programs and returns their links. On
@@ -1721,11 +1724,7 @@ func (b *BpfRecorder) StartRecording() (err error) {
 		}
 	}
 
-	if b.Seccomp != nil {
-		if err := b.Seccomp.StartRecording(b); err != nil {
-			return fmt.Errorf("starting seccomp recording: %w", err)
-		}
-	}
+	// The seccomp recording uses the base hooks, which are attached already.
 
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
 		return fmt.Errorf("failed to update `is_recording`: %w", err)

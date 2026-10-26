@@ -45,7 +45,8 @@ const (
 	stuckFinalizerWarningAge = 10 * time.Minute
 
 	// InUseRetry is the time after which a disabled profile which pods still
-	// use is checked again, so that it gets removed once they are gone.
+	// use is checked again at the latest, so that it gets removed once they
+	// are gone. The resyncs of the daemon cache usually check it sooner.
 	InUseRetry = time.Minute
 )
 
@@ -356,6 +357,11 @@ func EnsureNodeStatus(
 		// finalizer of this node only, next to which the current one is
 		// added. The legacy one can be shared with other nodes, so it stays.
 		if err := nsc.MigrateLegacyFinalizer(ctx); err != nil {
+			return false, false, err
+		}
+
+		// A node which did not support the kind before does now.
+		if err := nsc.ClearUnsupported(ctx); err != nil {
 			return false, false, err
 		}
 
