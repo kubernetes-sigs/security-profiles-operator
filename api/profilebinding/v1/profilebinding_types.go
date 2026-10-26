@@ -53,6 +53,10 @@ const (
 	// the SPOD configuration, so that no node installs the profile and the
 	// binding is not applied.
 	ReasonProfileKindDisabled common.ConditionReason = "ProfileKindDisabled"
+	// ReasonInvalidPodSelector tells that the podSelector of the binding
+	// cannot be parsed, so that the binding webhook skips the binding for
+	// every pod.
+	ReasonInvalidPodSelector common.ConditionReason = "InvalidPodSelector"
 )
 
 // ProfileBindingSpec defines the desired state of ProfileBinding.
@@ -91,7 +95,7 @@ type ProfileRef struct {
 // ProfileBindingStatus contains status of the Profilebinding.
 type ProfileBindingStatus struct {
 	// The Ready condition reports whether the referenced profile exists and
-	// is installed.
+	// is installed, and whether the podSelector is valid.
 	common.ConditionedStatus `json:",inline"`
 
 	// activeWorkloads lists the workloads currently using this binding. It

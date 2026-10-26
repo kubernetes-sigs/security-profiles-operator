@@ -118,6 +118,17 @@ func (r *bindingStatusReconciler) Reconcile(
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// The binding webhook skips a binding with an invalid selector for every
+	// pod, whatever the state of its profile.
+	if _, err := metav1.LabelSelectorAsSelector(binding.Spec.PodSelector); err != nil {
+		condition := common.Unavailable(
+			"the podSelector is invalid, so the binding is not applied: " + err.Error(),
+		)
+		condition.Reason = string(profilebindingapi.ReasonInvalidPodSelector)
+
+		return reconcile.Result{}, r.setCondition(ctx, req, &condition)
+	}
+
 	condition, res, err := r.readyCondition(ctx, binding.Spec.ProfileRef)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("looking up profile of binding: %w", err)

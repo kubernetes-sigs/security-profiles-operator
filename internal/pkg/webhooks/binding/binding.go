@@ -100,6 +100,7 @@ const (
 	reasonInvalidPodSelector   = "InvalidPodSelector"
 	reasonRecordedElsewhere    = "ProfileRecordedInOtherNamespace"
 	reasonPrivilegedContainer  = "PrivilegedContainer"
+	reasonProfileDisabled      = "ProfileDisabled"
 )
 
 // lookupBudget bounds the retried profile lookups of the admission requests.
@@ -321,7 +322,10 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		p = &dryRun
 	}
 
-	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))
+	// The bindings are only read, so the cache does not have to copy them.
+	profileBindings, err := p.ListProfileBindings(
+		ctx, client.InNamespace(req.Namespace), client.UnsafeDisableDeepCopy,
+	)
 	if err != nil {
 		p.log.Error(err, "could not list profile bindings")
 
@@ -523,8 +527,7 @@ func (p *podBinder) updatePod(
 	var uninstalled []uninstalledBinding
 
 	for _, pb := range sortBindings(profilebindings) {
-		// Skip bindings whose podSelector does not match the pod's labels.
-		if !p.podMatchesSelector(pod, pb) {
+		if p.skipBinding(pod, state, pb) {
 			continue
 		}
 
@@ -549,6 +552,10 @@ func (p *podBinder) updatePod(
 		}
 
 		p.applyBinding(state, pb, bindProfile)
+
+		if disabledProfile(bindProfile) {
+			state.disabled = append(state.disabled, pb)
+		}
 
 		if namespace := recordingNamespace(bindProfile); namespace != "" &&
 			namespace != req.Namespace {
@@ -597,6 +604,7 @@ func (p *podBinder) updatePod(
 	}
 
 	p.warnPrivilegedSeccomp(state, ctrs, warned)
+	p.warnDisabledProfiles(state, warned)
 
 	// The ephemeralcontainers subresource only accepts changes to the
 	// ephemeral containers, so the annotations are only changed on creation.
@@ -613,6 +621,29 @@ func (p *podBinder) updatePod(
 	}
 
 	return pod, state.warnings, nil
+}
+
+// skipBinding returns true for a binding which does not apply to the pod, so
+// that its profile is not looked up: a profile without status would reject
+// the pod, and a missing one delay it.
+func (p *podBinder) skipBinding(
+	pod *corev1.Pod, state *bindState, pb *profilebindingapi.ProfileBinding,
+) bool {
+	// A binding which is being deleted does not apply to new pods or
+	// containers anymore, so that it does not stay in use while pods keep
+	// getting created. The pods it got applied to keep their profiles.
+	if !pb.GetDeletionTimestamp().IsZero() {
+		return true
+	}
+
+	if !p.podMatchesSelector(pod, pb) {
+		return true
+	}
+
+	// An image specific binding which binds none of the containers does not
+	// change the pod.
+	return pb.Spec.Image != profilebindingapi.SelectAllContainersImage &&
+		len(state.images[util.NormalizeImage(pb.Spec.Image)]) == 0
 }
 
 // bindState is the state of applying the bindings to a pod.
@@ -638,6 +669,10 @@ type bindState struct {
 	// recordedElsewhere are the bindings to profiles which got recorded in
 	// another namespace than the one of the pod.
 	recordedElsewhere []recordedProfile
+
+	// disabled are the bindings to disabled profiles which no pod uses, see
+	// disabledProfile.
+	disabled []*profilebindingapi.ProfileBinding
 
 	warnings   []string
 	podChanged bool
@@ -796,6 +831,47 @@ func (p *podBinder) warnPrivilegedSeccomp(
 		p.log.Info(msg)
 		p.record.Eventf(
 			pb, nil, corev1.EventTypeWarning, reasonPrivilegedContainer,
+			util.EventActionMutate, "%s", msg,
+		)
+
+		state.warnings = append(state.warnings, msg)
+	}
+}
+
+// disabledProfile returns true for a disabled profile which no pod uses. The
+// daemons remove such a profile from the nodes, and do not install it on the
+// others, so that the containers it gets bound to fail to start until it gets
+// enabled again. A disabled profile which pods use stays on the nodes which
+// installed it, but may be missing on the node of the new pod.
+func disabledProfile(bindProfile any) bool {
+	profile, ok := bindProfile.(profilebase.StatusBaseUser)
+
+	return ok && profile.GetStatusBase().Status == secprofnodestatusapi.ProfileStateDisabled &&
+		!controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString)
+}
+
+// warnDisabledProfiles warns about the applied bindings to disabled profiles
+// which no pod uses, see disabledProfile, unless they got warned about
+// already. The pod is not rejected, because the profile may get enabled
+// before the pod gets scheduled.
+func (p *podBinder) warnDisabledProfiles(state *bindState, warned sets.Set[string]) {
+	for _, pb := range state.disabled {
+		if !state.applied.Has(pb.Name) || warned.Has(pb.Name) {
+			continue
+		}
+
+		msg := fmt.Sprintf(
+			"profile binding %s applied %s %s to pod %s, which is disabled and not installed "+
+				"on the nodes, so the containers fail to start until the profile gets enabled",
+			pb.Name,
+			pb.Spec.ProfileRef.Kind,
+			pb.Spec.ProfileRef.Name,
+			state.podName,
+		)
+
+		p.log.Info(msg)
+		p.record.Eventf(
+			pb, nil, corev1.EventTypeWarning, reasonProfileDisabled,
 			util.EventActionMutate, "%s", msg,
 		)
 

@@ -726,6 +726,7 @@ func TestHandle(t *testing.T) {
 								ProfileRef: profilebindingapi.ProfileRef{
 									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
 								},
+								Image: "foo",
 							},
 						},
 					},
@@ -803,6 +804,7 @@ func TestHandle(t *testing.T) {
 								ProfileRef: profilebindingapi.ProfileRef{
 									Kind: "unsupported",
 								},
+								Image: "foo",
 							},
 						},
 					},
@@ -887,6 +889,7 @@ func TestHandle(t *testing.T) {
 								ProfileRef: profilebindingapi.ProfileRef{
 									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
+								Image: "foo",
 							},
 						},
 					},
@@ -1971,6 +1974,7 @@ func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 		finalizers []string
 		reject     string
 		bound      bool
+		warn       string
 	}{
 		{
 			name:   "partial",
@@ -2011,6 +2015,14 @@ func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 			status: secprofnodestatusapi.ProfileStateDisabled,
 			image:  "foo",
 			bound:  true,
+			warn:   "which is disabled and not installed on the nodes",
+		},
+		{
+			name:       "disabled in use",
+			status:     secprofnodestatusapi.ProfileStateDisabled,
+			image:      "foo",
+			finalizers: []string{util.HasActivePodsFinalizerString},
+			bound:      true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2029,7 +2041,7 @@ func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 			mock := &bindingfakes.FakeImpl{}
 			mock.GetAppArmorProfileReturns(profile, nil)
 
-			pod, _, resp := newTestBinder(t, mock).updatePod(
+			pod, warnings, resp := newTestBinder(t, mock).updatePod(
 				t.Context(),
 				[]profilebindingapi.ProfileBinding{{
 					ObjectMeta: metav1.ObjectMeta{Name: "binding"},
@@ -2047,13 +2059,27 @@ func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 				}},
 			)
 
+			// The profile of a binding of an image the pod does not use is
+			// not looked up at all.
+			wantLookups := 1
+			if tc.image != "foo" {
+				wantLookups = 0
+			}
+
 			require.Equal(
 				t,
-				1,
+				wantLookups,
 				mock.GetAppArmorProfileCallCount(),
 				"the lookup must not be retried",
 			)
 			require.Zero(t, mock.GetSPODCallCount())
+
+			if tc.warn == "" {
+				require.Empty(t, warnings)
+			} else {
+				require.Len(t, warnings, 1)
+				require.Contains(t, warnings[0], tc.warn)
+			}
 
 			if tc.reject == "" {
 				require.Equal(t, tc.bound, pod.Spec.Containers[0].SecurityContext != nil)
@@ -2070,6 +2096,57 @@ func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 			require.False(t, resp.Allowed)
 			require.Equal(t, int32(http.StatusForbidden), resp.Result.Code)
 			require.Contains(t, resp.Result.Message, tc.reject)
+		})
+	}
+}
+
+// Bindings which cannot change the pod do not look up their profile, so that
+// a profile without status does not reject pods the binding does not bind, and
+// a binding which is being deleted does not apply to new pods anymore.
+func TestUpdatePodSkipsBindingsWhichBindNothing(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		image    string
+		deleting bool
+	}{
+		{name: "binding of another image", image: "other"},
+		{name: "binding being deleted", image: "foo", deleting: true},
+		{
+			name:     "wildcard binding being deleted",
+			image:    profilebindingapi.SelectAllContainersImage,
+			deleting: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// A profile without status would reject the pod if the binding
+			// got applied.
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+
+			binding := seccompBinding("binding", "profile", tc.image, 1)
+			if tc.deleting {
+				binding.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+				binding.Finalizers = []string{"active-workload-lock"}
+			}
+
+			pod, warnings, resp := newTestBinder(t, mock).updatePod(
+				t.Context(),
+				[]profilebindingapi.ProfileBinding{binding},
+				&admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawObject(t, testPod),
+				}},
+			)
+
+			require.True(t, resp.Allowed)
+			require.Equal(t, "pod unchanged", resp.Result.Message)
+			require.Empty(t, warnings)
+			require.Nil(t, pod.Spec.Containers[0].SecurityContext)
+			require.Zero(t, mock.GetSeccompProfileCallCount())
 		})
 	}
 }

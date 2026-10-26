@@ -79,7 +79,7 @@ func (r *RecordingTrackerReconciler) Setup(
 		return fmt.Errorf("creating recording annotations index: %w", err)
 	}
 
-	if err := r.setupStatus(mgr, name+"-status"); err != nil {
+	if err := r.setupStatus(ctx, mgr, name+"-status"); err != nil {
 		return err
 	}
 
@@ -125,9 +125,7 @@ func recordingAnnotationsIndex(obj client.Object) []string {
 	var names []string
 
 	for key, value := range obj.GetAnnotations() {
-		if !slices.ContainsFunc(bindata.RecordingAnnotationPrefixes, func(prefix string) bool {
-			return strings.HasPrefix(key, prefix)
-		}) {
+		if !bindata.IsRecordingAnnotationKey(key) {
 			continue
 		}
 
@@ -171,7 +169,9 @@ func activeWorkloadRequests(_ context.Context, obj client.Object) []reconcile.Re
 // on the SPODs, the recording webhook, the namespace of the recording and the
 // profiles which the recording would write, so changes of those reconcile
 // the recordings again.
-func (r *RecordingTrackerReconciler) setupStatus(mgr ctrl.Manager, name string) error {
+func (r *RecordingTrackerReconciler) setupStatus(
+	ctx context.Context, mgr ctrl.Manager, name string,
+) error {
 	// The SPOD controller registers the SPOD kind as well, but the conditions
 	// do not depend on it being enabled.
 	if err := spodapi.AddToScheme(mgr.GetScheme()); err != nil {
@@ -183,11 +183,19 @@ func (r *RecordingTrackerReconciler) setupStatus(mgr ctrl.Manager, name string) 
 		r.log.Info("Not checking the recorders of the recordings", "reason", err.Error())
 	}
 
+	// The SPOD controller enables SELinux by default on OpenShift, which it
+	// detects like this once on startup.
+	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.reader)
+	if err != nil {
+		return fmt.Errorf("detecting the platform: %w", err)
+	}
+
 	status := &recordingStatusReconciler{
 		client:            r.client,
 		reader:            r.reader,
 		log:               r.log.WithName("status"),
 		operatorNamespace: operatorNamespace,
+		isOpenShift:       caInjectType == bindata.CAInjectTypeOpenShift,
 		env:               recorderEnvFromEnvironment(),
 	}
 

@@ -114,8 +114,10 @@ func (p *podSeccompRecorder) Handle(
 		return p.keepRecordingAnnotations(&req, pod)
 	}
 
+	// The recordings are only read, so the cache does not have to copy them.
+	// The list has its own slice of items, which can be sorted.
 	profileRecordings, err := p.ListProfileRecordings(
-		ctx, client.InNamespace(req.Namespace),
+		ctx, client.InNamespace(req.Namespace), client.UnsafeDisableDeepCopy,
 	)
 	if err != nil {
 		p.log.Error(err, "Could not list profile recordings")
@@ -128,7 +130,7 @@ func (p *podSeccompRecorder) Handle(
 
 	// Recordings which select the same container conflict. The oldest one
 	// records it, independent of the order of the cache.
-	items := slices.Clone(profileRecordings.Items)
+	items := profileRecordings.Items
 	slices.SortStableFunc(items, func(a, b profilerecordingapi.ProfileRecording) int {
 		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
 			return c
@@ -150,6 +152,14 @@ func (p *podSeccompRecorder) Handle(
 
 	for i := range items {
 		item := items[i]
+
+		// A recording which is being deleted does not record new pods, so
+		// that it does not stay in use while pods keep getting created. The
+		// pods it records already stay recorded.
+		if !item.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+
 		if !item.IsKindSupported() {
 			p.log.Info("recording kind not supported", "kind", item.Spec.Kind)
 
@@ -513,7 +523,8 @@ func restoreRecordingAnnotations(pod, oldPod *corev1.Pod) bool {
 	changed := false
 
 	for key := range pod.Annotations {
-		if _, existed := oldPod.Annotations[key]; isRecordingAnnotationKey(key) && !existed {
+		_, existed := oldPod.Annotations[key]
+		if !existed && bindata.IsRecordingAnnotationKey(key) {
 			delete(pod.Annotations, key)
 
 			changed = true
@@ -521,7 +532,7 @@ func restoreRecordingAnnotations(pod, oldPod *corev1.Pod) bool {
 	}
 
 	for key, oldValue := range oldPod.Annotations {
-		if value, ok := pod.Annotations[key]; !isRecordingAnnotationKey(key) ||
+		if value, ok := pod.Annotations[key]; !bindata.IsRecordingAnnotationKey(key) ||
 			(ok && value == oldValue) {
 			continue
 		}
@@ -535,14 +546,6 @@ func restoreRecordingAnnotations(pod, oldPod *corev1.Pod) bool {
 	}
 
 	return changed
-}
-
-// isRecordingAnnotationKey returns true if the annotation key is the one of a
-// recording, see ProfileRecording.CtrAnnotation.
-func isRecordingAnnotationKey(key string) bool {
-	return slices.ContainsFunc(bindata.RecordingAnnotationPrefixes, func(prefix string) bool {
-		return strings.HasPrefix(key, prefix)
-	})
 }
 
 // isRecordingAnnotationValue returns true if the annotation value has the

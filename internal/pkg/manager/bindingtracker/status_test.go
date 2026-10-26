@@ -57,6 +57,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 	for name, tc := range map[string]struct {
 		kind        profilebindingapi.ProfileBindingKind
 		objs        []client.Object
+		podSelector *metav1.LabelSelector
 		isOpenShift bool
 		wantReason  common.ConditionReason
 		wantMessage string
@@ -180,6 +181,16 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
 			wantRequeue: true,
 		},
+		// The webhook skips a binding with an invalid selector for every pod,
+		// also if its profile is installed.
+		"invalid pod selector": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs: []client.Object{&seccompprofileapi.SeccompProfile{
+				ObjectMeta: meta, Status: seccompprofileapi.SeccompProfileStatus{StatusBase: installed},
+			}},
+			podSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"in valid": "app"}},
+			wantReason:  profilebindingapi.ReasonInvalidPodSelector,
+		},
 		// Like for the webhook, a missing configuration counts as enabled.
 		"selinux without SPOD": {
 			kind:        profilebindingapi.ProfileBindingKindSelinuxProfile,
@@ -200,8 +211,9 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			binding := &profilebindingapi.ProfileBinding{
 				ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "default", Generation: 2},
 				Spec: profilebindingapi.ProfileBindingSpec{
-					ProfileRef: profilebindingapi.ProfileRef{Kind: tc.kind, Name: "profile"},
-					Image:      "nginx",
+					ProfileRef:  profilebindingapi.ProfileRef{Kind: tc.kind, Name: "profile"},
+					Image:       "nginx",
+					PodSelector: tc.podSelector,
 				},
 				Status: profilebindingapi.ProfileBindingStatus{
 					ActiveWorkloads: []string{"default/pod"},

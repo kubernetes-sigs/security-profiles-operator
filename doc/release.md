@@ -107,6 +107,8 @@ The script basically:
   and the image, tag and pull policy in the Helm chart
   [values](../deploy/helm/values.yaml) and its [README](../deploy/helm/README.md)
   in the same way
+- sets the `IfNotPresent` pull policy in the operator and webhook deployments,
+  which the operator passes on to the daemon and the webhook
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) and the e2e tests to
   use the released images from `registry.k8s.io` instead of the staging ones,
   for example `registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:vx.y.z`
@@ -355,7 +357,8 @@ After that, run the `./hack/back-to-dev.sh` script, which:
   [`hack/deploy-localhost.patch`](../hack/deploy-localhost.patch), the e2e tests
   and the webhook overlay back to the staging registry.
 - reverts the Helm chart [values](../deploy/helm/values.yaml) to the staging
-  image with the `Always` pull policy.
+  image with the `Always` pull policy, and sets the `Always` pull policy in the
+  deployments and manifests again.
 - sets the development version in
   [./dependencies.yaml](../dependencies.yaml), the catalog preamble
   [`deploy/catalog-preamble.json`](../deploy/catalog-preamble.json), the
