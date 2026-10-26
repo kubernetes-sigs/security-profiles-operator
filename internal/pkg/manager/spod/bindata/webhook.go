@@ -197,6 +197,27 @@ var RecordingAnnotationPrefixes = []string{
 	config.SelinuxProfileRecordLogsAnnotationKey,
 }
 
+// RecordingAnnotationContainer returns the container name of a recording
+// annotation key, or false if the key is not the one of a recording. No key
+// has more than one of the RecordingAnnotationPrefixes.
+func RecordingAnnotationContainer(key string) (string, bool) {
+	for _, prefix := range RecordingAnnotationPrefixes {
+		if ctr, ok := strings.CutPrefix(key, prefix); ok {
+			return ctr, true
+		}
+	}
+
+	return "", false
+}
+
+// IsRecordingAnnotationKey returns true if the annotation key is the one of a
+// recording, see ProfileRecording.CtrAnnotation.
+func IsRecordingAnnotationKey(key string) bool {
+	_, ok := RecordingAnnotationContainer(key)
+
+	return ok
+}
+
 // recordingMatchExpression returns the expression which is true for pod
 // creations and for pod updates which add, remove or change a recording
 // annotation.

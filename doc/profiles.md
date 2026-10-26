@@ -1578,7 +1578,15 @@ security context of a pod cannot be changed after its creation.
   profile with the `Partial` status of a recording which is not merged yet is
   rejected as well, because the nodes never install partial profiles. So is a
   pod bound to a profile which is being deleted and which no pod uses, because
-  the nodes remove it.
+  the nodes remove it. A pod bound to a disabled profile which no pod uses is
+  admitted with an admission warning and the binding gets a `ProfileDisabled`
+  event, because the nodes do not install it and the containers cannot start
+  until the profile gets enabled again.
+- Image bindings of images which no container of the pod uses do not get
+  their profile looked up, so they neither reject nor delay the pod.
+- A binding which is being deleted does not apply to new pods or ephemeral
+  containers anymore, the pods it got applied to keep their profiles. Likewise
+  a recording which is being deleted does not record new pods.
 - Windows pods are never mutated, because the API server rejects seccomp,
   SELinux and AppArmor settings on them.
 
@@ -1593,8 +1601,10 @@ $ kubectl get profilebinding nginx-binding -o jsonpath='{.status.conditions[?(@.
 ```
 
 The reason `ProfileNotInstalled` tells that the profile exists, but is not
-installed, along with its status, and `ProfileKindDisabled` that the profile
-has no status because its kind is disabled in the SPOD configuration.
+installed, along with its status, `ProfileKindDisabled` that the profile has
+no status because its kind is disabled in the SPOD configuration, and
+`InvalidPodSelector` that the `podSelector` cannot be parsed, so that the
+binding is not applied to any pod.
 
 #### Merging per-container profile instances
 
@@ -1904,7 +1914,10 @@ The status of a `ProfileRecording` carries two conditions:
   `SecurityProfilesOperatorDaemon` enables the recorder (`spec.enricher.enableLogEnricher` for
   `Logs`, `spec.enricher.enableBpfRecorder` for `Bpf`), and `NamespaceNotEnabled` if the recording
   webhook does not select the namespace, by default because it lacks the
-  `spo.x-k8s.io/enable-recording` label.
+  `spo.x-k8s.io/enable-recording` label. `InvalidPodSelector` tells that the `podSelector` cannot be
+  parsed, `NoContainersSelected` that `containers` is an empty list, which records no container
+  (leave it unset to record all of them), and `SelinuxDisabled` that a `SelinuxProfile` recording
+  cannot record because the SPOD configuration does not enable SELinux (`spec.selinux.enable`).
 - `ProfileConflict` is `True` with the reason `ProfileOwnedByOther` if profiles which the recording
   would write exist already, but were recorded by a recording in another namespace or not recorded
   at all. The recorded data for them gets dropped. The check is best effort: it covers the

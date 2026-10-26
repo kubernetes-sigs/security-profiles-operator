@@ -738,7 +738,8 @@ func (e *e2e) prepareManifest(manifest string) string {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
-	e.updateManifest(manifest, "imagePullPolicy: Always", "imagePullPolicy: "+e.pullPolicy)
+	// Release commits use IfNotPresent instead of Always.
+	e.updateManifest(manifest, "imagePullPolicy: .*", "imagePullPolicy: "+e.pullPolicy)
 
 	const stagingImage = ".*us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/.*"
 

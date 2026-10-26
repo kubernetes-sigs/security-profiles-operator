@@ -273,6 +273,132 @@ func TestRecordingStatusReportsDisabledRecorder(t *testing.T) {
 	}
 }
 
+func TestRecordingStatusReportsSpecWhichRecordsNothing(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		mutate     func(*profilerecordingapi.ProfileRecording)
+		wantReason common.ConditionReason
+	}{
+		"invalid pod selector": {
+			mutate: func(r *profilerecordingapi.ProfileRecording) {
+				r.Spec.PodSelector = &metav1.LabelSelector{
+					MatchLabels: map[string]string{"in valid": "app"},
+				}
+			},
+			wantReason: profilerecordingapi.ReasonInvalidPodSelector,
+		},
+		"empty container list": {
+			mutate: func(r *profilerecordingapi.ProfileRecording) {
+				r.Spec.Containers = []string{}
+			},
+			wantReason: profilerecordingapi.ReasonNoContainersSelected,
+		},
+		"unset container list": {
+			mutate:     func(r *profilerecordingapi.ProfileRecording) { r.Spec.Containers = nil },
+			wantReason: common.ReasonAvailable,
+		},
+		"selected containers": {
+			mutate: func(r *profilerecordingapi.ProfileRecording) {
+				r.Spec.Containers = []string{"nginx"}
+			},
+			wantReason: common.ReasonAvailable,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := statusRecording(profilerecordingapi.ProfileRecorderBpf)
+			tc.mutate(recording)
+
+			// The recording is passed as is: a round trip through the fake
+			// client would drop the empty container list.
+			c := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).Build()
+			r := &recordingStatusReconciler{
+				client:            c,
+				reader:            c,
+				log:               logr.Discard(),
+				operatorNamespace: testOperatorNamespace,
+			}
+
+			ready, err := r.readyCondition(t.Context(), recording)
+			require.NoError(t, err)
+			require.Equal(t, string(tc.wantReason), ready.Reason)
+		})
+	}
+}
+
+func TestRecordingStatusReportsSelinuxDisabled(t *testing.T) {
+	t.Parallel()
+
+	selinuxSPOD := func(enable *bool) *spodapi.SecurityProfilesOperatorDaemon {
+		s := spod("spod", true, false)
+		s.Spec.Selinux.Enable = enable
+
+		return s
+	}
+
+	for name, tc := range map[string]struct {
+		isOpenShift bool
+		spods       []client.Object
+		wantReason  common.ConditionReason
+	}{
+		"selinux disabled": {
+			spods:      []client.Object{selinuxSPOD(new(false))},
+			wantReason: profilerecordingapi.ReasonSelinuxDisabled,
+		},
+		"selinux unset outside openshift": {
+			spods:      []client.Object{selinuxSPOD(nil)},
+			wantReason: profilerecordingapi.ReasonSelinuxDisabled,
+		},
+		"selinux unset on openshift": {
+			isOpenShift: true,
+			spods:       []client.Object{selinuxSPOD(nil)},
+			wantReason:  common.ReasonAvailable,
+		},
+		"selinux enabled": {
+			spods:      []client.Object{selinuxSPOD(new(true))},
+			wantReason: common.ReasonAvailable,
+		},
+		"no spod": {
+			wantReason: common.ReasonAvailable,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := statusRecording(profilerecordingapi.ProfileRecorderLogs)
+			recording.Spec.Kind = profilerecordingapi.ProfileRecordingKindSelinuxProfile
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(recording).
+				WithObjects(append(tc.spods, recording)...).
+				Build()
+
+			r := &recordingStatusReconciler{
+				client:            c,
+				reader:            c,
+				log:               logr.Discard(),
+				operatorNamespace: testOperatorNamespace,
+				isOpenShift:       tc.isOpenShift,
+				env:               recorderEnv{logEnricher: true},
+			}
+
+			_, err := r.Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(recording),
+			})
+			require.NoError(t, err)
+
+			updated := &profilerecordingapi.ProfileRecording{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+
+			ready := updated.Status.GetReadyCondition()
+			require.Equal(t, string(tc.wantReason), ready.Reason)
+		})
+	}
+}
+
 func TestRecordingStatusReportsNamespaceNotEnabled(t *testing.T) {
 	t.Parallel()
 

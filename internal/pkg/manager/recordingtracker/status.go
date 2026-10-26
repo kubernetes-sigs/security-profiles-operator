@@ -39,6 +39,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -64,8 +65,11 @@ type recordingStatusReconciler struct {
 	log    logr.Logger
 
 	// operatorNamespace holds the SecurityProfilesOperatorDaemons. The
-	// recorders are not checked without it.
+	// recorders and SELinux are not checked without it.
 	operatorNamespace string
+	// isOpenShift is true on OpenShift, where SELinux is enabled unless the
+	// SecurityProfilesOperatorDaemon disables it.
+	isOpenShift bool
 	// env holds the recorders which the environment of the operator enables
 	// in addition to the SecurityProfilesOperatorDaemons.
 	env recorderEnv
@@ -148,6 +152,22 @@ func (r *recordingStatusReconciler) readyCondition(
 		return common.Unavailable(err.Error()), nil
 	}
 
+	// The recording webhook skips a recording with an invalid selector for
+	// every pod.
+	if _, err := metav1.LabelSelectorAsSelector(recording.Spec.PodSelector); err != nil {
+		return notReady(profilerecordingapi.ReasonInvalidPodSelector, fmt.Sprintf(
+			"the podSelector is invalid, so no pod gets recorded: %v", err,
+		)), nil
+	}
+
+	// Only an unset list selects every container, see util.RecordsContainer.
+	if recording.Spec.Containers != nil && len(recording.Spec.Containers) == 0 {
+		return notReady(profilerecordingapi.ReasonNoContainersSelected,
+			"spec.containers is an empty list, so no container gets recorded, "+
+				"remove the field to record every container",
+		), nil
+	}
+
 	enabled, field, err := r.recorderEnabled(ctx, recording.Spec.Recorder)
 	if err != nil {
 		return metav1.Condition{}, err
@@ -159,6 +179,21 @@ func (r *recordingStatusReconciler) readyCondition(
 			recording.Spec.Recorder,
 			field,
 		)), nil
+	}
+
+	if recording.Spec.Kind == profilerecordingapi.ProfileRecordingKindSelinuxProfile {
+		selinux, err := r.selinuxEnabled(ctx)
+		if err != nil {
+			return metav1.Condition{}, err
+		}
+
+		if !selinux {
+			return notReady(profilerecordingapi.ReasonSelinuxDisabled,
+				"SELinux is not enabled, so the nodes do not install the SELinux type which "+
+					"the recorded containers get and they fail to start, "+
+					"set spec.selinux.enable of the SecurityProfilesOperatorDaemon",
+			), nil
+		}
 	}
 
 	selected, err := r.namespaceSelected(ctx, recording.GetNamespace())
@@ -237,6 +272,34 @@ func (r *recordingStatusReconciler) recorderEnabled(
 	}
 
 	return false, field, nil
+}
+
+// selinuxEnabled returns whether the SecurityProfilesOperatorDaemon enables
+// SELinux, so that the selinuxd container installs the SELinux type of the
+// recorded containers. Without the operator namespace or the
+// SecurityProfilesOperatorDaemon nothing can be told, and it counts as
+// enabled.
+func (r *recordingStatusReconciler) selinuxEnabled(ctx context.Context) (bool, error) {
+	if r.operatorNamespace == "" {
+		return true, nil
+	}
+
+	enabled, err := bindata.ProfileKindEnabled(
+		profilebindingapi.ProfileBindingKindSelinuxProfile,
+		r.isOpenShift,
+		func() (*spodapi.SecurityProfilesOperatorDaemon, error) {
+			spod := &spodapi.SecurityProfilesOperatorDaemon{}
+
+			return spod, r.client.Get(
+				ctx, client.ObjectKey{Name: config.SPOdName, Namespace: r.operatorNamespace}, spod,
+			)
+		},
+	)
+	if err != nil {
+		return false, fmt.Errorf("getting SecurityProfilesOperatorDaemon: %w", err)
+	}
+
+	return enabled, nil
 }
 
 // namespaceSelected returns whether the recording webhook selects the
@@ -419,19 +482,17 @@ func annotatedContainers(pod *corev1.Pod, recordingName string, admitted bool) [
 	var containers []string
 
 	for key, value := range pod.GetAnnotations() {
-		for _, prefix := range bindata.RecordingAnnotationPrefixes {
-			ctr, ok := strings.CutPrefix(key, prefix)
-			if !ok {
-				continue
-			}
-
-			rest, ok := strings.CutPrefix(value, recordingName+"_"+ctr+"_")
-			if !ok || (admitted && !admittedAnnotation(pod, ctr, rest)) {
-				continue
-			}
-
-			containers = append(containers, ctr)
+		ctr, ok := bindata.RecordingAnnotationContainer(key)
+		if !ok {
+			continue
 		}
+
+		rest, ok := strings.CutPrefix(value, recordingName+"_"+ctr+"_")
+		if !ok || (admitted && !admittedAnnotation(pod, ctr, rest)) {
+			continue
+		}
+
+		containers = append(containers, ctr)
 	}
 
 	slices.Sort(containers)

@@ -112,6 +112,18 @@ const (
 	// ReasonNamespaceNotEnabled is the reason of the Ready condition if the
 	// recording webhook does not select the namespace of the recording.
 	ReasonNamespaceNotEnabled common.ConditionReason = "NamespaceNotEnabled"
+	// ReasonInvalidPodSelector is the reason of the Ready condition if the
+	// podSelector of the recording cannot be parsed, so that the recording
+	// webhook skips the recording for every pod.
+	ReasonInvalidPodSelector common.ConditionReason = "InvalidPodSelector"
+	// ReasonNoContainersSelected is the reason of the Ready condition if the
+	// recording lists an empty set of containers, so that it records none.
+	ReasonNoContainersSelected common.ConditionReason = "NoContainersSelected"
+	// ReasonSelinuxDisabled is the reason of the Ready condition of a
+	// SelinuxProfile recording if the SecurityProfilesOperatorDaemon does not
+	// enable SELinux, so that the SELinux type which the recording webhook
+	// sets on the containers is not installed on the nodes.
+	ReasonSelinuxDisabled common.ConditionReason = "SelinuxDisabled"
 	// ReasonProfileOwnedByOther is the reason of the ProfileConflict
 	// condition if it is true.
 	ReasonProfileOwnedByOther common.ConditionReason = "ProfileOwnedByOther"
@@ -175,12 +187,14 @@ type ProfileRecordingSpec struct {
 // ProfileRecordingStatus contains status of the ProfileRecording.
 type ProfileRecordingStatus struct {
 	// The Ready condition reports whether the recording can record, which
-	// depends on a supported combination of kind and recorder, on the
-	// recorder being enabled in the SecurityProfilesOperatorDaemon and on the
-	// recording webhook selecting the namespace, by default through the
-	// spo.x-k8s.io/enable-recording label. The ProfileConflict condition
-	// reports the profiles which the recording would write, but which belong
-	// to another recording or were not recorded at all.
+	// depends on a supported combination of kind and recorder, on a valid
+	// podSelector, on a containers list which is not empty, on the recorder,
+	// and SELinux for SelinuxProfile recordings, being enabled in the
+	// SecurityProfilesOperatorDaemon and on the recording webhook selecting
+	// the namespace, by default through the spo.x-k8s.io/enable-recording
+	// label. The ProfileConflict condition reports the profiles which the
+	// recording would write, but which belong to another recording or were
+	// not recorded at all.
 	common.ConditionedStatus `json:",inline"`
 
 	// activeWorkloads lists the workloads currently using this recording. It

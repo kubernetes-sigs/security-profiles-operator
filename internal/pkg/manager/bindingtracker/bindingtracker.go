@@ -398,19 +398,13 @@ func podUsesImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
 		return true
 	}
 
-	for i := range pod.Spec.Containers {
-		if util.SameImage(pod.Spec.Containers[i].Image, pb.Spec.Image) {
+	for ctr := range util.AllContainers(pod) {
+		if util.SameImage(ctr.Image, pb.Spec.Image) {
 			return true
 		}
 	}
 
-	for i := range pod.Spec.InitContainers {
-		if util.SameImage(pod.Spec.InitContainers[i].Image, pb.Spec.Image) {
-			return true
-		}
-	}
-
-	return ephemeralContainersUseImage(pb, pod)
+	return false
 }
 
 func ephemeralContainersUseImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {

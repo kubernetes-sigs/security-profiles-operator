@@ -54,11 +54,20 @@ sed_i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;registr
 
 # Update patches
 sed_i 's;us-central1-docker.pkg.dev.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
+# The removed line has to match the pull policy of the release, see below.
+sed_i 's;^-        imagePullPolicy: Always$;-        imagePullPolicy: IfNotPresent;' hack/deploy-localhost.patch
 
 # Update webhook overlay
 FILE=deploy/overlays/webhook/kustomization.yaml
 sed_i 's;newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
 sed_i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
+
+# The released image does not change, so nodes do not have to pull it again,
+# like the Helm chart below. The operator passes the policy on to the daemon
+# and the webhook.
+sed_i 's;imagePullPolicy: Always;imagePullPolicy: IfNotPresent;g' \
+    deploy/kustomize-deployment/manager_deployment.yaml \
+    deploy/overlays/webhook/webhook_deployment.yaml
 
 # Update Helm chart values to use release image
 FILE=deploy/helm/values.yaml

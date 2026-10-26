@@ -5052,6 +5052,13 @@ data:
           readOnlyPaths:
           - /  # workaround for apparmor bug
           - /etc/apparmor/parser.conf
+          # name resolution and CA certificates for pulling base profiles
+          - /etc/hosts
+          - /etc/nsswitch.conf
+          - /etc/resolv.conf
+          - /etc/pki/**
+          - /etc/ssl/certs/
+          - /etc/ssl/certs/**
           - /proc/@{pid}/maps
           - /proc/@{pid}/mounts
           - /proc/sys/kernel/osrelease
@@ -5065,7 +5072,19 @@ data:
           - /var/lib/kubelet/seccomp/operator/
           readWritePaths:
           - /var/run/grpc/metrics.sock
+          # the profile recorder connects to the bpf recorder and the enricher
+          - /var/run/grpc/bpf-recorder.sock
+          - /var/run/grpc/enricher.sock
+          # The pulled artifacts and the sigstore TUF cache in $HOME live in
+          # emptyDir volumes. The compiled AppArmor profiles go to the /tmp of
+          # the host, because apparmor_parser runs in its mount namespace. While
+          # the daemon is in that namespace, all paths also match on the host,
+          # so only the files of the daemon are allowed.
           - /tmp/aa_profile_bin_*
+          - /tmp/pull-*/
+          - /tmp/pull-*/**
+          - /home/.sigstore/
+          - /home/.sigstore/**
           - /etc/apparmor.d/**
           - /sys/kernel/security/apparmor/
           - /sys/kernel/security/apparmor/**

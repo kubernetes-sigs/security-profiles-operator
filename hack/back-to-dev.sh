@@ -41,6 +41,18 @@ sed_i \
     deploy/operator.yaml \
     deploy/webhook-operator.yaml
 
+# The staging image is always the latest one, see release.sh. Only the
+# operator containers set a pull policy in these files.
+sed_i 's;imagePullPolicy: IfNotPresent;imagePullPolicy: Always;g' \
+    bundle/manifests/security-profiles-operator.clusterserviceversion.yaml \
+    deploy/kustomize-deployment/manager_deployment.yaml \
+    deploy/namespace-operator.yaml \
+    deploy/openshift-dev.yaml \
+    deploy/openshift-downstream.yaml \
+    deploy/operator.yaml \
+    deploy/overlays/webhook/webhook_deployment.yaml \
+    deploy/webhook-operator.yaml
+
 sed_i \
     -e 's;\(olm.skipRange.*\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
     -e 's;\(name: security-profiles-operator.v\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
@@ -86,7 +98,9 @@ sed_i \
 sed_i 's;registry.k8s.io;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator;g' test/e2e_test.go
 sed_i 's;registry.k8s.io/security-profiles-operator/base/;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
 
-sed_i 's;registry.k8s.io/security-profiles-operator.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
+sed_i \
+    -e 's;registry.k8s.io/security-profiles-operator.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
+    -e 's;^-        imagePullPolicy: IfNotPresent$;-        imagePullPolicy: Always;' \
     hack/deploy-localhost.patch
 
 # Revert webhook overlay to staging
