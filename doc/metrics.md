@@ -123,8 +123,8 @@ trusted environments:
 ```
 
 Setting the environment variable `ENABLE_INSECURE_METRICS_ACCESS=true` in the
-operator deployment makes the daemon endpoints unauthenticated as well, but
-does not switch the `ServiceMonitor` to HTTP, so prefer the SPOD field.
+operator deployment has the same effect, including the switch of the
+`ServiceMonitor` to HTTP. It applies whatever the SPOD field says.
 
 ### Available metrics
 
@@ -255,9 +255,18 @@ resource within its namespace. This monitor allows automatic metrics discovery
 within the cluster, which is pointing to the right service, TLS certificates as
 well as bearer token secret.
 
-When running on OpenShift and deploying upstream manifests or upstream OLM
-bundles, then the only configuration to be done is enabling user workloads
-by applying the following config map:
+On OpenShift, the upstream manifests label the operator namespace with
+`openshift.io/cluster-monitoring: "true"` and let the `prometheus-k8s` service
+account of the `openshift-monitoring` namespace discover the metrics
+endpoints, see the [security model](security-model.md#metrics). The OLM bundle
+asks the OpenShift console to add that label when installing it from the
+console. The platform Prometheus then scrapes the `ServiceMonitor` without
+further configuration.
+
+User workload monitoring ignores namespaces with that label. Without it, for
+example when installing the Helm chart, or the bundle without the console,
+into a namespace of your own, enable user workload monitoring by applying the
+following config map:
 
 ```yaml
 apiVersion: v1
@@ -289,11 +298,13 @@ NAME                                 AGE
 security-profiles-operator-monitor   35m
 ```
 
-We can now verify in the Prometheus targets that all endpoints are serving the
-metrics:
+We can now verify in the targets of the platform Prometheus that all endpoints
+are serving the metrics. With user workload monitoring, forward the
+`prometheus-user-workload-0` pod of the `openshift-user-workload-monitoring`
+namespace instead:
 
 ```
-> kubectl port-forward -n openshift-user-workload-monitoring pod/prometheus-user-workload-0 9090
+> kubectl port-forward -n openshift-monitoring pod/prometheus-k8s-0 9090
 Forwarding from 127.0.0.1:9090 -> 9090
 Forwarding from [::1]:9090 -> 9090
 ```

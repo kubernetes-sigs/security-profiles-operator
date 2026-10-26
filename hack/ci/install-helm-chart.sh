@@ -110,6 +110,16 @@ helm "${helm_cmd[@]}" "$RELEASE" deploy/helm \
 
 # The upgrade rolls the operator, which then updates the daemonset.
 k rollout status deployment security-profiles-operator --timeout "$WAIT_TIMEOUT"
+if [[ "$UPGRADE_FROM_RELEASE" == "true" ]]; then
+  # Until the new operator reconciled it, the daemonset of the released chart
+  # passes all the checks of wait_for_spod, so wait for the image of the
+  # upgraded operator first.
+  image=$(k get deployment security-profiles-operator -o jsonpath='{.spec.template.spec.containers[0].image}')
+  echo "Waiting for the spod daemonset to run $image"
+  kubectl wait --timeout "$WAIT_TIMEOUT" \
+    --for jsonpath='{.spec.template.spec.containers[0].image}'="$image" \
+    -n "$NAMESPACE" daemonset spod
+fi
 wait_for_spod
 
 # The examples must pass the API server validation and the admission webhooks

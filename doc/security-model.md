@@ -71,12 +71,15 @@ The running permissions for the three core technologies supported:
 1. The `selinux-shared-policies-copier` init container runs privileged to reload the kernel
    policy with `semodule -R`. The long running `selinuxd` container is not privileged, adds the
    `CHOWN`, `FOWNER`, `FSETID` and `DAC_OVERRIDE` capabilities to the runtime defaults, and runs
-   with the `selinuxd.process` type. To reload the policy after a SELinux profile changed, the
-   daemon creates a Job in the operator namespace, pinned to its node: a privileged pod with
-   the `spc_t` type, which runs `semodule -R` in the `selinuxd` image as the `spod` service
-   account without a service account token and tolerates every taint.
-2. The type can be changed through `spec.selinux.typeTag` of the `spod` resource, for
-   example to `unconfined_t` on Flatcar Linux. It is ignored while AppArmor is enabled.
+   with the type of (2) like the other containers. Its own `selinuxd.process` type, defined in
+   `selinuxd.cil`, only applies while AppArmor is enabled. To reload the policy after a SELinux
+   profile changed, the daemon creates a Job in the operator namespace, pinned to its node: a
+   privileged pod with the `spc_t` type, which runs `semodule -R` in the `selinuxd` image as the
+   `spod` service account without a service account token and tolerates every taint.
+2. The type of every container and init container, including `selinuxd`, can be changed through
+   `spec.selinux.typeTag` of the `spod` resource, for example to `unconfined_t` on Flatcar Linux.
+   It is ignored while AppArmor is enabled, the containers then keep the types of the base
+   manifest.
 3. The daemon container runs with the Localhost seccomp profile `security-profiles-operator.json`,
    which the operator ships in the `security-profiles-operator-profile` ConfigMap and the
    `non-root-enabler` copies into the `seccomp` directory of the kubelet. The pod level default
@@ -106,7 +109,10 @@ Host paths of optional features are only mounted when the feature is enabled, an
 unless noted otherwise: the audit and syslog directories for the JSON enricher and the log
 enricher with the default `auditd` source, `/sys/kernel/debug` and `/sys/kernel/tracing` for the
 JSON enricher, and `/sys/kernel/debug`, `/sys/kernel/security`, `/sys/kernel/tracing` and
-`/sys/fs/cgroup` for the bpf recorder.
+`/sys/fs/cgroup` for the bpf recorder. A custom `spec.hostProcVolumePath` gets mounted read-only
+over `/proc` for the log enricher, the JSON enricher and the bpf recorder. The optional log volume
+of the JSON enricher, configured through the `json-enricher-log-volume-source.json` key of the
+operator ConfigMap, is mounted writable, also when its source is a host path.
 
 #### Metrics
 

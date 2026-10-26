@@ -93,8 +93,9 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: hack/ci/compare-staging-images.sh
 
-  # SLSA Build L3 provenance for the per-arch images of a release, generated
-  # from their digests by the isolated provenance workflow.
+  # SLSA Build L3 provenance for the per-arch images, the bundle and the
+  # catalog of a release, generated from their digests by the isolated
+  # provenance workflow.
   image-provenance:
     needs: image-reproducible
     if: github.event_name == 'release'

@@ -19,8 +19,13 @@ make test-flaky-e2e retries failed test cases once and records every attempt
 in its JUnit report (build/junit-flaky-e2e.xml). Given the reports of several
 runs, oldest first, this reports:
 
-- test cases which are not quarantined but passed only on retry in each of the
-  last --quarantine-after runs. They are flaky and fail the check.
+- test cases which are not quarantined but passed only on retry in at least
+  --quarantine-after of the last --quarantine-window runs. They are flaky and
+  fail the check. Failures do not count: a broken test case, or a run which
+  failed partway, fails the e2e jobs on its own.
+- TestSuite and its methods, which passed only on retry like that. They
+  failed on their own, like in the setup of the cluster, which no quarantine
+  helps against, so they do not fail the check.
 - quarantined test cases, the ones of TestSecurityProfilesOperator_Flaky,
   which passed on the first try in each of the last --promote-after runs.
   They are candidates for promotion, see doc/hacking.md.
@@ -128,6 +133,26 @@ def streak(runs, name, outcome, length):
     return len(last) == length and all(run.get(name) == outcome for run in last)
 
 
+def is_test_case(name):
+    """Reports whether the name is the one of a test case.
+
+    The test cases run below a method of TestSuite, like
+    TestSuite/TestSecurityProfilesOperator/Seccomp_Basic_Profile. The others
+    are TestSuite and its methods, which cannot be quarantined.
+    """
+    return name.count("/") >= 2
+
+
+def flaky(runs, name, count, window):
+    """Reports whether the test case is flaky in the last runs.
+
+    It is when it passed only on retry in at least count of the last window
+    runs. Unlike a streak, a flake which needs a retry only now and then gets
+    caught too.
+    """
+    return [run.get(name) for run in runs[-window:]].count(RETRY) >= count
+
+
 def self_test():
     """Runs the tests of this script against synthetic reports."""
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SelfTest)
@@ -222,6 +247,26 @@ class SelfTest(unittest.TestCase):
         self.assertFalse(streak(runs, "a", RETRY, 4))
         self.assertFalse(streak(runs + [{"a": FIRST_TRY}], "a", RETRY, 3))
 
+    def test_flaky(self):
+        passed, retried, failed = {"a": FIRST_TRY}, {"a": RETRY}, {"a": FAILED}
+        runs = [retried] + [passed] * 4 + [retried] + [passed] * 4
+        self.assertTrue(flaky(runs, "a", 2, 10))
+        # The first retry dropped out of the window.
+        self.assertFalse(flaky(runs + [passed], "a", 2, 10))
+        self.assertFalse(flaky([retried] + [passed] * 9, "a", 2, 10))
+        # Failures do not count, like the ones of a run which failed partway.
+        self.assertFalse(flaky([failed] * 10, "a", 2, 10))
+        self.assertFalse(flaky([retried] + [failed] * 9, "a", 2, 10))
+        self.assertTrue(flaky([passed] * 8 + [retried, retried], "a", 2, 10))
+        # Runs without the test case, like skipped ones, do not count.
+        self.assertFalse(flaky([retried, {}, {"a": SKIPPED}], "a", 2, 10))
+
+    def test_is_test_case(self):
+        self.assertTrue(is_test_case("TestSuite/TestSecurityProfilesOperator/a"))
+        self.assertTrue(is_test_case("TestSuite/TestSecurityProfilesOperator_Flaky/a"))
+        self.assertFalse(is_test_case("TestSuite/TestSecurityProfilesOperator_Flaky"))
+        self.assertFalse(is_test_case("TestSuite"))
+
 
 def main():
     if sys.argv[1:] == ["--self-test"]:
@@ -229,7 +274,8 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("runs", nargs="+", help="JUnit report or directory per run, oldest first")
-    parser.add_argument("--quarantine-after", type=int, default=3, metavar="N")
+    parser.add_argument("--quarantine-after", type=int, default=2, metavar="N")
+    parser.add_argument("--quarantine-window", type=int, default=10, metavar="M")
     parser.add_argument("--promote-after", type=int, default=10, metavar="N")
     parser.add_argument("--self-test", action="store_true", help="run the tests of this script and exit")
     args = parser.parse_args()
@@ -239,11 +285,13 @@ def main():
     runs = [run_outcomes(run) for run in args.runs]
     names = sorted(set().union(*runs))
 
-    to_quarantine = [
-        name
-        for name in names
-        if QUARANTINE_METHOD not in name and streak(runs, name, RETRY, args.quarantine_after)
+    flakes = [
+        name for name in names if flaky(runs, name, args.quarantine_after, args.quarantine_window)
     ]
+    to_quarantine = [
+        name for name in flakes if is_test_case(name) and QUARANTINE_METHOD not in name
+    ]
+    setup_flakes = [name for name in flakes if not is_test_case(name)]
     to_promote = [
         name
         for name in names
@@ -251,8 +299,14 @@ def main():
     ]
 
     print(f"## E2E flakes of the last {len(runs)} runs\n")
-    print(f"Passed only on retry in the last {args.quarantine_after} runs, quarantine them:\n")
+    print(
+        f"Passed only on retry in at least {args.quarantine_after} of the last "
+        f"{args.quarantine_window} runs, quarantine them:\n"
+    )
     for name in to_quarantine or ["none"]:
+        print(f"- `{name}`")
+    print("\nThe suite or its methods passed only on retry like that, check their setup:\n")
+    for name in setup_flakes or ["none"]:
         print(f"- `{name}`")
     print(f"\nQuarantined, passed on the first try in the last {args.promote_after} runs, promote them:\n")
     for name in to_promote or ["none"]:

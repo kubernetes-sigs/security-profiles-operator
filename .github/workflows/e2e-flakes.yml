@@ -1,8 +1,10 @@
 name: e2e-flakes
 # Finds e2e test cases to quarantine or to promote, see "Quarantined test
 # cases" in doc/hacking.md. The test workflow retries only the quarantined
-# test cases, so a nightly run of the whole suite with retries on kubernix
-# shows the test cases which are not quarantined but flaky.
+# test cases, so nightly runs of the whole suite with retries show the test
+# cases which are not quarantined but flaky: on kubernix, on kind for the
+# seccomp test cases, and in the Fedora VM for the SELinux and bpf recorder
+# ones.
 # test/ci/junit-flakes.py analyzes the flaky test reports of the last nightly
 # runs, and of the last runs of the test workflow on the default branch, which
 # cover the quarantined test cases on all e2e environments. The analysis fails
@@ -92,13 +94,135 @@ jobs:
           path: build/e2e-artifacts
           if-no-files-found: ignore
 
+  # Like the e2e-kind job of the test workflow, which covers the seccomp test
+  # cases kubernix leaves out. Each attempt creates a cluster and builds the
+  # image, and the suite takes up to 60 minutes.
+  e2e-kind:
+    if: github.repository == 'kubernetes-sigs/security-profiles-operator' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read  # required for the checkout
+    env:
+      # kind loads the image from docker, the runners have podman too.
+      CONTAINER_RUNTIME: docker
+      E2E_ARTIFACTS_DIR: ${{ github.workspace }}/build/e2e-artifacts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The upgrade test starts from the previous release tag.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - name: Run all E2E tests with retries
+        run: make test-flaky-e2e E2E_RETRY_RUN=^TestSuite E2E_RETRY_TIMEOUT=90m
+      - name: Upload the flaky test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-flaky-e2e-kind-nightly
+          path: build/junit-flaky-e2e.xml
+          if-no-files-found: ignore
+      - name: Upload the diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-artifacts-e2e-kind-nightly
+          path: build/e2e-artifacts
+          if-no-files-found: ignore
+
+  # See the selinuxd-fedora and e2e-test-binary jobs of the test workflow.
+  selinuxd-fedora:
+    if: github.repository == 'kubernetes-sigs/security-profiles-operator' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: hack/ci/build-selinuxd-fedora.sh
+      - run: podman save -o selinuxd-fedora.tar localhost/selinuxd-fedora:latest
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: selinuxd-fedora
+          path: selinuxd-fedora.tar
+          retention-days: 1
+
+  e2e-test-binary:
+    if: github.repository == 'kubernetes-sigs/security-profiles-operator' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - run: go test -c -tags e2e -o e2e.test ./test
+        env:
+          CGO_ENABLED: '0'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-test-binary
+          path: e2e.test
+          retention-days: 1
+
+  # The SELinux suite of the e2e-fedora job of the test workflow, the only
+  # environment which runs the SELinux test cases. Booting the VM takes up to
+  # 10 minutes and the suite up to 30.
+  e2e-fedora-selinux:
+    needs: [image, selinuxd-fedora, e2e-test-binary]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read  # required for the checkout
+    env:
+      RUN: ./hack/ci/run-fedora.sh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: selinuxd-fedora
+          path: .
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: e2e-test-binary
+          path: build
+      - uses: ./.github/actions/e2e-vm
+        with:
+          vm: fedora
+      - name: Select the test suite and the retries of the whole suite
+        run: |
+          $RUN "echo \"export E2E_FEDORA_SUITE=selinux\" >> /vagrant/hack/ci/env.sh"
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
+          $RUN "echo \"export E2E_RETRY_RUN=^TestSuite\" >> /vagrant/hack/ci/env.sh"
+          $RUN "echo \"export E2E_RETRY_TIMEOUT=45m\" >> /vagrant/hack/ci/env.sh"
+      - name: Run all E2E tests with retries
+        run: $RUN hack/ci/e2e-fedora.sh
+      - uses: ./.github/actions/e2e-vm-artifacts
+        if: always()
+        with:
+          name: e2e-fedora-selinux-nightly
+          job-status: ${{ job.status }}
+
   # The nightly runs get analyzed on their own: the runs of the test workflow
   # have no reports of the test cases which are not quarantined, which would
-  # break their streaks. The runs of the test workflow only count for the
-  # promotion of quarantined test cases.
+  # push their retries out of the window. The runs of the test workflow only
+  # count for the promotion of quarantined test cases.
   analyze:
-    needs: e2e-ubuntu
-    if: ${{ !cancelled() && needs.e2e-ubuntu.result != 'skipped' }}
+    needs: [e2e-ubuntu, e2e-kind, e2e-fedora-selinux]
+    if: >-
+      ${{ !cancelled() && (needs.e2e-ubuntu.result != 'skipped' ||
+      needs.e2e-kind.result != 'skipped' || needs.e2e-fedora-selinux.result != 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -148,7 +272,7 @@ jobs:
   # like the dependencies workflow, so that a test case to quarantine does not
   # go unnoticed. It runs no repository code.
   report:
-    needs: [image, e2e-ubuntu, analyze]
+    needs: [image, e2e-ubuntu, e2e-kind, selinuxd-fedora, e2e-test-binary, e2e-fedora-selinux, analyze]
     if: failure() && github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -162,7 +286,7 @@ jobs:
       - name: Report the failure
         run: |
           title="Nightly e2e flake analysis failed"
-          body="The scheduled run $RUN_URL failed, see the summary of its analyze job for the test cases to quarantine, or its e2e-ubuntu job."
+          body="The scheduled run $RUN_URL failed, see the summary of its analyze job for the test cases to quarantine, or its e2e jobs."
           number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
           if [[ -n "$number" ]]; then
             gh issue comment "$number" --body "$body"

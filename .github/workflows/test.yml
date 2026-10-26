@@ -343,8 +343,10 @@ jobs:
       - uses: ./.github/actions/e2e-vm
         with:
           vm: debian
+      # The VM is the only place with the BPF LSM, which the AppArmor
+      # recording tests need, so they must not skip here.
       - name: Run spoc E2E tests
-        run: $RUN hack/ci/e2e-spoc.sh
+        run: $RUN E2E_SPOC_REQUIRE_BPF_LSM=true hack/ci/e2e-spoc.sh
       - name: Run E2E test to record apparmor profile
         if: success() || failure()
         run: $RUN hack/ci/e2e-apparmor.sh
@@ -515,6 +517,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The upgrade test starts from the latest release before the tested
+          # commit, which needs the tags and the history.
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
