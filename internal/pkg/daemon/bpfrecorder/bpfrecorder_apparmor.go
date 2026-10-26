@@ -1055,12 +1055,12 @@ func processDeletedFiles(
 // so it can make a directory collapse into the glob too. Directories, which
 // the recorder reports with a trailing slash, are kept as they are: the glob of
 // the files in a directory does not match the directory itself, which creating
-// it needs.
+// it needs. The files of noGlob are kept as they are as well.
 func allowAnyFiles(filePaths []string) []string {
 	dupDirs := map[string]int{}
 
 	for _, fp := range filePaths {
-		if strings.HasSuffix(fp, "/") {
+		if strings.HasSuffix(fp, "/") || noGlob(fp) {
 			continue
 		}
 
@@ -1070,7 +1070,7 @@ func allowAnyFiles(filePaths []string) []string {
 	result := []string{}
 
 	for _, fp := range filePaths {
-		if strings.HasSuffix(fp, "/") {
+		if strings.HasSuffix(fp, "/") || noGlob(fp) {
 			result = append(result, fp)
 
 			continue

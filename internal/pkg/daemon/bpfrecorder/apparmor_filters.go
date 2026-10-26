@@ -54,6 +54,32 @@ var knownWritePrefixes = []string{
 	"/dev/log",
 }
 
+// noGlobPrefixes are the directories whose files never get allowed with a
+// glob, see allowAnyFiles. Their files are devices and kernel interfaces, like
+// /dev/mem or /proc/@{pid}/mem, which two unrelated files of the same
+// directory must not allow. The file systems of shared memory and message
+// queues below /dev are excepted, see globPrefixes.
+var noGlobPrefixes = []string{
+	"/dev/",
+	"/proc/",
+	"/sys/",
+}
+
+// globPrefixes are the directories below noGlobPrefixes whose files do get
+// allowed with a glob. They hold files with random names, like the psm_*
+// shared memory of Python multiprocessing or the .org.chromium.* files of
+// Chromium, which a recording cannot capture up front.
+var globPrefixes = []string{
+	"/dev/mqueue/",
+	"/dev/shm/",
+}
+
+// noGlob reports whether the file never gets allowed with a glob, see
+// noGlobPrefixes.
+func noGlob(path string) bool {
+	return isKnownFile(path, noGlobPrefixes) && !isKnownFile(path, globPrefixes)
+}
+
 // excludedFilePrefixes of known file paths which should be filter out
 // from the apparmor profile.
 var excludedFilePrefixes = []string{

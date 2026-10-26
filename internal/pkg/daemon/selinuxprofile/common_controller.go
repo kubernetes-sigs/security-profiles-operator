@@ -169,11 +169,25 @@ type ReconcileSelinux struct {
 	// generation, per profile, see reloadRetryDelay.
 	reloadFailures map[types.NamespacedName]reloadFailures
 
-	// selinuxdDownMu guards selinuxdDownSince.
+	// selinuxdDownMu guards selinuxdDownSince, selinuxdOutages and
+	// selinuxdFailing.
 	selinuxdDownMu sync.Mutex
 	// selinuxdDownSince is when connecting to selinuxd started to fail, see
 	// selinuxdUp. It is zero while selinuxd can be connected to.
 	selinuxdDownSince time.Time
+	// selinuxdOutages counts the times selinuxd failed after it could be
+	// contacted, see selinuxdUp. selinuxdFailing tells whether the current
+	// outage is counted already.
+	selinuxdOutages uint64
+	selinuxdFailing bool
+
+	// selinuxdReported holds the outage of selinuxd which got reported last
+	// for each profile, so that an outage gets reported once per profile
+	// instead of on every reconcile.
+	selinuxdReported common.Reports[uint64]
+
+	// writtenStates keeps the node status states this node wrote.
+	writtenStates nodestatus.WrittenStates
 
 	// removalsCounted holds the UID of the profiles whose removal got
 	// counted in the metrics, as a retried deletion or the deletion of a
@@ -319,7 +333,7 @@ func (r *ReconcileSelinux) Setup(
 		},
 	}
 
-	common.RemoveStaleTempFiles(r.log, r.policyDirectory())
+	common.RemoveStaleTempFilesOnStart(r.log, r.policyDirectory())
 
 	return r.ctrlBuilder(ctrl.NewControllerManagedBy(mgr), r)
 }
@@ -388,6 +402,7 @@ func (r *ReconcileSelinux) Reconcile(
 	}
 
 	nodeStatus.WithAPIReader(r.clientReader)
+	nodeStatus.WithWrittenStates(&r.writtenStates)
 
 	if !instance.GetDeletionTimestamp().IsZero() {
 		// The counted removal is kept until the profile is gone, a retry
@@ -478,6 +493,8 @@ func (r *ReconcileSelinux) reportInstallError(
 // forgetProfile forgets what got remembered about a profile which is gone.
 func (r *ReconcileSelinux) forgetProfile(key types.NamespacedName) {
 	r.reported.Forget(key)
+	r.selinuxdReported.Forget(key)
+	r.writtenStates.Forget(key)
 	r.forgetReloadFailures(key)
 	r.removalsCounted.Forget(key)
 }
@@ -562,9 +579,13 @@ func (r *ReconcileSelinux) checkPreconditions(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, bool, error) {
-	selinuxdReady, err := r.selinuxdUp(ctx)
+	selinuxdReady, outage, err := r.selinuxdState(ctx)
 	if err != nil {
-		r.reportError(sp, reasonCannotContactSelinuxd, util.EventActionInstall, err.Error())
+		// The resyncs and the retries would report the same outage for
+		// every profile again and again.
+		if r.selinuxdReported.ShouldReport(client.ObjectKeyFromObject(sp), outage) {
+			r.reportError(sp, reasonCannotContactSelinuxd, util.EventActionInstall, err.Error())
+		}
 
 		return reconcile.Result{}, true, fmt.Errorf("contacting selinuxd: %w", err)
 	}
@@ -1104,11 +1125,11 @@ var (
 // which completed after the reload became necessary did the reload already,
 // see existingReloadJob. It requeues while another reload job runs on the
 // node, so that the profiles of the node share the reloads, and while the job
-// of an installation runs. Nothing else triggers a reconcile then. A failed
-// job of an installation is deleted, and a new one gets created after a
-// backoff, see retryFailedReload. A failure to record the reload is returned,
-// so that the reconcile retries: the job carries the generation, so the retry
-// does not create another one.
+// of an installation runs, which only the resyncs of the daemon cache would
+// check otherwise. A failed job of an installation is deleted, and a new one
+// gets created after a backoff, see retryFailedReload. A failure to record the
+// reload is returned, so that the reconcile retries: the job carries the
+// generation, so the retry does not create another one.
 func (r *ReconcileSelinux) reloadPolicy(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
@@ -1650,15 +1671,38 @@ const selinuxdStartupGrace = 5 * time.Minute
 // than an error, for the selinuxdStartupGrace since connecting to it started
 // to fail. Other failures, and a selinuxd which does not come up, are errors.
 func (r *ReconcileSelinux) selinuxdUp(ctx context.Context) (bool, error) {
-	ready, err := isSelinuxdReady(ctx, r.httpc)
+	ready, _, err := r.selinuxdState(ctx)
+
+	return ready, err
+}
+
+// selinuxdState is selinuxdUp which also returns the number of the current
+// outage of selinuxd, which tells apart the outages which got reported
+// already. An outage ends once selinuxd answers again.
+func (r *ReconcileSelinux) selinuxdState(
+	ctx context.Context,
+) (ready bool, outage uint64, err error) {
+	ready, err = isSelinuxdReady(ctx, r.httpc)
 
 	r.selinuxdDownMu.Lock()
 	defer r.selinuxdDownMu.Unlock()
 
+	defer func() {
+		switch {
+		case err == nil:
+			r.selinuxdFailing = false
+		case !r.selinuxdFailing:
+			r.selinuxdFailing = true
+			r.selinuxdOutages++
+		}
+
+		outage = r.selinuxdOutages
+	}()
+
 	if !isSelinuxdStarting(err) {
 		r.selinuxdDownSince = time.Time{}
 
-		return ready, err
+		return ready, 0, err
 	}
 
 	if r.selinuxdDownSince.IsZero() {
@@ -1666,10 +1710,10 @@ func (r *ReconcileSelinux) selinuxdUp(ctx context.Context) (bool, error) {
 	}
 
 	if time.Since(r.selinuxdDownSince) < selinuxdStartupGrace {
-		return false, nil
+		return false, 0, nil
 	}
 
-	return false, err
+	return false, 0, err
 }
 
 // isSelinuxdStarting returns true if the connection to selinuxd failed,

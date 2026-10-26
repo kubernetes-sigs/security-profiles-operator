@@ -202,6 +202,16 @@ func (i *Index) Lookup(ctx context.Context, containerID string) (*corev1.Pod, er
 	}
 }
 
+// MayShowUp reports whether a pod of the index has the container with the ID,
+// or whether it may still show up, like Lookup would wait for it: the index
+// did not sync yet, or a pod of the node has a pending container. Otherwise
+// the container does not belong to a pod of the node.
+func (i *Index) MayShowUp(containerID string) bool {
+	pod, wait := i.find(containerID)
+
+	return pod != nil || wait
+}
+
 // find returns the pod which has the container with the ID, or whether the
 // container may still show up.
 func (i *Index) find(containerID string) (pod *corev1.Pod, wait bool) {

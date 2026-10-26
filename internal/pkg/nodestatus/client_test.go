@@ -297,6 +297,75 @@ func TestCreateAdoptsLeftoverStatus(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
 }
 
+// A node which does not support the kind adopts a status left over from a
+// deleted profile of the same name, without its annotations and without
+// adding the finalizer of the node.
+func TestMarkUnsupportedAdoptsLeftoverStatus(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Finalizers = nil
+	leftover := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	leftover.Annotations = map[string]string{annotationPrefix + "installed": "true"}
+	leftover.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: seccompprofile.GroupVersion.String(),
+		Kind:       "SeccompProfile",
+		Name:       sp.GetName(),
+		UID:        "deleted-profile",
+		Controller: new(true),
+	}}
+
+	c := newFakeClient(t, sp.DeepCopy(), leftover)
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.MarkUnsupported(
+		context.Background(), secprofnodestatusapi.ProfileStateError, "unsupported",
+	))
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.Len(t, status.OwnerReferences, 1)
+	require.Equal(t, sp.GetUID(), status.OwnerReferences[0].UID)
+	require.Empty(t, status.Annotations)
+	require.True(t, IsUnsupported(status))
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Equal(t, "unsupported", status.Status.Message)
+
+	stored := &seccompprofile.SeccompProfile{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(sp), stored))
+	require.False(
+		t,
+		controllerutil.ContainsFinalizer(stored, util.GetFinalizerNodeString(testNode)),
+	)
+}
+
+// A node which supports the kind again resets the error of the unsupported
+// status before it removes the label, so that the profile does not show the
+// error until the install writes its state.
+func TestClearUnsupportedResetsState(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	unsupported := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateError)
+	unsupported.Labels[UnsupportedLabel] = "true"
+	unsupported.Status.Message = "unsupported"
+
+	c := newFakeClient(t, sp.DeepCopy(), unsupported)
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.ClearUnsupported(context.Background()))
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.False(t, IsUnsupported(status))
+	require.Equal(t,
+		string(secprofnodestatusapi.ProfileStatePending),
+		status.Labels[secprofnodestatusapi.StatusStateLabel],
+	)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
+	require.Empty(t, status.Status.Message)
+}
+
 // A status written before the node name moved into the spec has neither the
 // node name nor the node label, which the adoption adds.
 func TestCreateRepairsStatusWithoutNodeName(t *testing.T) {

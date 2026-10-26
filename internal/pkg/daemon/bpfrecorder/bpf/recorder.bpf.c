@@ -58,6 +58,7 @@
 #define CAP_OPT_NOAUDIT 0b10
 
 #define OVERLAYFS_SUPER_MAGIC 0x794c7630
+#define PIPEFS_MAGIC 0x50495045
 
 #define AF_UNIX 1
 #define AF_INET 2
@@ -728,6 +729,7 @@ static __always_inline int bpf_d_path_tetragon(struct path * path, char * buf,
     int size = 0, error = 0;
     char * fullpath = d_path_local(path, &size, &error);
     if (!fullpath) {
+        count_lost(LOST_UNRESOLVED_PATH);
         return -1;
     }
     // A path which does not fit into the buffer, or which has more components
@@ -782,24 +784,27 @@ static __always_inline void register_fs_event_locked(
     } else {
         pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
     }
+    // bpf_d_path_tetragon counts its failures itself. A bpf_printk here
+    // would turn on the trace pipe of the whole node.
     if (pathlen < 0) {
-        bpf_printk("register_file_event bpf_d_path failed: %i", pathlen);
+        if (!custom_bpf_d_path) {
+            count_lost(LOST_UNRESOLVED_PATH);
+        }
         return;
     }
 
     if ((i_mode & S_IFMT) == S_IFDIR) {
-        // Somehow this makes the verifier happy.
+        // The barrier keeps the compiler from folding the bounds check into
+        // what it knows about pathlen, which the verifier cannot follow.
         u16 idx = pathlen - 1;
+        barrier_var(idx);
         if (idx < sizeof(event->data) - sizeof(FORWARD_SLASH)) {
             bpf_core_read(event->data + idx, sizeof(FORWARD_SLASH),
                           &FORWARD_SLASH);
             pathlen++;
         } else {
             // pathlen is close to PATH_MAX.
-            bpf_printk(
-                "failed to fixup directory entry, pathlen is too close to "
-                "PATH_MAX: %s",
-                event->data);
+            count_lost(LOST_UNRESOLVED_PATH);
             return;
         }
     }
@@ -847,6 +852,15 @@ static __always_inline void register_fs_event_locked(
     bpf_map_update_elem(&last_file_event, &tid, &state, BPF_ANY);
 }
 
+// is_anonymous_pipe returns true for the files of anonymous pipes, which live
+// on pipefs and whose paths AppArmor does not mediate. Named pipes live on the
+// file system they got created on and need rules like any other file.
+static __always_inline bool is_anonymous_pipe(struct path * filename)
+{
+    return BPF_CORE_READ(filename, dentry, d_inode, i_sb, s_magic) ==
+           PIPEFS_MAGIC;
+}
+
 // register_fs_event_of sends a file event of a process which records under
 // mntns, see get_mntns.
 static __always_inline int register_fs_event_of(struct path * filename,
@@ -854,8 +868,7 @@ static __always_inline int register_fs_event_of(struct path * filename,
                                                 bool custom_bpf_d_path,
                                                 u32 mntns)
 {
-    // ignore unix pipes
-    if ((i_mode & S_IFMT) == S_IFIFO) {
+    if (is_anonymous_pipe(filename)) {
         return 0;
     }
 
@@ -894,8 +907,7 @@ static __always_inline int register_fs_event(struct path * filename,
                                              umode_t i_mode, u64 flags,
                                              bool custom_bpf_d_path)
 {
-    // ignore unix pipes
-    if ((i_mode & S_IFMT) == S_IFIFO) {
+    if (is_anonymous_pipe(filename)) {
         return 0;
     }
 
@@ -1188,29 +1200,28 @@ int sys_enter_socket(struct syscall_trace_enter * ctx)
 
     u64 domain, type;
     if (bpf_core_read(&domain, sizeof(domain), &ctx->args[0]) != 0) {
-        bpf_printk("failed to get socket domain");
+        return 0;
+    }
+    // The userspace does not record unix sockets, see socketUse.
+    if (domain == AF_UNIX) {
         return 0;
     }
     if (bpf_core_read(&type, sizeof(type), &ctx->args[1]) != 0) {
-        bpf_printk("failed to get socket type");
         return 0;
     }
 
     trace_hook("requesting socket domain %llu type %llu", domain, type);
 
     // Report every kind of socket once per key. The userspace only tells the
-    // unix and internet domains apart, and the socket type without its
-    // SOCK_NONBLOCK and SOCK_CLOEXEC flags, so the bitmask groups the sockets
-    // the same way.
+    // internet domains apart, and the socket type without its SOCK_NONBLOCK
+    // and SOCK_CLOEXEC flags, so the bitmask groups the sockets the same way.
     u64 group;
-    if (domain == AF_UNIX) {
+    if (domain == AF_INET) {
         group = 0;
-    } else if (domain == AF_INET) {
-        group = 1;
     } else if (domain == AF_INET6) {
-        group = 2;
+        group = 1;
     } else {
-        group = 3;
+        group = 2;
     }
     u64 bit = 1ULL << (group * 16 + (type & 0xf));
     u64 key = get_key(mntns);
@@ -1228,19 +1239,25 @@ int sys_enter_socket(struct syscall_trace_enter * ctx)
     return 0;
 }
 
-SEC("kprobe/cap_capable")
-int BPF_KPROBE(cap_capable)
+// The capability checks are recorded on their return: AppArmor only checks a
+// capability which the task has, so a check which failed needs no rule, like
+// the checks for CAP_DAC_OVERRIDE of a task without it which got EACCES.
+SEC("fexit/cap_capable")
+int BPF_PROG(cap_capable, const struct cred * cred,
+             struct user_namespace * targ_ns, int cap, unsigned int cap_opt,
+             int ret)
 {
     if (!_is_recording_cached)
         return 0;
 
-    // The probe fires on every capability check of the node, so the checks
+    // The program runs on every capability check of the node, so the checks
     // of the arguments come first.
-    unsigned long cap = PT_REGS_PARM3(ctx);
-    unsigned long cap_opt = PT_REGS_PARM4(ctx);
+    if (ret != 0)
+        return 0;
     if (cap_opt & CAP_OPT_NOAUDIT)
         return 0;
-    if (cap >= 64)  // the bitmask holds the capabilities the kernel has
+    // The bitmask holds the capabilities the kernel has.
+    if (cap < 0 || cap >= 64)
         return 0;
 
     u32 mntns = get_mntns();

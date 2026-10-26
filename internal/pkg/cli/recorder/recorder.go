@@ -33,12 +33,12 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	libseccomp "github.com/seccomp/libseccomp-golang"
 	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -65,6 +65,9 @@ type Recorder struct {
 	// once for an AppArmor recording, so that the raw profile attaches to
 	// the program the recording got filtered by.
 	programPath string
+	// nameWarned is set once an invalid name of the recorded profiles got
+	// reported, see profileName.
+	nameWarned bool
 }
 
 // New returns a new Recorder instance.
@@ -178,7 +181,7 @@ func (r *Recorder) recordCommand() (mntns uint32, err error) {
 		// command execution is managed externally,
 		// so we play dumb and just wait for SIGINT.
 		ch := make(chan os.Signal, 1)
-		r.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		r.Notify(ch, cli.TerminationSignals...)
 		log.Print(WaitForSigIntMessage)
 		<-ch
 
@@ -452,6 +455,27 @@ func (r *Recorder) buildProfileRaw(
 	return nil
 }
 
+// profileName returns the name of the recorded profile CRDs, the name of the
+// recorded command. A name which Kubernetes does not accept, like one with an
+// underscore or capital letters, gets reported once: it has to be changed
+// before the profile can be applied. It is kept, an AppArmor profile gets
+// installed for the executable of its name without a further one.
+func (r *Recorder) profileName() string {
+	name := filepath.Base(r.options.commandOptions.Command())
+
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 && !r.nameWarned {
+		r.nameWarned = true
+
+		log.Printf(
+			"WARNING: the profile name %q is no valid Kubernetes object name, "+
+				"change it before applying the profile: %s",
+			name, strings.Join(errs, ", "),
+		)
+	}
+
+	return name
+}
+
 func (r *Recorder) buildProfileCRD(
 	writer io.Writer,
 	spec *seccompprofileapi.SeccompProfileSpec,
@@ -462,7 +486,7 @@ func (r *Recorder) buildProfileCRD(
 			APIVersion: seccompprofileapi.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: filepath.Base(r.options.commandOptions.Command()),
+			Name: r.profileName(),
 		},
 		Spec: *spec,
 	}
@@ -485,7 +509,7 @@ func (r *Recorder) buildAppArmorProfileCRD(
 			APIVersion: apparmorprofileapi.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: filepath.Base(r.options.commandOptions.Command()),
+			Name: r.profileName(),
 		},
 		Spec: *spec,
 	}

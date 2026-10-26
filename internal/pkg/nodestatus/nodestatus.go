@@ -46,7 +46,21 @@ const (
 	// annotationPrefix is the prefix of the annotations which the daemon
 	// keeps on the node status, like whether it installed the profile.
 	annotationPrefix = "spo.x-k8s.io/"
+
+	// UnsupportedLabel marks the node status of a node which does not
+	// support the kind of the profile, like a node without AppArmor. The
+	// manager leaves such a status out of the state of the profile, see
+	// MarkUnsupported.
+	UnsupportedLabel = "spo.x-k8s.io/kind-unsupported"
 )
+
+// IsUnsupported returns true if the node status belongs to a node which does
+// not support the kind of the profile, see MarkUnsupported.
+func IsUnsupported(status *secprofnodestatusapi.SecurityProfileNodeStatus) bool {
+	_, ok := status.Labels[UnsupportedLabel]
+
+	return ok
+}
 
 // writtenState is the state and message which the daemon wrote last to a
 // node status.
@@ -246,7 +260,7 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 	}
 
 	// if object does not exist, add it
-	if err := nsf.createNodeStatus(ctx, legacyState); err != nil {
+	if err := nsf.createNodeStatus(ctx, legacyState, false); err != nil {
 		return false, fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
 	}
 
@@ -382,13 +396,96 @@ func (nsf *StatusClient) statusObj(
 	}
 }
 
+// MarkUnsupported sets the state and the message of the node status of a node
+// which does not support the kind of the profile, and marks the status with
+// UnsupportedLabel. A missing status gets created without the finalizer of
+// the node, there is nothing on the node to remove before the profile can go
+// away, and the garbage collector removes the status along with the profile.
+// The finalizer of a node which supported the kind before stays until the
+// profile gets deleted. A node which supports the kind again replaces the
+// status with a regular one, see Create.
+func (nsf *StatusClient) MarkUnsupported(
+	ctx context.Context, polState secprofnodestatusapi.ProfileState, message string,
+) error {
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+
+	err := nsf.getStatus(ctx, nsf.client, status)
+
+	switch {
+	// A status left over from a deleted profile of the same name gets the
+	// owner, the labels and the annotations of this profile, like on Create.
+	case kerrors.IsNotFound(err), err == nil && !ownedByProfile(status, nsf.pol.GetUID()):
+		if err := nsf.createNodeStatus(ctx, "", true); err != nil {
+			return fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
+		}
+
+		nsf.created = true
+	case err != nil:
+		return fmt.Errorf("fetching node status: %w", err)
+	case !IsUnsupported(status):
+		if err := nsf.patchUnsupportedLabel(ctx, status, "true"); err != nil {
+			return fmt.Errorf("marking node status as unsupported: %w", err)
+		}
+	}
+
+	return nsf.SetNodeStatusWithMessage(ctx, polState, message)
+}
+
+// ClearUnsupported removes the UnsupportedLabel from the node status of a
+// node which supports the kind of the profile again, see MarkUnsupported. The
+// state goes back to the initial one first, so that the error which told that
+// the node does not support the kind is never part of the aggregated state of
+// the profile. A missing status has nothing to clear.
+func (nsf *StatusClient) ClearUnsupported(ctx context.Context) error {
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+
+	err := nsf.getStatus(ctx, nsf.client, status)
+	if kerrors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("fetching node status: %w", err)
+	}
+
+	if !IsUnsupported(status) {
+		return nil
+	}
+
+	if err := nsf.SetNodeStatus(ctx, nsf.initialStatus()); err != nil {
+		return fmt.Errorf("resetting unsupported node status: %w", err)
+	}
+
+	if err := nsf.patchUnsupportedLabel(ctx, status, nil); err != nil {
+		return fmt.Errorf("unmarking unsupported node status: %w", err)
+	}
+
+	return nil
+}
+
+// patchUnsupportedLabel sets the UnsupportedLabel of the status to value, a
+// nil value removes it.
+func (nsf *StatusClient) patchUnsupportedLabel(
+	ctx context.Context, status *secprofnodestatusapi.SecurityProfileNodeStatus, value any,
+) error {
+	labelPatch, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"labels": map[string]any{UnsupportedLabel: value},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshaling node status label patch: %w", err)
+	}
+
+	return nsf.client.Patch(ctx, status, client.RawPatch(types.MergePatchType, labelPatch))
+}
+
 // createNodeStatus creates the node status with all of its labels. A status
 // migrated from a legacy status keeps the state of the legacy one, which tells
 // for example whether the profile got installed on the node already. The API
 // server drops the status of a created object, so the state takes a second
-// write, unless an existing status has it already.
+// write, unless an existing status has it already. unsupported marks the
+// status with UnsupportedLabel, which an existing status loses otherwise.
 func (nsf *StatusClient) createNodeStatus(
-	ctx context.Context, legacyState secprofnodestatusapi.ProfileState,
+	ctx context.Context, legacyState secprofnodestatusapi.ProfileState, unsupported bool,
 ) error {
 	initialStatus := nsf.initialStatus()
 	if initialStatus == secprofnodestatusapi.ProfileStatePending && legacyState != "" {
@@ -396,6 +493,9 @@ func (nsf *StatusClient) createNodeStatus(
 	}
 
 	s := nsf.statusObj(initialStatus)
+	if unsupported {
+		s.Labels[UnsupportedLabel] = "true"
+	}
 
 	if setCtrlErr := controllerutil.SetControllerReference(
 		nsf.pol,
@@ -437,6 +537,7 @@ func (nsf *StatusClient) createNodeStatus(
 		// written before the node name moved into the spec gets it as well.
 		if !equality.Semantic.DeepEqual(existing.OwnerReferences, s.OwnerReferences) ||
 			!labels.SelectorFromSet(s.Labels).Matches(labels.Set(existing.Labels)) ||
+			IsUnsupported(existing) != unsupported ||
 			existing.Spec.NodeName == "" {
 			if existing.Labels == nil {
 				existing.Labels = map[string]string{}
@@ -453,6 +554,11 @@ func (nsf *StatusClient) createNodeStatus(
 			}
 
 			maps.Copy(existing.Labels, s.Labels)
+
+			if !unsupported {
+				delete(existing.Labels, UnsupportedLabel)
+			}
+
 			existing.OwnerReferences = s.OwnerReferences
 
 			if existing.Spec.NodeName == "" {

@@ -81,7 +81,7 @@ func Flags() []cli.Flag {
 		&cli.BoolFlag{
 			Name: FlagNoProcStart,
 			Usage: "do not start the target command, record all processes matching the command name " +
-				"until ctrl+c/SIGINT, SIGTERM or SIGHUP",
+				"until ctrl+c/SIGINT, SIGTERM, SIGHUP or SIGQUIT",
 		},
 	}, command.Flags()...)
 }

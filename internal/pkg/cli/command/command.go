@@ -43,7 +43,7 @@ var errNoSudoEnvironment = errors.New("not in a sudo environment")
 // forwardedSignals are the signals which are forwarded to the command instead
 // of terminating spoc, so that the command can shut down and spoc still
 // processes its result.
-var forwardedSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+var forwardedSignals = cli.TerminationSignals
 
 type Command struct {
 	impl
@@ -427,12 +427,13 @@ func (c *Command) forwardSignals(signals <-chan os.Signal, pid uint32) {
 			continue
 		}
 
-		// The terminal sends the SIGINT of Ctrl+C to its whole foreground
-		// process group. If the command is part of it, forwarding would
-		// deliver it twice, which many programs take as a request to abort
-		// their shutdown. While the command runs in the foreground of a
-		// terminal, a SIGINT sent to spoc alone therefore does not reach it.
-		if sig == os.Interrupt && c.inTerminalForeground(pid) {
+		// The terminal sends the SIGINT of Ctrl+C and the SIGQUIT of Ctrl+\
+		// to its whole foreground process group. If the command is part of
+		// it, forwarding would deliver it twice, which many programs take as
+		// a request to abort their shutdown. While the command runs in the
+		// foreground of a terminal, such a signal sent to spoc alone
+		// therefore does not reach it.
+		if (sig == os.Interrupt || sig == syscall.SIGQUIT) && c.inTerminalForeground(pid) {
 			log.Printf("Got %v, the process gets it from the terminal as well", sig)
 
 			continue

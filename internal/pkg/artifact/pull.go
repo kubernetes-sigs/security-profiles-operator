@@ -157,7 +157,8 @@ func (a *Artifact) fetchProfile(
 }
 
 // pullResult decodes the pulled profile content. keepRaw keeps runtime-spec
-// seccomp profiles whose values the SeccompProfile CRD cannot hold, see
+// seccomp profiles whose values the SeccompProfile CRD cannot hold and
+// rejects profiles with several YAML documents, see
 // PullOptions.KeepRawRuntimeProfile.
 func (a *Artifact) pullResult(
 	originalImage string,
@@ -185,6 +186,15 @@ func (a *Artifact) pullResult(
 		a.logger.Info("Profile is an OCI runtime-spec seccomp profile")
 
 		return result, nil
+	}
+
+	// Callers which write the content out as is would apply a document
+	// after the profile, which ReadProfile does not read, along with it.
+	// Push never creates such an artifact.
+	if keepRaw {
+		if err := CheckSingleDocument(content); err != nil {
+			return nil, fmt.Errorf("decode profile: %w", err)
+		}
 	}
 
 	switch obj := profile.(type) {

@@ -141,6 +141,32 @@ func TestAllowAnyFiles(t *testing.T) {
 			want:  []string{"/", "/*"},
 		},
 		{
+			name: "do not allow any device or kernel interface",
+			paths: []string{
+				"/dev/termination-log", "/dev/tty",
+				"/proc/@{pid}/attr/current", "/proc/@{pid}/oom_score_adj",
+				"/sys/fs/cgroup/cpu.max", "/sys/fs/cgroup/memory.max",
+			},
+			want: []string{
+				"/dev/termination-log", "/dev/tty",
+				"/proc/@{pid}/attr/current", "/proc/@{pid}/oom_score_adj",
+				"/sys/fs/cgroup/cpu.max", "/sys/fs/cgroup/memory.max",
+			},
+		},
+		{
+			name: "allow any shared memory files and message queues",
+			paths: []string{
+				"/dev/mqueue/a", "/dev/mqueue/b",
+				"/dev/shm/.org.chromium.Chromium.abc", "/dev/shm/psm_1234",
+			},
+			want: []string{"/dev/mqueue/*", "/dev/shm/*"},
+		},
+		{
+			name:  "allow a single shared memory file next to devices",
+			paths: []string{"/dev/shm/a", "/dev/tty", "/dev/null"},
+			want:  []string{"/dev/shm/a", "/dev/tty", "/dev/null"},
+		},
+		{
 			name:  "do not allow anything if nothing is allowed",
 			paths: []string{},
 			want:  []string{},

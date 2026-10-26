@@ -73,6 +73,8 @@ type countingProfileManager struct {
 	installs     int
 	removes      int
 	gotOwnedByUs bool
+	// removedOwned is the ownership RemoveProfile got last.
+	removedOwned bool
 }
 
 func (m *countingProfileManager) Enabled() bool {
@@ -96,8 +98,11 @@ func (m *countingProfileManager) ProfileInstalled(profilebaseapi.StatusBaseUser)
 	return m.loaded, nil
 }
 
-func (m *countingProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser, bool) (bool, error) {
+func (m *countingProfileManager) RemoveProfile(
+	_ profilebaseapi.StatusBaseUser, ownedByUs bool,
+) (bool, error) {
 	m.removes++
+	m.removedOwned = ownedByUs
 
 	return m.removeErr == nil && !m.notRemoved, m.removeErr
 }
@@ -278,6 +283,35 @@ func TestReconcileNotSupportedReleasesDeletedProfile(t *testing.T) {
 
 	err = cli.Get(t.Context(), nodeStatusKey(), &secprofnodestatusapi.SecurityProfileNodeStatus{})
 	require.True(t, kerrors.IsNotFound(err), "the node status is gone: %v", err)
+}
+
+// A node known to lack AppArmor marks its node status as unsupported, so that
+// the aggregated status of the profiles does not wait for it forever.
+func TestReconcileNotSupportedSetsErrorStatus(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{unsupported: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	res, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Zero(t, manager.installs)
+
+	status := getNodeStatus(t, cli)
+	require.True(t, nodestatus.IsUnsupported(status))
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Equal(t, errNodeWithoutAppArmor.Error(), status.Status.Message)
+
+	// A failed detection does not tell anything about the node.
+	manager.unsupported = false
+	r2, cli2, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	_, err = r2.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+
+	err = cli2.Get(t.Context(), nodeStatusKey(), &secprofnodestatusapi.SecurityProfileNodeStatus{})
+	require.True(t, kerrors.IsNotFound(err), "no node status without detection: %v", err)
 }
 
 func TestReconcileNotSupportedWithoutRecorder(t *testing.T) {
@@ -612,6 +646,32 @@ func TestReconcileEnabledToDisabled(t *testing.T) {
 	require.Equal(t, 1, manager.removes)
 }
 
+// A disabled profile installed by a release which did not record the
+// installation in the annotation is told to be ours by its installed state,
+// without reading back an annotation which the cache may not have yet.
+func TestReconcileDisabledInstalledStateWithoutAnnotation(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+
+	status := getNodeStatus(t, cli)
+	delete(status.Annotations, installedAnnotation)
+	require.NoError(t, cli.Update(t.Context(), status))
+
+	profile := &apparmorprofileapi.AppArmorProfile{}
+	require.NoError(t, cli.Get(t.Context(), testRequest().NamespacedName, profile))
+	profile.Spec.State = profilebaseapi.SpecStateDisabled
+	require.NoError(t, cli.Update(t.Context(), profile))
+
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.removes)
+	require.True(t, manager.removedOwned)
+}
+
 func TestReconcileDisabledUnloadError(t *testing.T) {
 	t.Parallel()
 
@@ -676,6 +736,41 @@ func TestReconcileDeletion(t *testing.T) {
 		"profile should be gone with its last finalizer, got %v",
 		err,
 	)
+}
+
+// A profile installed by a release which did not record the installation in
+// the annotation is told to be ours by its installed state, also once a
+// failed removal turned the state into terminating.
+func TestReconcileDeletionOfInstalledStateWithoutAnnotation(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+
+	status := getNodeStatus(t, cli)
+	delete(status.Annotations, installedAnnotation)
+	require.NoError(t, cli.Update(t.Context(), status))
+	deletingProfile(t, cli)
+
+	manager.removeErr = errors.New("busy")
+
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.ErrorContains(t, err, "busy")
+	require.True(t, manager.removedOwned)
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateTerminating,
+		getNodeStatus(t, cli).Status.Status,
+	)
+
+	manager.removeErr = nil
+	manager.removedOwned = false
+
+	_, err = r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.True(t, manager.removedOwned)
 }
 
 // A foreground deletion removes the owned node statuses before the profile.

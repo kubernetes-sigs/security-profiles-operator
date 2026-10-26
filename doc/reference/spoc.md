@@ -36,7 +36,7 @@ Run a command and record the security profile of what it did. The profile is wri
 
 **--no-base-syscalls, -n**: do not add any base syscalls at all
 
-**--no-proc-start**: do not start the target command, record all processes matching the command name until ctrl+c/SIGINT, SIGTERM or SIGHUP
+**--no-proc-start**: do not start the target command, record all processes matching the command name until ctrl+c/SIGINT, SIGTERM, SIGHUP or SIGQUIT
 
 **--output-file, -o**="": the output file path for the recorded profile (default: profile.yaml)
 

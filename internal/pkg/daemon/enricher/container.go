@@ -98,6 +98,17 @@ func (c *containerInfos) get(containerID string) (*types.ContainerInfo, error) {
 	return info, nil
 }
 
+// mayShowUp reports whether a pod of the node has the container, or may still
+// report it, see podindex.Index.MayShowUp. Every container may show up until
+// the enricher runs.
+func (c *containerInfos) mayShowUp(containerID string) bool {
+	if c.pods == nil {
+		return true
+	}
+
+	return c.pods.MayShowUp(containerID)
+}
+
 // changed returns a channel which is closed once a pod of the node got added
 // or updated. Take it before calling get, so that no change in between is
 // missed.

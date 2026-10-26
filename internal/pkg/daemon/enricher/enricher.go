@@ -436,7 +436,18 @@ func (e *Enricher) logDroppedBacklog(
 	}
 
 	kept, dropped := item.Value().size()
-	e.logger.Info(
+
+	// A container which is not managed by Kubernetes, like one of podman,
+	// never shows up, its lines are no loss for the recordings. A pod of the
+	// node may still report the container while one has pending containers,
+	// see podindex.Index.MayShowUp.
+	logger := e.logger
+	if reason == ttlcache.EvictionReasonExpired && !e.lookup.containers.mayShowUp(item.Key()) {
+		logger = e.logger.V(config.VerboseLevel)
+		why = "no pod of the node has the container"
+	}
+
+	logger.Info(
 		"Dropping the audit backlog of a container, its lines are missing from recordings",
 		"containerID", item.Key(), "reason", why, "lines", kept, "droppedLines", dropped,
 	)

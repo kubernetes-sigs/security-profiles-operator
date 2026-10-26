@@ -46,7 +46,8 @@ const (
 	reconcileTimeout = 1 * time.Minute
 
 	// rejectedRetry is how often a profile which conflicts with one of the
-	// host is checked again, because the host may remove its profile.
+	// host is checked again at the latest, because the host may remove its
+	// profile. The resyncs of the daemon cache usually check it sooner.
 	rejectedRetry = 5 * time.Minute
 
 	reasonAppArmorNotSupported  string = "AppArmorNotSupportedOnNode"
@@ -223,6 +224,7 @@ func (r *Reconciler) Reconcile(
 			errNodeWithoutAppArmor,
 		) {
 			r.metrics.DeleteAppArmorProfileErrors(req.Name)
+			r.writtenStates.Forget(req.NamespacedName)
 
 			return reconcile.Result{}, nil
 		}
@@ -233,11 +235,11 @@ func (r *Reconciler) Reconcile(
 			return reconcile.Result{}, nil
 		}
 
-		// Do not requeue (will be requeued if a change to the object is
-		// observed, or after the usually very long reconcile timeout
-		// configured for the controller manager)
-		return reconcile.Result{}, common.ReleaseUnsupported(
+		// The node status tells that the node cannot install the profile,
+		// and a profile which is being deleted gets released.
+		return reconcile.Result{}, common.ReconcileUnsupported(
 			ctx, r.client, r.reader, profile, r.nodeName, &r.writtenStates,
+			errNodeWithoutAppArmor,
 		)
 	}
 
@@ -513,6 +515,10 @@ func (r *Reconciler) reconcileDisabled(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
+	// The state stays installed until the removal succeeded, so every retry
+	// tells the ownership by it again.
+	installedState := false
+
 	return common.ReconcileDisabled(
 		ctx, sp, nodeStatus, l, r.errorReporter(sp.GetName()), deletionReasons(),
 		common.Removal{
@@ -523,6 +529,8 @@ func (r *Reconciler) reconcileDisabled(
 			// its policy file.
 			Installed: func(state secprofnodestatusapi.ProfileState) (bool, error) {
 				if state == secprofnodestatusapi.ProfileStateInstalled {
+					installedState = true
+
 					return true, nil
 				}
 
@@ -535,7 +543,7 @@ func (r *Reconciler) reconcileDisabled(
 			},
 			// This only removes a profile which this operator installed.
 			Remove: func() (reconcile.Result, error) {
-				return reconcile.Result{}, r.handleDeletion(ctx, sp, nodeStatus, l)
+				return reconcile.Result{}, r.handleDeletion(ctx, sp, nodeStatus, installedState, l)
 			},
 			// The profile is not ours anymore until it gets installed again.
 			AfterRemove: func() error {
@@ -551,6 +559,11 @@ func (r *Reconciler) reconcileDeletion(
 	nsc *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
+	installedState, err := r.recordInstalledState(ctx, sp, nsc)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	return common.ReconcileDeletion(
 		ctx,
 		sp,
@@ -559,14 +572,55 @@ func (r *Reconciler) reconcileDeletion(
 		l,
 		r.errorReporter(sp.GetName()),
 		deletionReasons(),
-		func() (reconcile.Result, error) { return reconcile.Result{}, r.handleDeletion(ctx, sp, nsc, l) },
+		func() (reconcile.Result, error) {
+			return reconcile.Result{}, r.handleDeletion(ctx, sp, nsc, installedState, l)
+		},
 	)
 }
 
+// recordInstalledState returns whether the node status of a deleted profile
+// is in the installed state, which tells the installation for a status of an
+// earlier release. The deletion replaces the state with terminating, so it
+// gets recorded in the annotation as well, which tells it to the retries of a
+// failed removal.
+func (r *Reconciler) recordInstalledState(
+	ctx context.Context,
+	sp *apparmorprofileapi.AppArmorProfile,
+	nsc *nodestatus.StatusClient,
+) (bool, error) {
+	if !nsc.FinalizerExists() {
+		return false, nil
+	}
+
+	state, err := nsc.State(ctx)
+	if kerrors.IsNotFound(err) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("getting the state of the deleted profile: %w", err)
+	}
+
+	if state != secprofnodestatusapi.ProfileStateInstalled {
+		return false, nil
+	}
+
+	if err := nsc.SetAnnotation(ctx, installedAnnotation, "true"); err != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
+
+		return false, fmt.Errorf("recording profile installation: %w", err)
+	}
+
+	return true, nil
+}
+
+// handleDeletion removes the profile from the node if this operator installed
+// it there, which the annotation of the node status or installedState, the
+// installed state the caller read, tells. The cache may not have the
+// annotation which got just written.
 func (r *Reconciler) handleDeletion(
 	ctx context.Context,
 	sp *apparmorprofileapi.AppArmorProfile,
 	nodeStatus *nodestatus.StatusClient,
+	installedState bool,
 	l logr.Logger,
 ) error {
 	// The profiles of the operator are never loaded for an AppArmorProfile,
@@ -582,7 +636,7 @@ func (r *Reconciler) handleDeletion(
 		return fmt.Errorf("checking if the profile was installed on this node: %w", err)
 	}
 
-	removed, err := r.manager.RemoveProfile(sp, installed == "true")
+	removed, err := r.manager.RemoveProfile(sp, installed == "true" || installedState)
 	if err != nil {
 		return fmt.Errorf("unloading profile from host: %w", err)
 	}

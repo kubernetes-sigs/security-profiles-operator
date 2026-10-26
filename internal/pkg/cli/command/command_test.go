@@ -106,7 +106,7 @@ func TestRun(t *testing.T) {
 
 				_, signals := mock.NotifyArgsForCall(0)
 				require.ElementsMatch(t,
-					[]os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}, signals,
+					[]os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT}, signals,
 				)
 			},
 		},
@@ -189,7 +189,7 @@ func TestRunForwardsSignals(t *testing.T) {
 	_, err := sut.Run()
 	require.NoError(t, err)
 
-	for _, sig := range []os.Signal{syscall.SIGTERM, os.Interrupt, syscall.SIGHUP} {
+	for _, sig := range []os.Signal{syscall.SIGTERM, os.Interrupt, syscall.SIGHUP, syscall.SIGQUIT} {
 		require.True(t, sender.send(sig))
 
 		select {

@@ -42,6 +42,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	nodestatusclient "sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
@@ -228,7 +229,7 @@ func setProfileStatus(
 	state secprofnodestatusapi.ProfileState,
 	l logr.Logger,
 ) error {
-	_, err := r.reconcileStatus(ctx, prof, aggregation{state: state}, l)
+	_, err := r.reconcileStatus(ctx, prof, &aggregation{state: state}, l)
 
 	return err
 }
@@ -465,6 +466,109 @@ func TestUnavailableMessage(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, tc.agg.unavailableMessage())
 	}
+}
+
+// The nodes which do not support the kind of the profile are left out of the
+// state, unless no node supports it.
+func TestLowestStateLeavesOutUnsupportedNodes(t *testing.T) {
+	t.Parallel()
+
+	unsupported := func(
+		node string, state secprofnodestatusapi.ProfileState,
+	) secprofnodestatusapi.SecurityProfileNodeStatus {
+		status := testNodeStatus(node, state)
+		status.Labels[nodestatusclient.UnsupportedLabel] = "true"
+
+		return *status
+	}
+
+	agg := lowestState([]secprofnodestatusapi.SecurityProfileNodeStatus{
+		*testNodeStatus("a", secprofnodestatusapi.ProfileStateInstalled),
+		unsupported("c", secprofnodestatusapi.ProfileStateError),
+		unsupported("b", secprofnodestatusapi.ProfileStateError),
+	})
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, agg.state)
+	require.Empty(t, agg.failedNodes)
+	require.Equal(t, []string{"b", "c"}, agg.unsupportedNodes)
+	require.False(t, agg.onlyUnsupported)
+	require.Equal(t,
+		"nodes b, c do not support the profile kind, which the state leaves out",
+		agg.unsupportedMessage(),
+	)
+
+	// A profile which no node can install does not claim to be installed.
+	agg = lowestState([]secprofnodestatusapi.SecurityProfileNodeStatus{
+		unsupported("a", secprofnodestatusapi.ProfileStateError),
+	})
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, agg.state)
+	require.True(t, agg.onlyUnsupported)
+	require.Equal(t, "nodes a do not support the profile kind", agg.unsupportedMessage())
+
+	agg = lowestState([]secprofnodestatusapi.SecurityProfileNodeStatus{
+		unsupported("a", secprofnodestatusapi.ProfileStateDisabled),
+	})
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, agg.state)
+}
+
+// The Ready condition names the nodes which do not support the kind.
+func TestUpdateProfileStatusNamesUnsupportedNodes(t *testing.T) {
+	t.Parallel()
+
+	r, c, _ := newTestReconciler(t, testProfile(""))
+
+	_, err := r.reconcileStatus(context.Background(), testProfile(""), &aggregation{
+		state:            secprofnodestatusapi.ProfileStateInstalled,
+		unsupportedNodes: []string{"a"},
+	}, logr.Discard())
+	require.NoError(t, err)
+
+	ready := storedProfile(t, c).Status.GetReadyCondition()
+	require.Equal(t, string(common.ReasonAvailable), ready.Reason)
+	require.Contains(t, ready.Message, "nodes a do not support the profile kind")
+
+	_, err = r.reconcileStatus(context.Background(), storedProfile(t, c), &aggregation{
+		state:            secprofnodestatusapi.ProfileStateError,
+		unsupportedNodes: []string{"a"},
+		onlyUnsupported:  true,
+	}, logr.Discard())
+	require.NoError(t, err)
+
+	sp := storedProfile(t, c)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, sp.Status.Status)
+	require.Equal(t,
+		"profile cannot be installed on any node; nodes a do not support the profile kind",
+		sp.Status.GetReadyCondition().Message,
+	)
+
+	// The nodes whose SPOd pod is not available may support the kind.
+	_, err = r.reconcileStatus(context.Background(), storedProfile(t, c), &aggregation{
+		state:            secprofnodestatusapi.ProfileStateError,
+		unsupportedNodes: []string{"a"},
+		onlyUnsupported:  true,
+		unavailableNodes: []string{"b"},
+	}, logr.Discard())
+	require.NoError(t, err)
+	require.Equal(t,
+		"profile cannot be installed on any available node; "+
+			"nodes a do not support the profile kind; "+
+			"the SPOd pod is not available on nodes b, which the state leaves out",
+		storedProfile(t, c).Status.GetReadyCondition().Message,
+	)
+}
+
+// The state of a node which does not support the kind does not seed the state
+// of the profile.
+func TestReconcileUnsupportedStatusSeedsPending(t *testing.T) {
+	t.Parallel()
+
+	status := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateError)
+	status.Labels[nodestatusclient.UnsupportedLabel] = "true"
+
+	r, c, _ := newTestReconciler(t, testProfile(""), status)
+
+	_, err := reconcileStatus(t, r, status)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status)
 }
 
 func TestReconcileSkipsMislabeledStatus(t *testing.T) {
@@ -1556,6 +1660,9 @@ func TestNodeStatusChangedPredicate(t *testing.T) {
 	}))
 	require.True(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
 		s.OwnerReferences = nil
+	}))
+	require.True(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
+		s.Labels[nodestatusclient.UnsupportedLabel] = "true"
 	}))
 	require.True(t, p.Create(event.CreateEvent{Object: base}))
 	require.True(t, p.Delete(event.DeleteEvent{Object: base}))

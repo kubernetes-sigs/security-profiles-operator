@@ -473,6 +473,8 @@ func (r *Reconciler) Reconcile(
 			ctx, r.client, req.NamespacedName, profile, logger,
 			r.errorReporter(), r.nodeName, reasonSeccompNotSupported, err,
 		) {
+			r.writtenStates.Forget(req.NamespacedName)
+
 			return reconcile.Result{}, nil
 		}
 
@@ -482,11 +484,11 @@ func (r *Reconciler) Reconcile(
 			return reconcile.Result{}, nil
 		}
 
-		// Do not requeue (will be requeued if a change to the object is
-		// observed, or after the usually very long reconcile timeout
-		// configured for the controller manager)
-		return reconcile.Result{}, common.ReleaseUnsupported(
+		// The node status tells that the node cannot install the profile,
+		// and a profile which is being deleted gets released.
+		return reconcile.Result{}, common.ReconcileUnsupported(
 			ctx, r.client, r.apiReader(), profile, r.nodeName, &r.writtenStates,
+			err,
 		)
 	}
 
@@ -1434,8 +1436,9 @@ func (r *Reconciler) reconcileDeletion(
 }
 
 // fileConflictRetry is the time after which a profile whose file is owned by
-// another profile is checked again, so that it gets installed once the other
-// profile is gone.
+// another profile is checked again at the latest, so that it gets installed
+// once the other profile is gone. The resyncs of the daemon cache usually
+// check it sooner.
 const fileConflictRetry = time.Minute
 
 // errProfileFileConflict is returned if the file of a profile is owned by

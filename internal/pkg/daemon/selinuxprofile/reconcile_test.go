@@ -1921,6 +1921,20 @@ func TestReconcileSelinuxdNotListeningAfterGrace(t *testing.T) {
 	require.Error(t, err)
 	require.InDelta(t, 1, f.errorCount(t, reasonCannotContactSelinuxd), 0)
 	require.Len(t, f.events(), 1)
+
+	// The same outage gets reported once per profile.
+	_, err = f.r.Reconcile(context.Background(), f.request)
+	require.Error(t, err)
+	require.InDelta(t, 1, f.errorCount(t, reasonCannotContactSelinuxd), 0)
+	require.Empty(t, f.events())
+
+	// The next outage gets reported again.
+	f.r.selinuxdFailing = false
+
+	_, err = f.r.Reconcile(context.Background(), f.request)
+	require.Error(t, err)
+	require.InDelta(t, 2, f.errorCount(t, reasonCannotContactSelinuxd), 0)
+	require.Len(t, f.events(), 1)
 }
 
 // A failed lookup of the removed policy is counted once, as a failed removal.

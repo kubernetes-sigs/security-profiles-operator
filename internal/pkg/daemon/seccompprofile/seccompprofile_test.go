@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile/seccompprofilefakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
@@ -168,7 +170,11 @@ func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 	profile := &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "profile", Namespace: "ns", UID: "first"},
 	}
-	cli := utiltest.NewFakeClient(t, &interceptor.Funcs{}, profile)
+	cli := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(profile).
+		WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+		Build()
 	mock := &seccompprofilefakes.FakeImpl{}
 	recorder := events.NewFakeRecorder(10)
 	rec := &Reconciler{
@@ -191,6 +197,20 @@ func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 	utiltest.RequireEvent(t, recorder, wantEvent)
 	utiltest.RequireNoEvent(t, recorder)
 	require.Zero(t, mock.GetSPODCallCount(), "the profile must not be installed")
+
+	// The node status tells that the node cannot install the profile, it is
+	// created without the finalizer of the node.
+	statuses := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
+	require.NoError(t, cli.List(t.Context(), statuses))
+
+	if builtWithSeccomp {
+		require.Len(t, statuses.Items, 1)
+		require.True(t, nodestatus.IsUnsupported(&statuses.Items[0]))
+		require.Equal(t, secprofnodestatusapi.ProfileStateError, statuses.Items[0].Status.Status)
+		require.Contains(t, statuses.Items[0].Status.Message, errSeccompNotSupported.Error())
+	} else {
+		require.Empty(t, statuses.Items, "a build without seccomp tells nothing about the node")
+	}
 
 	// A profile created again under the same name is reported again.
 	require.NoError(t, cli.Delete(t.Context(), profile))

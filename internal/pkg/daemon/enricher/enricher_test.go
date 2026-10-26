@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -818,6 +819,72 @@ func TestContainerIDForProcessRefreshesRarely(t *testing.T) {
 	_, err = lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 	require.True(t, lookup.processContainers.Get(42).ExpiresAt().After(stale))
+}
+
+// backlogLogSink records the levels of the logs of dropped backlogs.
+type backlogLogSink struct {
+	levels *[]int
+}
+
+func (backlogLogSink) Init(logr.RuntimeInfo) {}
+
+func (backlogLogSink) Enabled(int) bool { return true }
+
+func (s backlogLogSink) Info(level int, msg string, _ ...any) {
+	if strings.HasPrefix(msg, "Dropping the audit backlog") {
+		*s.levels = append(*s.levels, level)
+	}
+}
+
+func (backlogLogSink) Error(error, string, ...any) {}
+
+func (s backlogLogSink) WithValues(...any) logr.LogSink { return s }
+
+func (s backlogLogSink) WithName(string) logr.LogSink { return s }
+
+// TestDroppedBacklogOfUnknownContainerIsVerbose asserts that the expired
+// backlog of a container which no pod of the node has gets logged verbosely,
+// while the one of a container which may still show up is reported.
+func TestDroppedBacklogOfUnknownContainerIsVerbose(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name        string
+		pod         *v1.Pod
+		wantVerbose bool
+	}{
+		{name: "no pod has the container", pod: runningPod(), wantVerbose: true},
+		{name: "a pod creates containers", pod: creatingPod(), wantVerbose: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var levels []int
+
+			logger := logr.New(backlogLogSink{levels: &levels})
+
+			sut, err := New(logger, nil)
+			require.NoError(t, err)
+
+			watchPods(t, sut.lookup.containers, podindextest.New(*tc.pod))
+
+			unknown := strings.Repeat("f", 64)
+			require.NoError(t, sut.addToBacklog(unknown, &types.AuditLine{ProcessID: 1}))
+
+			item := sut.auditLineCache.Get(unknown)
+			require.NotNil(t, item)
+
+			sut.logDroppedBacklog(t.Context(), ttlcache.EvictionReasonExpired, item)
+
+			require.Len(t, levels, 1)
+
+			if tc.wantVerbose {
+				require.Equal(t, config.VerboseLevel, levels[0])
+			} else {
+				require.Zero(t, levels[0])
+			}
+		})
+	}
 }
 
 // TestBacklogIsKeptPerContainer asserts that a process reusing a PID in another
