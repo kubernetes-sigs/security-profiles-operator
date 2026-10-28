@@ -76,3 +76,17 @@ updates:
     - "release-note-none"
     - "ok-to-test"
   open-pull-requests-limit: 10
+# The nixpkgs revision of flake.lock, which the images, the BPF objects and
+# spoc get built with. A new compiler of the BPF objects or a new Go patch
+# release needs follow-up changes, see the "Dependencies" section of
+# doc/hacking.md.
+- package-ecosystem: nix
+  directory: "/"
+  schedule:
+    interval: weekly
+  cooldown:
+    default-days: 7
+  labels:
+    - "release-note-none"
+    - "ok-to-test"
+  open-pull-requests-limit: 10

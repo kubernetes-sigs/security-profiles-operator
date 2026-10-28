@@ -40,7 +40,7 @@ OPM_SHA256_darwin_amd64 = a448e5972689036cb1168b83e18195b193bb513399c234d402c425
 OPM_SHA256_darwin_arm64 = 0ce2671c543e637ae24cb98dfeeec1a9554e3955a72c59eb872750eaf915627f
 ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
-GOVULNCHECK_VERSION = v1.8.0
+GOVULNCHECK_VERSION = v1.9.0
 GOTESTSUM_VERSION = v1.13.0
 # setup-envtest downloads the kube-apiserver and etcd binaries of the
 # integration tests. It is released together with controller-runtime, so it
@@ -668,8 +668,8 @@ $(BUILD_DIR)/zeitgeist: | $(BUILD_DIR)
 # upstreams. GitHub upstreams need a GITHUB_TOKEN for the API rate limit.
 # hack/check-upstream-dependencies.py runs zeitgeist for each dependency, so
 # that one unreachable upstream doesn't hide the others, and
-# hack/check-release-tags.py checks the dependencies whose release tags
-# zeitgeist cannot parse. Both only print the available updates and failed
+# hack/check-release-tags.py checks the dependencies whose releases zeitgeist
+# cannot find or parse. Both only print the available updates and failed
 # checks, so the target fails on them.
 .PHONY: verify-dependencies-upstream
 verify-dependencies-upstream: $(BUILD_DIR)/zeitgeist-remote/zeitgeist ## Check external dependencies for upstream updates

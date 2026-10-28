@@ -120,17 +120,39 @@ jobs:
         env:
           XDG_RUNTIME_DIR: ''
       - run: podman save -o image.tar security-profiles-operator
-      # Uploaded before the scan, so that the e2e jobs, which wait for the
-      # artifact, also run when the scan fails. They wait for the step by its
-      # name, see the wait-for-artifact action.
+      # The e2e jobs wait for the step by its name, see the wait-for-artifact
+      # action.
       - name: Upload the image
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.name }}
           path: image.tar
-      # The scanned image is the one the e2e jobs test. Fails on every
-      # vulnerability with an available fix. Assessed findings are suppressed
-      # through .openvex.json, see doc/hacking.md.
+
+  # Scans the images the e2e jobs test. Fails on every vulnerability with an
+  # available fix. Assessed findings are suppressed through .openvex.json, see
+  # doc/hacking.md. It is a job of its own, so that a new advisory does not
+  # skip the e2e jobs, which need the image job. Both architectures get
+  # scanned, because the binaries and the native libraries linked into them
+  # are built per architecture.
+  image-scan:
+    needs: image
+    strategy:
+      fail-fast: false
+      matrix:
+        name:
+          - image
+          - image-arm64
+    name: image-scan / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.name }}
+          path: .
       - uses: ./.github/actions/scan-image
         with:
           input: image.tar

@@ -20,8 +20,8 @@
 # afterwards to regenerate the manifests. It also pins the selinuxd commit
 # which hack/ci/build-selinuxd-fedora.sh builds for the Fedora e2e VM to the
 # head of the selinuxd main branch. With --check it only reports moved tags
-# and a newer commit and fails when there are any, which the weekly
-# dependencies workflow does.
+# and a newer commit and fails when there are any, which the weekly selinuxd
+# job of the dependencies workflow does.
 
 set -euo pipefail
 

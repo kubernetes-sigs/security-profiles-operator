@@ -548,8 +548,9 @@ jobs:
           fi
 
   # Builds the UBI image for the vulnerability scan, the published images are
-  # built on Cloud Build. The image of Dockerfile gets scanned by the image
-  # job of the test workflow, which scans the image the e2e tests run.
+  # built on Cloud Build. The images of Dockerfile get scanned by the
+  # image-scan jobs of the test workflow, which scan the images the e2e tests
+  # run.
   # Scheduled and manual runs scan the UBI image too, so fixes published in the
   # UBI repositories or the vulnerability database surface without a push.
   image:

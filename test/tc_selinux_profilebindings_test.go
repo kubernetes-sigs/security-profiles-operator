@@ -104,7 +104,7 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {
 	e.selinuxOnlyTestCase()
 
-	e.profileBindingTestPrep(nsBindingDisabled, false, "busybox:latest")
+	e.profileBindingTestPrep(nsBindingDisabled, false, busyboxImage)
 
 	e.logf("the workload should have errored")
 	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
@@ -173,7 +173,7 @@ metadata:
   name: %s
 spec:
   initContainers:
-  - image: busybox:latest
+  - image: %s
     name: errorloggerbinding
     command: ["sh"]
     args: ["-c", "echo \"Time: $(date). Some error info.\" >> /var/log/test.log || /bin/true"]
@@ -182,14 +182,14 @@ spec:
       mountPath: /var/log
   containers:
   - name: pauser
-    image: "gcr.io/google_containers/pause:latest"
+    image: registry.k8s.io/pause:3.10.2
   restartPolicy: Never
   volumes:
   - name: varlog
     hostPath:
       path: /var/log
       type: Directory
-`, testPodName)
+`, testPodName, busyboxImage)
 
 	// The cleanups run once the test ends, also if a wait below fails, in
 	// reverse order: the objects get deleted in the namespace of the test,

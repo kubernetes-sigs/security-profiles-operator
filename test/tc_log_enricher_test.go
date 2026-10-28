@@ -72,7 +72,7 @@ metadata:
   name: %s
 spec:
   containers:
-  - image: busybox:latest
+  - image: %s
     name: %s
     command: ["sh", "-c", "while true; do touch /tmp/denied; sleep 1; done"]
     securityContext:
@@ -80,7 +80,7 @@ spec:
         type: Localhost
         localhostProfile: %s
   restartPolicy: Never
-`, podName, containerName, profileName)
+`, podName, busyboxImage, containerName, profileName)
 
 	since := time.Now()
 

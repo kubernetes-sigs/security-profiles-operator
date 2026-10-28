@@ -1003,6 +1003,10 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 // a latest tag again, since the pull policy of such a tag is Always.
 const throwawayImage = "registry.fedoraproject.org/fedora-minimal:44"
 
+// busyboxImage is the busybox image of the test pods, pinned and from
+// registry.k8s.io instead of Docker Hub, see dependencies.yaml.
+const busyboxImage = "registry.k8s.io/e2e-test-images/busybox:1.38.0-1"
+
 const (
 	curlBaseCMD    = "curl -ksL --connect-timeout 10 --retry 5 --retry-delay 3 --show-error "
 	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "

@@ -40,12 +40,12 @@ Vagrant.configure("2") do |config|
       # Use a non-localhost DNS to avoid cluster DNS lookup loops
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
-      # Install Go
-      # The checksum comes from the Go download server, this test VM does not
-      # pin it like Dockerfile.ubi does.
+      # Install Go, with the checksum Dockerfile.ubi pins for the version of
+      # go.mod.
       GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
+      GO_SHA256=$(sed -n 's/^ARG GO_SHA256_amd64=//p' /vagrant/Dockerfile.ubi)
       curl -sSfL --retry 5 --retry-delay 3 -o /tmp/go.tar.gz https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz
-      echo "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum -c -
+      echo "$GO_SHA256  /tmp/go.tar.gz" | sha256sum -c -
       tar xfz /tmp/go.tar.gz -C /usr/local
       rm -f /tmp/go.tar.gz
 
