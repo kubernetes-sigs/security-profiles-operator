@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -1241,13 +1242,13 @@ func TestWebhook_BindingOptionsApplyToImageUpdates(t *testing.T) {
 	require.Nil(t, w.validatingConfig.Webhooks[0].NamespaceSelector)
 }
 
-// evaluateMatchCondition evaluates the match condition expression for a pod
+// evaluateMatchCondition evaluates the match condition expression for a
 // request of the operation, like the API server does.
-func evaluateMatchCondition(
+func evaluateMatchCondition[T any](
 	t *testing.T,
 	expression string,
 	operation admissionregv1.OperationType,
-	pod, oldPod *corev1.Pod,
+	obj, oldObj *T,
 ) bool {
 	t.Helper()
 
@@ -1264,13 +1265,13 @@ func evaluateMatchCondition(
 	prg, err := env.Program(ast)
 	require.NoError(t, err)
 
-	object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
+	object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	require.NoError(t, err)
 
 	var oldObject map[string]any
 
-	if oldPod != nil {
-		oldObject, err = runtime.DefaultUnstructuredConverter.ToUnstructured(oldPod)
+	if oldObj != nil {
+		oldObject, err = runtime.DefaultUnstructuredConverter.ToUnstructured(oldObj)
 		require.NoError(t, err)
 	}
 
@@ -1449,6 +1450,78 @@ func TestRecordingMatchCondition(t *testing.T) {
 			),
 			prefix,
 		)
+	}
+}
+
+func TestRawSelinuxProfileMatchCondition(t *testing.T) {
+	t.Parallel()
+
+	hooks := getValidatingWebhookConfig("spo-ns").Webhooks
+	require.Equal(t, rawSelinuxProfileValidation, hooks[0].Name)
+	require.Len(t, hooks[0].MatchConditions, 1)
+	expression := hooks[0].MatchConditions[0].Expression
+
+	withPolicy := func(policy string) *selinuxprofileapi.RawSelinuxProfile {
+		return &selinuxprofileapi.RawSelinuxProfile{
+			Spec: selinuxprofileapi.RawSelinuxProfileSpec{Policy: policy},
+		}
+	}
+
+	finalized := withPolicy("(blockinherit container)")
+	finalized.Finalizers = []string{"node-1-delete"}
+
+	for name, tc := range map[string]struct {
+		operation   admissionregv1.OperationType
+		profile     *selinuxprofileapi.RawSelinuxProfile
+		oldProfile  *selinuxprofileapi.RawSelinuxProfile
+		wantMatches bool
+	}{
+		"create": {
+			operation:   admissionregv1.Create,
+			profile:     withPolicy("(blockinherit container)"),
+			wantMatches: true,
+		},
+		"create without spec": {
+			operation:   admissionregv1.Create,
+			profile:     &selinuxprofileapi.RawSelinuxProfile{},
+			wantMatches: true,
+		},
+		"finalizer added": {
+			operation:  admissionregv1.Update,
+			profile:    finalized,
+			oldProfile: withPolicy("(blockinherit container)"),
+		},
+		"both without spec": {
+			operation:  admissionregv1.Update,
+			profile:    &selinuxprofileapi.RawSelinuxProfile{},
+			oldProfile: &selinuxprofileapi.RawSelinuxProfile{},
+		},
+		"policy changed": {
+			operation:   admissionregv1.Update,
+			profile:     withPolicy("(blockinherit net_container)"),
+			oldProfile:  withPolicy("(blockinherit container)"),
+			wantMatches: true,
+		},
+		"policy added": {
+			operation:   admissionregv1.Update,
+			profile:     withPolicy("(blockinherit container)"),
+			oldProfile:  &selinuxprofileapi.RawSelinuxProfile{},
+			wantMatches: true,
+		},
+		"policy removed": {
+			operation:   admissionregv1.Update,
+			profile:     &selinuxprofileapi.RawSelinuxProfile{},
+			oldProfile:  withPolicy("(blockinherit container)"),
+			wantMatches: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.wantMatches, evaluateMatchCondition(
+				t, expression, tc.operation, tc.profile, tc.oldProfile,
+			))
+		})
 	}
 }
 

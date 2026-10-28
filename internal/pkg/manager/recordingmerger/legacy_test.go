@@ -36,6 +36,7 @@ import (
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -418,7 +419,11 @@ func TestMergeProfilesListsNamesakeRecordingsOnce(t *testing.T) {
 			partialSeccomp("partial-nginx", "nginx", "write"),
 			partialSeccomp("partial-redis", "redis", "open"),
 		).
-		WithIndex(&profilerecordingapi.ProfileRecording{}, recordingNameKey, recordingNameIndex).
+		WithIndex(
+			&profilerecordingapi.ProfileRecording{},
+			recordingkinds.RecordingNameKey,
+			recordingkinds.RecordingNameIndex,
+		).
 		WithInterceptorFuncs(interceptor.Funcs{
 			List: func(
 				ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption,

@@ -36,6 +36,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
@@ -629,6 +630,11 @@ func TestStatusMapFunctions(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(utiltest.NewScheme(t)).
 		WithObjects(seccompRecording, selinuxRecording, otherNamespace).
+		WithIndex(
+			&profilerecordingapi.ProfileRecording{},
+			recordingkinds.RecordingNameKey,
+			recordingkinds.RecordingNameIndex,
+		).
 		Build()
 	r := &recordingStatusReconciler{client: c, log: logr.Discard()}
 

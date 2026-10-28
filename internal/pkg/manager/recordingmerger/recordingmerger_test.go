@@ -40,6 +40,7 @@ import (
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -113,7 +114,11 @@ func newMergeReconciler(t *testing.T, objs ...client.Object) *PolicyMergeReconci
 		client: fake.NewClientBuilder().
 			WithScheme(mergerTestScheme(t)).
 			WithObjects(objs...).
-			WithIndex(&profilerecordingapi.ProfileRecording{}, recordingNameKey, recordingNameIndex).
+			WithIndex(
+				&profilerecordingapi.ProfileRecording{},
+				recordingkinds.RecordingNameKey,
+				recordingkinds.RecordingNameIndex,
+			).
 			Build(),
 		log:    logr.Discard(),
 		record: events.NewFakeRecorder(20),

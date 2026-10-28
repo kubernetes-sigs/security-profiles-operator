@@ -36,6 +36,7 @@ import (
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -128,6 +129,19 @@ func (r *BindingTrackerReconciler) Setup(
 		Watches(&apparmorprofileapi.AppArmorProfile{}, handler.EnqueueRequestsFromMapFunc(
 			status.bindingRequests(profilebindingapi.ProfileBindingKindAppArmorProfile),
 		), profileEvents).
+		// The SPOD configuration tells if the kind of a profile without status
+		// is enabled. The daemons only follow the SPOD named spod.
+		Watches(
+			&spodapi.SecurityProfilesOperatorDaemon{},
+			handler.EnqueueRequestsFromMapFunc(status.allBindings),
+			builder.WithPredicates(
+				predicate.GenerationChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == config.SPOdName &&
+						obj.GetNamespace() == operatorNamespace
+				}),
+			),
+		).
 		Complete(status); err != nil {
 		return fmt.Errorf("creating binding status controller: %w", err)
 	}

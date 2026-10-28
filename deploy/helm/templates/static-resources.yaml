@@ -300,6 +300,7 @@ rules:
   - create
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
@@ -307,8 +308,6 @@ rules:
   - securityprofilesoperatordaemons/finalizers
   - securityprofilesoperatordaemons/status
   verbs:
-  - get
-  - patch
   - update
 - apiGroups:
   - security.openshift.io

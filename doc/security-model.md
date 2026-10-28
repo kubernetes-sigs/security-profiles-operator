@@ -131,8 +131,11 @@ manifests bind the ClusterRole to the `prometheus-k8s` ServiceAccount of the
 `openshift-monitoring` namespace as well. The `kubectl` manifests and the OLM bundle, but not the
 Helm chart, let that ServiceAccount discover the endpoints through the `spo-prometheus-k8s` Role,
 which only allows reading the pods, services, endpoints and endpoint slices of the operator
-namespace. On clusters without the `openshift-monitoring` namespace, the RoleBinding of the Role
-grants nothing.
+namespace. OpenShift and other clusters install the same `kubectl` manifest, so the
+`spo-prometheus-k8s` RoleBinding ships to every cluster. On clusters without OpenShift
+monitoring, it grants this read access to whoever creates the `openshift-monitoring` namespace
+and its `prometheus-k8s` ServiceAccount, which needs the permission to create namespaces.
+Delete the RoleBinding there if that is a concern.
 
 ### Profile Generation Mode (auto-generating security profiles)
 
@@ -222,16 +225,17 @@ API groups of its role.
   (`monitoring.coreos.com`, create and patch only), cert-manager issuers and certificates
   (`cert-manager.io`), the `security-profiles-operator-profile` ConfigMap (read), leases
   (`coordination.k8s.io`), and the `restricted-v2` SCC (`security.openshift.io`). Only the webhook deployment gets updated,
-  the other operands are created and merge patched.
+  the other operands are created and merge patched. The `spod` resource is created and merge
+  patched, to record the allow lists the operator enforced, and its status is only updated.
 - Own API: delete on seccomp profiles, to remove the ones which the allow lists of the `spod`
   resource reject once for the cluster, see
   [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles),
   and on SELinux and AppArmor profiles, to remove the partial profiles of a recording once they
   are merged. Create on the seccomp, SELinux and AppArmor profiles which the operator ships or
   merges from recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is the one of
-  the `spod` resource, which owns the operands, limited to get, update and patch, without
-  delete. Delete on node statuses, to remove the ones of nodes which are gone, since their
-  daemons cannot remove them any more.
+  the `spod` resource, which owns the operands, limited to update, which the owner references
+  of the operands need to block its deletion. Delete on node statuses, to remove the ones of
+  nodes which are gone, since their daemons cannot remove them any more.
 
 ### spod
 

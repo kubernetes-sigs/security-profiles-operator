@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -106,22 +107,23 @@ func eachPartialProfile(
 }
 
 // hasPartialProfiles returns whether the recording has partial profiles of
-// the list type which are not being deleted.
+// the kind which are not being deleted. It only lists their metadata.
 func hasPartialProfiles(
 	ctx context.Context,
 	cli client.Reader,
-	list client.ObjectList,
+	gvk schema.GroupVersionKind,
 	recording *profilerecordingapi.ProfileRecording,
 ) (bool, error) {
-	found := false
+	list := &metav1.PartialObjectMetadataList{}
+	list.SetGroupVersionKind(gvk.GroupVersion().WithKind(gvk.Kind + "List"))
 
-	err := eachPartialProfile(ctx, cli, list, recording, func(obj client.Object) error {
-		found = found || obj.GetDeletionTimestamp().IsZero()
+	if err := cli.List(ctx, list, partialProfileLabels(recording)); err != nil {
+		return false, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
+	}
 
-		return nil
-	})
-
-	return found, err
+	return slices.ContainsFunc(list.Items, func(obj metav1.PartialObjectMetadata) bool {
+		return obj.GetDeletionTimestamp().IsZero()
+	}), nil
 }
 
 // listPartialProfiles returns the partial profiles of the recording grouped by

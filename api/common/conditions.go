@@ -18,8 +18,10 @@ limitations under the License.
 package common
 
 import (
-	"sort"
+	"slices"
+	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -60,10 +62,8 @@ type ConditionedStatus struct {
 // GetReadyCondition returns the condition for the given ConditionType if exists,
 // otherwise returns an unknown condition.
 func (s *ConditionedStatus) GetReadyCondition() metav1.Condition {
-	for _, c := range s.Conditions {
-		if c.Type == string(TypeReady) {
-			return c
-		}
+	if c := meta.FindStatusCondition(s.Conditions, string(TypeReady)); c != nil {
+		return *c
 	}
 
 	return metav1.Condition{
@@ -75,32 +75,16 @@ func (s *ConditionedStatus) GetReadyCondition() metav1.Condition {
 // SetConditions sets the supplied conditions, replacing any existing conditions
 // of the same type. This is a no-op if all supplied conditions are identical,
 // ignoring the last transition time, to those already set. The last transition
-// time of a condition only changes with its status.
+// time of a condition only changes with its status, a condition without one
+// gets the current time.
 func (s *ConditionedStatus) SetConditions(c ...metav1.Condition) {
 	for _, cond := range c {
-		exists := false
-
-		for i, existing := range s.Conditions {
-			if existing.Type != cond.Type {
-				continue
-			}
-
-			exists = true
-
-			if conditionsEqual(&existing, &cond) {
-				continue
-			}
-
-			if existing.Status == cond.Status {
-				cond.LastTransitionTime = existing.LastTransitionTime
-			}
-
-			s.Conditions[i] = cond
+		if existing := meta.FindStatusCondition(s.Conditions, cond.Type); existing != nil &&
+			conditionsEqual(existing, &cond) {
+			continue
 		}
 
-		if !exists {
-			s.Conditions = append(s.Conditions, cond)
-		}
+		meta.SetStatusCondition(&s.Conditions, cond)
 	}
 }
 
@@ -115,15 +99,11 @@ func (s *ConditionedStatus) Equal(other *ConditionedStatus) bool {
 		return false
 	}
 
-	sc := make([]metav1.Condition, len(s.Conditions))
-	copy(sc, s.Conditions)
-
-	oc := make([]metav1.Condition, len(other.Conditions))
-	copy(oc, other.Conditions)
+	byType := func(a, b metav1.Condition) int { return strings.Compare(a.Type, b.Type) }
 
 	// We should not have more than one condition of each type.
-	sort.Slice(sc, func(i, j int) bool { return sc[i].Type < sc[j].Type })
-	sort.Slice(oc, func(i, j int) bool { return oc[i].Type < oc[j].Type })
+	sc := slices.SortedFunc(slices.Values(s.Conditions), byType)
+	oc := slices.SortedFunc(slices.Values(other.Conditions), byType)
 
 	for i := range sc {
 		if !conditionsEqual(&sc[i], &oc[i]) {

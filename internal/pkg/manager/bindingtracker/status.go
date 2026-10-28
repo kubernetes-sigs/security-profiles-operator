@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,14 +41,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-const (
-	// missingProfileRetry is the time after which a binding to a missing
-	// profile or to a profile without status is checked again.
-	missingProfileRetry = time.Minute
-
-	// profileRefKey indexes bindings by the profile they refer to.
-	profileRefKey = ".spec.profileRef"
-)
+// profileRefKey indexes bindings by the profile they refer to.
+const profileRefKey = ".spec.profileRef"
 
 // bindingStatusReconciler reports on the Ready condition of a ProfileBinding
 // whether the profile it refers to exists and is installed. The binding
@@ -86,24 +79,41 @@ func (r *bindingStatusReconciler) bindingRequests(
 	kind profilebindingapi.ProfileBindingKind,
 ) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		bindings := &profilebindingapi.ProfileBindingList{}
-		if err := r.client.List(ctx, bindings, client.MatchingFields{
+		return r.listBindings(ctx, client.MatchingFields{
 			profileRefKey: profileRefValue(kind, obj.GetName()),
-		}); err != nil {
-			r.log.Error(err, "cannot list bindings of profile", "profile", obj.GetName())
-
-			return nil
-		}
-
-		requests := make([]reconcile.Request, 0, len(bindings.Items))
-		for i := range bindings.Items {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(&bindings.Items[i]),
-			})
-		}
-
-		return requests
+		})
 	}
+}
+
+// allBindings maps an object to reconcile requests for all bindings.
+func (r *bindingStatusReconciler) allBindings(
+	ctx context.Context, _ client.Object,
+) []reconcile.Request {
+	return r.listBindings(ctx)
+}
+
+// listBindings returns reconcile requests for the cached bindings. A failing
+// list is logged, as a map function cannot return an error.
+func (r *bindingStatusReconciler) listBindings(
+	ctx context.Context, opts ...client.ListOption,
+) []reconcile.Request {
+	bindings := &profilebindingapi.ProfileBindingList{}
+	if err := r.client.List(
+		ctx, bindings, append(opts, client.UnsafeDisableDeepCopy)...,
+	); err != nil {
+		r.log.Error(err, "cannot list bindings")
+
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(bindings.Items))
+	for i := range bindings.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&bindings.Items[i]),
+		})
+	}
+
+	return requests
 }
 
 func (r *bindingStatusReconciler) Reconcile(
@@ -129,36 +139,29 @@ func (r *bindingStatusReconciler) Reconcile(
 		return reconcile.Result{}, r.setCondition(ctx, req, &condition)
 	}
 
-	condition, res, err := r.readyCondition(ctx, binding.Spec.ProfileRef)
+	condition, err := r.readyCondition(ctx, binding.Spec.ProfileRef)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("looking up profile of binding: %w", err)
 	}
 
-	if err := r.setCondition(ctx, req, &condition); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	return res, nil
+	return reconcile.Result{}, r.setCondition(ctx, req, &condition)
 }
 
 // readyCondition returns the Ready condition of a binding to the profile. The
 // webhook binds a profile which is not installed yet, unless it has no status
-// at all, so the condition tells about any state other than Installed. A
-// profile without status gets checked again after a while like a missing one,
-// because the SPOD configuration which tells if its kind is enabled is not
-// watched.
+// at all, so the condition tells about any state other than Installed. The
+// profiles and the SPOD configuration, which tells if their kind is enabled,
+// are watched, see Setup.
 func (r *bindingStatusReconciler) readyCondition(
 	ctx context.Context, ref profilebindingapi.ProfileRef,
-) (metav1.Condition, reconcile.Result, error) {
+) (metav1.Condition, error) {
 	profile, found, err := r.getProfile(ctx, ref)
 	if err != nil {
-		return metav1.Condition{}, reconcile.Result{}, err
+		return metav1.Condition{}, err
 	}
 
-	requeue := reconcile.Result{RequeueAfter: missingProfileRetry}
-
 	if !found {
-		return common.Unavailable(fmt.Sprintf("%s %s not found", ref.Kind, ref.Name)), requeue, nil
+		return common.Unavailable(fmt.Sprintf("%s %s not found", ref.Kind, ref.Name)), nil
 	}
 
 	notReady := func(reason common.ConditionReason, format string, args ...any) metav1.Condition {
@@ -172,13 +175,13 @@ func (r *bindingStatusReconciler) readyCondition(
 
 	state := profile.GetStatusBase().Status
 	if state == secprofnodestatusapi.ProfileStateInstalled {
-		return common.Available(), reconcile.Result{}, nil
+		return common.Available(), nil
 	}
 
 	if state == "" {
 		disabled, err := r.profileKindDisabled(ctx, ref.Kind)
 		if err != nil {
-			return metav1.Condition{}, reconcile.Result{}, err
+			return metav1.Condition{}, err
 		}
 
 		if disabled {
@@ -186,20 +189,20 @@ func (r *bindingStatusReconciler) readyCondition(
 				profilebindingapi.ReasonProfileKindDisabled,
 				"has no status because the kind is disabled in the SPOD configuration, "+
 					"so the binding is not applied",
-			), requeue, nil
+			), nil
 		}
 
 		return notReady(
 			profilebindingapi.ReasonProfileNotInstalled,
 			"has no status yet, so pods matching the binding are rejected",
-		), requeue, nil
+		), nil
 	}
 
 	return notReady(
 		profilebindingapi.ReasonProfileNotInstalled,
 		"is not installed, its status is %s",
 		state,
-	), reconcile.Result{}, nil
+	), nil
 }
 
 // getProfile returns the profile the reference points to. It returns false if

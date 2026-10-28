@@ -137,6 +137,16 @@ func TestSetConditions(t *testing.T) {
 
 		require.NotEqual(t, metav1.Unix(1, 0), status.Conditions[0].LastTransitionTime)
 	})
+
+	// The API rejects a condition without transition time.
+	t.Run("sets a missing transition time", func(t *testing.T) {
+		t.Parallel()
+
+		status := &ConditionedStatus{}
+		status.SetConditions(metav1.Condition{Type: "Other", Status: metav1.ConditionTrue})
+
+		require.False(t, status.Conditions[0].LastTransitionTime.IsZero())
+	})
 }
 
 func TestEqual(t *testing.T) {

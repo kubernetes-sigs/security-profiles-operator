@@ -61,7 +61,6 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 		isOpenShift bool
 		wantReason  common.ConditionReason
 		wantMessage string
-		wantRequeue bool
 	}{
 		"seccomp profile installed": {
 			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
@@ -85,9 +84,8 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			wantReason: common.ReasonAvailable,
 		},
 		"profile missing": {
-			kind:        profilebindingapi.ProfileBindingKindSeccompProfile,
-			wantReason:  common.ReasonUnavailable,
-			wantRequeue: true,
+			kind:       profilebindingapi.ProfileBindingKindSeccompProfile,
+			wantReason: common.ReasonUnavailable,
 		},
 		"profile pending": {
 			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
@@ -110,10 +108,9 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			wantMessage: "AppArmorProfile profile is not installed, its status is Error",
 		},
 		"profile without status": {
-			kind:        profilebindingapi.ProfileBindingKindSeccompProfile,
-			objs:        []client.Object{&seccompprofileapi.SeccompProfile{ObjectMeta: meta}},
-			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
-			wantRequeue: true,
+			kind:       profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs:       []client.Object{&seccompprofileapi.SeccompProfile{ObjectMeta: meta}},
+			wantReason: profilebindingapi.ReasonProfileNotInstalled,
 		},
 		"apparmor disabled": {
 			kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
@@ -121,8 +118,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 				&apparmorprofileapi.AppArmorProfile{ObjectMeta: meta},
 				spod(func(*spodapi.SecurityProfilesOperatorDaemon) {}),
 			},
-			wantReason:  profilebindingapi.ReasonProfileKindDisabled,
-			wantRequeue: true,
+			wantReason: profilebindingapi.ReasonProfileKindDisabled,
 		},
 		"apparmor enabled": {
 			kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
@@ -130,8 +126,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 				&apparmorprofileapi.AppArmorProfile{ObjectMeta: meta},
 				spod(func(s *spodapi.SecurityProfilesOperatorDaemon) { s.Spec.EnableAppArmor = new(true) }),
 			},
-			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
-			wantRequeue: true,
+			wantReason: profilebindingapi.ReasonProfileNotInstalled,
 		},
 		"selinux disabled": {
 			kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
@@ -139,8 +134,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 				&selinuxprofileapi.SelinuxProfile{ObjectMeta: meta},
 				spod(func(s *spodapi.SecurityProfilesOperatorDaemon) { s.Spec.Selinux.Enable = new(false) }),
 			},
-			wantReason:  profilebindingapi.ReasonProfileKindDisabled,
-			wantRequeue: true,
+			wantReason: profilebindingapi.ReasonProfileKindDisabled,
 		},
 		// SELinux is enabled by default only on OpenShift.
 		"selinux unset": {
@@ -149,8 +143,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 				&selinuxprofileapi.SelinuxProfile{ObjectMeta: meta},
 				spod(func(*spodapi.SecurityProfilesOperatorDaemon) {}),
 			},
-			wantReason:  profilebindingapi.ReasonProfileKindDisabled,
-			wantRequeue: true,
+			wantReason: profilebindingapi.ReasonProfileKindDisabled,
 		},
 		"selinux unset on OpenShift": {
 			kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
@@ -160,7 +153,6 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			},
 			isOpenShift: true,
 			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
-			wantRequeue: true,
 		},
 		"selinux disabled on OpenShift": {
 			kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
@@ -170,7 +162,6 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			},
 			isOpenShift: true,
 			wantReason:  profilebindingapi.ReasonProfileKindDisabled,
-			wantRequeue: true,
 		},
 		"selinux enabled": {
 			kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
@@ -178,8 +169,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 				&selinuxprofileapi.SelinuxProfile{ObjectMeta: meta},
 				spod(func(s *spodapi.SecurityProfilesOperatorDaemon) { s.Spec.Selinux.Enable = new(true) }),
 			},
-			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
-			wantRequeue: true,
+			wantReason: profilebindingapi.ReasonProfileNotInstalled,
 		},
 		// The webhook skips a binding with an invalid selector for every pod,
 		// also if its profile is installed.
@@ -193,10 +183,9 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 		},
 		// Like for the webhook, a missing configuration counts as enabled.
 		"selinux without SPOD": {
-			kind:        profilebindingapi.ProfileBindingKindSelinuxProfile,
-			objs:        []client.Object{&selinuxprofileapi.SelinuxProfile{ObjectMeta: meta}},
-			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
-			wantRequeue: true,
+			kind:       profilebindingapi.ProfileBindingKindSelinuxProfile,
+			objs:       []client.Object{&selinuxprofileapi.SelinuxProfile{ObjectMeta: meta}},
+			wantReason: profilebindingapi.ReasonProfileNotInstalled,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -246,7 +235,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 				NamespacedName: client.ObjectKeyFromObject(binding),
 			})
 			require.NoError(t, err)
-			require.Equal(t, tc.wantRequeue, res.RequeueAfter > 0)
+			require.Zero(t, res)
 
 			updated := &profilebindingapi.ProfileBinding{}
 			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
@@ -373,4 +362,11 @@ func TestBindingRequestsForProfile(t *testing.T) {
 		t.Context(),
 		&apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}},
 	))
+
+	// A changed SPOD configuration can enable or disable the kind of every
+	// profile.
+	require.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: client.ObjectKey{Namespace: "default", Name: "seccomp"}},
+		{NamespacedName: client.ObjectKey{Namespace: "default", Name: "selinux"}},
+	}, r.allBindings(t.Context(), nil))
 }

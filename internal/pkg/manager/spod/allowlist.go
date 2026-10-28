@@ -18,11 +18,15 @@ package spod
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +40,12 @@ import (
 )
 
 const reasonInvalidSPODConfig string = "InvalidSeccompSPODConfig"
+
+// enforcedAllowListAnnotation is set on the SPOD to the hash of the allow
+// lists which reconcileAllowList enforced last. The SPOD passes the predicate
+// of the controller again on every restart of the manager, which must not
+// delete the profiles created since then: the daemons only reject those.
+const enforcedAllowListAnnotation = "spo.x-k8s.io/enforced-allow-list-hash"
 
 // setupAllowList adds the controller which deletes the seccomp profiles that
 // the allow lists of the SPOD reject. It runs in the manager, so that the
@@ -76,7 +86,24 @@ func (r *ReconcileSPOd) reconcileAllowList(
 		return reconcile.Result{}, nil
 	}
 
-	security := &spod.Spec.Security
+	// The patches below decode the stored SPOD into spod, whose allow lists
+	// may have changed since, so the enforced ones are copied first.
+	security := spod.Spec.Security.DeepCopy()
+
+	enforced := allowListHash(security)
+	if spod.GetAnnotations()[enforcedAllowListAnnotation] == enforced {
+		return reconcile.Result{}, nil
+	}
+
+	// The hash of the allow lists enforced before goes first, so that an
+	// enforcement which does not complete leaves none. Setting those allow
+	// lists again then enforces them again, like after removing them.
+	if _, ok := spod.GetAnnotations()[enforcedAllowListAnnotation]; ok {
+		if err := r.setEnforcedAllowList(ctx, spod, ""); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	if len(security.AllowedSyscalls) == 0 {
 		return reconcile.Result{}, nil
 	}
@@ -117,7 +144,63 @@ func (r *ReconcileSPOd) reconcileAllowList(
 		}
 	}
 
-	return reconcile.Result{}, errors.Join(errs...)
+	if len(errs) > 0 {
+		return reconcile.Result{}, errors.Join(errs...)
+	}
+
+	return reconcile.Result{}, r.setEnforcedAllowList(ctx, spod, enforced)
+}
+
+// allowListHash returns the hash of the allow lists, or an empty string if
+// no syscalls are allowed, which does not enforce anything. Like for
+// seccompcheck.AllowListChanged, the order and duplicates of the entries do
+// not matter.
+func allowListHash(security *spodapi.SPODSecurityConfig) string {
+	if len(security.AllowedSyscalls) == 0 {
+		return ""
+	}
+
+	actions := sets.List(sets.New(security.AllowedSeccompActions...))
+	actionNames := make([]string, 0, len(actions))
+
+	for _, action := range actions {
+		actionNames = append(actionNames, string(action))
+	}
+
+	hash := sha256.Sum256([]byte(
+		strings.Join(sets.List(sets.New(security.AllowedSyscalls...)), ",") +
+			"\n" + strings.Join(actionNames, ","),
+	))
+
+	return hex.EncodeToString(hash[:])
+}
+
+// setEnforcedAllowList records the hash of the enforced allow lists on the
+// SPOD, an empty hash removes it.
+func (r *ReconcileSPOd) setEnforcedAllowList(
+	ctx context.Context, spod *spodapi.SecurityProfilesOperatorDaemon, hash string,
+) error {
+	patch := client.MergeFrom(spod.DeepCopy())
+
+	annotations := spod.GetAnnotations()
+	if hash == "" {
+		delete(annotations, enforcedAllowListAnnotation)
+	} else {
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+
+		annotations[enforcedAllowListAnnotation] = hash
+	}
+
+	spod.SetAnnotations(annotations)
+
+	err := r.client.Patch(ctx, spod, patch)
+	if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("recording the enforced allow lists: %w", err)
+	}
+
+	return nil
 }
 
 // notAllowed returns true if the allow lists reject the syscalls of the

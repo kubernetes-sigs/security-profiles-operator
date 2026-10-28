@@ -205,9 +205,15 @@ func (r *ReconcileSPOd) SchemeBuilder() runtime.SchemeBuilder {
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons/finalizers,verbs=get;update;patch
+//
+// The SPOD is created with the defaults, and patched to record the allow
+// lists which the operator enforced. Its status is only updated, and the
+// operands block its deletion through their controller owner reference, which
+// needs the update of its finalizers:
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons/status,verbs=update
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,namespace=security-profiles-operator,resources=securityprofilesoperatordaemons/finalizers,verbs=update
+//
 // Helpers:
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update
 //
@@ -1428,45 +1434,16 @@ func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 	templateSpec *corev1.PodSpec,
 	ctr *corev1.Container,
 ) error {
-	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx, r.client)
-	if err != nil {
-		if isJsonEnricherVolumeNotConfigured(err) {
-			// The base SPOd carries the volume which the ConfigMap configured
-			// when the operator started, which may be gone since.
-			name := bindata.JsonEnricherLogVolumeName
-			templateSpec.Volumes = slices.DeleteFunc(templateSpec.Volumes,
-				func(v corev1.Volume) bool { return v.Name == name })
-			ctr.VolumeMounts = slices.DeleteFunc(ctr.VolumeMounts,
-				func(m corev1.VolumeMount) bool { return m.Name == name })
-
-			return nil
-		}
-
+	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
+	if isJsonEnricherVolumeNotConfigured(err) {
+		return nil
+	} else if err != nil {
 		return fmt.Errorf("getting the JSON enricher log volume: %w", err)
 	}
 
 	logVolume, logMount := bindata.CustomLogVolume(logVolumeMountPath, logVolumeSource)
-
-	// Replace an existing volume or mount instead of skipping it, so that
-	// ConfigMap changes to the volume source or mount path are applied even
-	// when the base SPOd already has an older version.
-	volumeIndex := slices.IndexFunc(templateSpec.Volumes, func(v corev1.Volume) bool {
-		return v.Name == logVolume.Name
-	})
-	if volumeIndex >= 0 {
-		templateSpec.Volumes[volumeIndex] = logVolume
-	} else {
-		templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
-	}
-
-	mountIndex := slices.IndexFunc(ctr.VolumeMounts, func(m corev1.VolumeMount) bool {
-		return m.Name == logMount.Name
-	})
-	if mountIndex >= 0 {
-		ctr.VolumeMounts[mountIndex] = logMount
-	} else {
-		ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
-	}
+	templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
+	ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
 
 	return nil
 }

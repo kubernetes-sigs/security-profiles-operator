@@ -143,7 +143,7 @@ func (t *Tracker[T]) Track(ctx context.Context, obj T, workload string) error {
 func (t *Tracker[T]) Untrack(ctx context.Context, obj T, workload string) error {
 	var usersErr error
 
-	if _, _, err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
+	stored, found, err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
 		usersErr = nil
 
 		remaining := slices.DeleteFunc(
@@ -161,12 +161,27 @@ func (t *Tracker[T]) Untrack(ctx context.Context, obj T, workload string) error 
 		}
 
 		return fillUp(remaining, users, workload), nil
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
 	if usersErr != nil {
 		return usersErr
+	}
+
+	if !found || len(*t.Workloads(stored)) > 0 ||
+		!controllerutil.ContainsFinalizer(stored, t.Finalizer) {
+		return nil
+	}
+
+	// The stored object is the one which got written or read last, so the
+	// finalizer is removed without reading it again. The object is only read
+	// again if the update loses against another write.
+	if err := t.removeFinalizer(ctx, stored); err == nil || errors.IsNotFound(err) {
+		return nil
+	} else if !errors.IsConflict(err) {
+		return fmt.Errorf("removing finalizer: %w", err)
 	}
 
 	if err := util.RetryWithContext(ctx, func() error {
@@ -188,6 +203,28 @@ func (t *Tracker[T]) Untrack(ctx context.Context, obj T, workload string) error 
 		return client.IgnoreNotFound(t.Client.Update(ctx, current))
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("removing finalizer: %w", err)
+	}
+
+	return nil
+}
+
+// removeFinalizer removes the finalizer from a copy of the stored object. The
+// update carries the resource version of the object, so it fails with a
+// conflict if the object changed since.
+func (t *Tracker[T]) removeFinalizer(ctx context.Context, stored T) error {
+	current, ok := stored.DeepCopyObject().(T)
+	if !ok {
+		return fmt.Errorf("copying %s %s", t.Kind, stored.GetName())
+	}
+
+	controllerutil.RemoveFinalizer(current, t.Finalizer)
+
+	// The managed fields of the object may be outdated, and the API server
+	// would take them as written.
+	current.SetManagedFields(nil)
+
+	if err := t.Client.Update(ctx, current); err != nil {
+		return fmt.Errorf("updating %s: %w", t.Kind, err)
 	}
 
 	return nil

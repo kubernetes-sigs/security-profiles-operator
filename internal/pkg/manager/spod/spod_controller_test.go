@@ -483,12 +483,7 @@ func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
 
 	r := newTestReconciler()
 	r.client = fake.NewClientBuilder().WithObjects(operatorConfigMap).Build()
-	// Like Setup, start from the effective SPOd, which already carries the log
-	// volume and its mount when the ConfigMap configures them.
-	r.baseSPOd = getEffectiveSPOd(&daemonTunables{
-		jsonEnricherLogVolumeSource:    logVolumeSource,
-		jsonEnricherLogVolumeMountPath: logMountPath,
-	})
+	r.baseSPOd = getEffectiveSPOd(&daemonTunables{})
 
 	on := renderedPodSpec(t, r, &spodapi.SPODSpec{
 		Enricher: spodapi.SPODEnricherConfig{EnableJsonEnricher: new(true)},
