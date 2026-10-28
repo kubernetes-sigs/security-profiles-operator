@@ -74,10 +74,8 @@ var (
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
-	selinuxdImage                  string
-	watchNamespace                 string
-	jsonEnricherLogVolumeSource    *corev1.VolumeSource // Optionally provide a volume for usage in JSON Enricher
-	jsonEnricherLogVolumeMountPath string
+	selinuxdImage  string
+	watchNamespace string
 	// maxMetricSeries is passed on to the daemon unless empty.
 	maxMetricSeries string
 }
@@ -488,15 +486,6 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
 	}
 
-	// The cache does not run yet during the setup.
-	dt.jsonEnricherLogVolumeSource, dt.jsonEnricherLogVolumeMountPath, err = r.getJsonEnricherVolume(
-		ctx,
-		r.clientReader,
-	)
-	if err != nil && !isJsonEnricherVolumeNotConfigured(err) {
-		return dt, fmt.Errorf("could not determine json enricher volume: %w", err)
-	}
-
 	return dt, nil
 }
 
@@ -530,15 +519,15 @@ func isJsonEnricherVolumeNotConfigured(err error) bool {
 }
 
 // getJsonEnricherVolume reads the log volume of the JSON enricher from the
-// operator ConfigMap. The sentinel errors tell that the ConfigMap does not
-// configure one, every other error that it could not be read.
+// cached operator ConfigMap. The sentinel errors tell that the ConfigMap does
+// not configure one, every other error that it could not be read.
 func (r *ReconcileSPOd) getJsonEnricherVolume(
-	ctx context.Context, reader client.Reader,
+	ctx context.Context,
 ) (*corev1.VolumeSource, string, error) {
 	operatorCm := &corev1.ConfigMap{}
 	key := client.ObjectKey{Namespace: r.namespace, Name: util.OperatorConfigMap}
 
-	if err := reader.Get(ctx, key, operatorCm); err != nil {
+	if err := r.client.Get(ctx, key, operatorCm); err != nil {
 		return nil, "", fmt.Errorf("getting ConfigMap %s: %w", key, err)
 	}
 
@@ -600,25 +589,10 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd]
 	selinuxd.Image = dt.selinuxdImage
 
-	updateJsonEnricherSpec(dt, refSPOd)
-
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
 
 	return refSPOd
-}
-
-func updateJsonEnricherSpec(dt *daemonTunables, refSPOd *appsv1.DaemonSet) {
-	jsonEnricher := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
-
-	if dt.jsonEnricherLogVolumeSource != nil {
-		volume, mount := bindata.CustomLogVolume(dt.jsonEnricherLogVolumeMountPath,
-			dt.jsonEnricherLogVolumeSource)
-		// Reference the Volume at Pod level
-		refSPOd.Spec.Template.Spec.Volumes = append(refSPOd.Spec.Template.Spec.Volumes, volume)
-		// Mount it only for the Json Enricher container
-		jsonEnricher.VolumeMounts = append(jsonEnricher.VolumeMounts, mount)
-	}
 }
 
 // isInNamespace returns true if the object is in the namespace. The

@@ -58,11 +58,6 @@ const (
 	reasonNoPartialProfiles     string = "NoPartialProfiles"
 	reasonMergedProfileConflict string = "MergedProfileConflict"
 
-	// recordingNameKey indexes the recordings by their name, which tells if
-	// recordings with the same name exist in other namespaces. The API server
-	// supports it as field selector as well.
-	recordingNameKey = "metadata.name"
-
 	// blockedRequeueMinDelay and blockedRequeueMaxDelay bound how long a
 	// deleted recording whose merge is blocked waits before it is merged
 	// again.
@@ -311,7 +306,12 @@ func (r *PolicyMergeReconciler) releaseRecording(
 	}
 
 	for _, k := range mergeKinds {
-		left, err := hasPartialProfiles(ctx, r.apiReader(), k.NewList(), profileRecording)
+		gvk, err := r.client.GroupVersionKindFor(k.NewObject())
+		if err != nil {
+			return fmt.Errorf("getting the kind of %s: %w", k.Kind, err)
+		}
+
+		left, err := hasPartialProfiles(ctx, r.apiReader(), gvk, profileRecording)
 		if err != nil {
 			return fmt.Errorf("cannot list partial profiles of kind %s: %w", k.Kind, err)
 		}
@@ -551,11 +551,6 @@ type namesakeRecordings struct {
 	namespace string
 }
 
-// recordingNameIndex indexes the recordings by their name.
-func recordingNameIndex(obj client.Object) []string {
-	return []string{obj.GetName()}
-}
-
 // otherNamespace returns the namespace of a recording with the same name in
 // another namespace, or an empty string if there is none.
 func (n *namesakeRecordings) otherNamespace(ctx context.Context) (string, error) {
@@ -565,7 +560,9 @@ func (n *namesakeRecordings) otherNamespace(ctx context.Context) (string, error)
 
 	recordings := &profilerecordingapi.ProfileRecordingList{}
 	if err := n.reader.List(
-		ctx, recordings, client.MatchingFields{recordingNameKey: n.recording.GetName()},
+		ctx,
+		recordings,
+		client.MatchingFields{recordingkinds.RecordingNameKey: n.recording.GetName()},
 	); err != nil {
 		return "", fmt.Errorf("listing profile recordings: %w", err)
 	}

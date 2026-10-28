@@ -531,7 +531,10 @@ Every time the allow lists (`allowedSyscalls` or `allowedSeccompActions`) change
 manager checks the existing profiles once for the cluster, merged with their base profiles, and deletes the ones
 which are not compliant. Profiles built on OCI base profiles, which only the daemons pull, are not deleted: the
 daemons reject them on every node and report a `ProfileNotAllowed` event instead, until the profile or the allow
-lists change.
+lists change. The manager records the allow lists it enforced in the `spo.x-k8s.io/enforced-allow-list-hash`
+annotation of the spod object, so that a restart of the operator does not delete the profiles created since then.
+The daemons reject those without deleting them. A spod object without the annotation, like one written by an earlier
+operator version, gets its allow lists enforced once.
 
 By default, the syscalls of all rules using the actions `SCMP_ACT_ALLOW`, `SCMP_ACT_LOG`, `SCMP_ACT_TRACE` and
 `SCMP_ACT_NOTIFY` are checked against the allowed list, and profiles using one of these actions as
@@ -804,7 +807,9 @@ Next to the mutating webhooks, SPO manages the `spo-validating-webhook-configura
 `ValidatingWebhookConfiguration`. Its `rawselinuxprofile-validation.spo.io` webhook
 rejects `RawSelinuxProfile` objects with CIL statements which would affect the
 whole node instead of the profile, like `class`, `role` or `typepermissive`. It uses
-the `Fail` failure policy and cannot be configured with `webhook.options`. The
+the `Fail` failure policy and cannot be configured with `webhook.options`. Its match condition
+only sends the creations and the updates which change the policy to it, so that finalizers and labels
+can still be updated while the webhook is not reachable. The
 `binding-image.spo.io` webhook of the same configuration rejects image changes of running pods
 which a profile binding matches, see [the profile bindings](profiles.md#binding-precedence-and-status). It takes the
 `webhook.options` of `binding.spo.io`, so that it selects the same namespaces and pods.

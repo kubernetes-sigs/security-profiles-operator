@@ -17,6 +17,12 @@ webhooks:
         apiGroups: ["security-profiles-operator.x-k8s.io"]
         apiVersions: ["v1"]
         resources: ["rawselinuxprofiles"]
+    matchConditions:
+      - name: create-or-policy-change
+        expression: >-
+          request.operation != 'UPDATE' ||
+          (has(object.spec) && has(object.spec.policy) ? object.spec.policy : '') !=
+          (has(oldObject.spec) && has(oldObject.spec.policy) ? oldObject.spec.policy : '')
     clientConfig:
       service:
         namespace: "security-profiles-operator"

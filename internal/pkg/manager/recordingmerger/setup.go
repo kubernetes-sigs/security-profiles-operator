@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,6 +38,7 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -61,10 +61,8 @@ func (r *PolicyMergeReconciler) Setup(
 		r.recordingReader = r.reader
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx, &profilerecordingapi.ProfileRecording{}, recordingNameKey, recordingNameIndex,
-	); err != nil {
-		return fmt.Errorf("creating profile recording name index: %w", err)
+	if err := recordingkinds.IndexRecordingNames(ctx, mgr.GetFieldIndexer()); err != nil {
+		return err
 	}
 
 	// Deleted recordings wait until the partial profiles recorded before 1.0
@@ -133,34 +131,40 @@ func blockingProfileEventsPredicate() predicate.Funcs {
 
 // recordingsBlockedBy maps a profile to the deleted recordings which wait for
 // their partial profiles to be merged and whose merged profiles it may be:
-// their names prefix its name.
+// their names prefix its name, see recordingkinds.RecordingNames.
 func (r *PolicyMergeReconciler) recordingsBlockedBy(
 	ctx context.Context, obj client.Object,
 ) []reconcile.Request {
-	recordings := &profilerecordingapi.ProfileRecordingList{}
-	if err := r.client.List(ctx, recordings); err != nil {
-		r.log.Error(err, "Cannot list recordings blocked by profile", "profile", obj.GetName())
-
-		return nil
-	}
-
 	var requests []reconcile.Request
 
-	for i := range recordings.Items {
-		recording := &recordings.Items[i]
+	for _, name := range recordingkinds.RecordingNames(obj.GetName()) {
+		recordings := &profilerecordingapi.ProfileRecordingList{}
+		if err := r.client.List(
+			ctx,
+			recordings,
+			client.MatchingFields{recordingkinds.RecordingNameKey: name},
+			client.UnsafeDisableDeepCopy,
+		); err != nil {
+			r.log.Error(err, "Cannot list recordings blocked by profile", "profile", obj.GetName())
 
-		if recording.GetDeletionTimestamp().IsZero() ||
-			!controllerutil.ContainsFinalizer(
-				recording,
-				profilerecordingapi.RecordingHasUnmergedProfiles,
-			) ||
-			!strings.HasPrefix(obj.GetName(), recording.GetName()+"-") {
-			continue
+			return nil
 		}
 
-		requests = append(requests, reconcile.Request{
-			NamespacedName: client.ObjectKeyFromObject(recording),
-		})
+		for i := range recordings.Items {
+			recording := &recordings.Items[i]
+
+			if recording.GetDeletionTimestamp().IsZero() ||
+				!controllerutil.ContainsFinalizer(
+					recording,
+					profilerecordingapi.RecordingHasUnmergedProfiles,
+				) {
+				continue
+			}
+
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(recording),
+			})
+		}
 	}
 
 	return requests

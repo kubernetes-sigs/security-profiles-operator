@@ -79,6 +79,10 @@ func (r *RecordingTrackerReconciler) Setup(
 		return fmt.Errorf("creating recording annotations index: %w", err)
 	}
 
+	if err := recordingkinds.IndexRecordingNames(ctx, mgr.GetFieldIndexer()); err != nil {
+		return err
+	}
+
 	if err := r.setupStatus(ctx, mgr, name+"-status"); err != nil {
 		return err
 	}
@@ -295,14 +299,16 @@ func profileOwnerEventsPredicate() predicate.Funcs {
 
 // listRecordings returns reconcile requests for the cached recordings which
 // pass the filter. A failing list is logged, as a map function cannot return
-// an error.
+// an error. The recordings are only read, so they are not copied.
 func (r *recordingStatusReconciler) listRecordings(
 	ctx context.Context,
 	filter func(*profilerecordingapi.ProfileRecording) bool,
 	opts ...client.ListOption,
 ) []reconcile.Request {
 	recordings := &profilerecordingapi.ProfileRecordingList{}
-	if err := r.client.List(ctx, recordings, opts...); err != nil {
+	if err := r.client.List(
+		ctx, recordings, append(opts, client.UnsafeDisableDeepCopy)...,
+	); err != nil {
 		r.log.Error(err, "Cannot list recordings")
 
 		return nil
@@ -343,14 +349,24 @@ func (r *recordingStatusReconciler) recordingsInNamespace(
 
 // recordingsWritingProfile returns a function which maps a profile of the
 // kind to reconcile requests for the recordings of the kind which may write
-// it. Their names prefix the profile name.
+// it. Their names prefix the profile name, see recordingkinds.RecordingNames.
 func (r *recordingStatusReconciler) recordingsWritingProfile(
 	kind profilerecordingapi.ProfileRecordingKind,
 ) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		return r.listRecordings(ctx, func(recording *profilerecordingapi.ProfileRecording) bool {
-			return recording.Spec.Kind == kind &&
-				strings.HasPrefix(obj.GetName(), recording.GetName()+"-")
-		})
+		names := recordingkinds.RecordingNames(obj.GetName())
+		requests := make([]reconcile.Request, 0, len(names))
+
+		for _, name := range names {
+			requests = append(requests, r.listRecordings(
+				ctx,
+				func(recording *profilerecordingapi.ProfileRecording) bool {
+					return recording.Spec.Kind == kind
+				},
+				client.MatchingFields{recordingkinds.RecordingNameKey: name},
+			)...)
+		}
+
+		return requests
 	}
 }

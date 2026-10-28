@@ -669,30 +669,9 @@ func TestTrackPodDeletedRecording(t *testing.T) {
 	require.True(t, apierrors.IsNotFound(err))
 }
 
-// hookReader calls afterGet after every uncached read with the number of the
-// read.
-type hookReader struct {
-	client.Reader
-
-	reads    *int
-	afterGet func(n int)
-}
-
-func (h hookReader) Get(
-	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
-) error {
-	*h.reads++
-
-	err := h.Reader.Get(ctx, key, obj, opts...)
-
-	h.afterGet(*h.reads)
-
-	return err
-}
-
 // A pod which another reconcile tracks while the last tracked pod gets
 // untracked keeps the finalizer in place. The removal of the finalizer is
-// written for the recording as read, so it conflicts with the concurrent
+// written for the recording as written last, so it conflicts with the concurrent
 // status update, and the retry sees the new pod.
 func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 	t.Parallel()
@@ -701,33 +680,43 @@ func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 	recording.Finalizers = []string{finalizer}
 	recording.Status.ActiveWorkloads = []string{"deleted-pod"}
 
+	concurrentWrite := false
+
 	c := fake.NewClientBuilder().
 		WithScheme(utiltest.NewScheme(t)).
 		WithStatusSubresource(recording).
 		WithObjects(recording).
 		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		WithInterceptorFuncs(interceptor.Funcs{
+			// Another reconcile tracks a pod right before the finalizer
+			// gets removed.
+			Update: func(
+				ctx context.Context, cl client.WithWatch, obj client.Object,
+				opts ...client.UpdateOption,
+			) error {
+				if !concurrentWrite {
+					concurrentWrite = true
+
+					concurrent := &profilerecordingapi.ProfileRecording{}
+					require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(obj), concurrent))
+					concurrent.Status.ActiveWorkloads = append(
+						concurrent.Status.ActiveWorkloads, "new-pod",
+					)
+					require.NoError(t, cl.Status().Update(ctx, concurrent))
+				}
+
+				return cl.Update(ctx, obj, opts...)
+			},
+		}).
 		Build()
 
-	reads := 0
 	r := newReconciler(c)
-	r.reader = hookReader{Reader: c, reads: &reads, afterGet: func(n int) {
-		// The status gets written as cached, the first read checks whether
-		// the finalizer can go.
-		if n != 1 {
-			return
-		}
-
-		concurrent := &profilerecordingapi.ProfileRecording{}
-		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), concurrent))
-		concurrent.Status.ActiveWorkloads = append(concurrent.Status.ActiveWorkloads, "new-pod")
-		require.NoError(t, c.Status().Update(t.Context(), concurrent))
-	}}
 
 	_, err := r.Reconcile(t.Context(), reconcile.Request{
 		NamespacedName: client.ObjectKey{Namespace: "default", Name: "deleted-pod"},
 	})
 	require.NoError(t, err)
-	require.Greater(t, reads, 1, "the finalizer removal got retried")
+	require.True(t, concurrentWrite)
 
 	updated := &profilerecordingapi.ProfileRecording{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))

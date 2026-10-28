@@ -17,6 +17,7 @@ limitations under the License.
 package common
 
 import (
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -29,9 +30,7 @@ func (s *ConditionedStatus) SetConditionForGeneration(c *metav1.Condition, gener
 	condition.ObservedGeneration = generation
 	s.SetConditions(condition)
 
-	for i := range s.Conditions {
-		if s.Conditions[i].Type == c.Type {
-			s.Conditions[i].ObservedGeneration = generation
-		}
+	if existing := meta.FindStatusCondition(s.Conditions, c.Type); existing != nil {
+		existing.ObservedGeneration = generation
 	}
 }

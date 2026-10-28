@@ -43,14 +43,13 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
+func Test_getEffectiveSPOd(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
-		dt                  daemonTunables
-		nsIsSet             bool
-		jsonEnricherOptsSet bool
+		name    string
+		dt      daemonTunables
+		nsIsSet bool
 	}{
 		{
 			name: "Should correctly set the image",
@@ -63,19 +62,6 @@ func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
 				watchNamespace: "watch-ns",
 			},
 			nsIsSet: true,
-		},
-		{
-			name: "Should correctly set the json Enricher volume correctly",
-			dt: daemonTunables{
-				selinuxdImage:                  "foo:bar",
-				jsonEnricherLogVolumeMountPath: "/var/log",
-				jsonEnricherLogVolumeSource: &corev1.VolumeSource{
-					HostPath: &corev1.HostPathVolumeSource{
-						Path: "/tmp/audit.log",
-					},
-				},
-			},
-			jsonEnricherOptsSet: true,
 		},
 	}
 	for _, tt := range tests {
@@ -106,20 +92,6 @@ func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
 				require.Equal(t, tt.dt.watchNamespace, env[idx].Value)
 			} else {
 				require.Equal(t, -1, idx)
-			}
-
-			jsonEnricher := podSpec.Containers[bindata.ContainerIDJsonEnricher]
-			mountIdx := slices.IndexFunc(
-				jsonEnricher.VolumeMounts,
-				func(m corev1.VolumeMount) bool {
-					return m.MountPath == tt.dt.jsonEnricherLogVolumeMountPath
-				},
-			)
-
-			if tt.jsonEnricherOptsSet {
-				require.GreaterOrEqual(t, mountIdx, 0)
-			} else {
-				require.Equal(t, -1, mountIdx)
 			}
 		})
 	}
@@ -235,11 +207,10 @@ func Test_getTunables(t *testing.T) {
 	mapping := `[{"regex":"Red Hat Enterprise Linux CoreOS 9","imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"}]`
 
 	for name, tc := range map[string]struct {
-		data       map[string]string
-		getErr     error
-		maxSeries  string
-		wantErr    bool
-		wantVolume bool
+		data      map[string]string
+		getErr    error
+		maxSeries string
+		wantErr   bool
 	}{
 		"without log volume": {data: map[string]string{util.SelinuxdImageMappingKey: mapping}},
 		"with log volume": {
@@ -248,14 +219,14 @@ func Test_getTunables(t *testing.T) {
 				util.JsonEnricherLogVolumeSourceJson: string(logVolume),
 				util.JsonEnricherLogVolumeMountPath:  "/logs",
 			},
-			wantVolume: true,
 		},
+		// Every reconcile reads the log volume, which reports an invalid
+		// one in the SPOD status, so it must not stop the operator.
 		"invalid log volume": {
 			data: map[string]string{
 				util.SelinuxdImageMappingKey:         mapping,
 				util.JsonEnricherLogVolumeSourceJson: "{",
 			},
-			wantErr: true,
 		},
 		"API error": {getErr: errTest, wantErr: true},
 		"invalid metric series": {
@@ -298,13 +269,6 @@ func Test_getTunables(t *testing.T) {
 			require.Equal(t, "watched", dt.watchNamespace)
 			require.Equal(t, "100", dt.maxMetricSeries)
 			require.Equal(t, "selinuxd:el9", dt.selinuxdImage)
-
-			if tc.wantVolume {
-				require.NotNil(t, dt.jsonEnricherLogVolumeSource)
-				require.Equal(t, "/logs", dt.jsonEnricherLogVolumeMountPath)
-			} else {
-				require.Nil(t, dt.jsonEnricherLogVolumeSource)
-			}
 		})
 	}
 }

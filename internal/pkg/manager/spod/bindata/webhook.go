@@ -118,6 +118,19 @@ var (
 				"o.name == c.name && o.image != c.image)))",
 		},
 	}
+	// The raw SELinux profile validation allows every update which keeps the
+	// policy, like the ones of the finalizers and labels which the daemons
+	// and the manager set. The match condition keeps the fail closed webhook
+	// off them, so that profiles can still be installed and deleted while it
+	// is not reachable.
+	rawSelinuxProfileMatchConditions = []admissionregv1.MatchCondition{
+		{
+			Name: "create-or-policy-change",
+			Expression: "request.operation != 'UPDATE' || " +
+				"(has(object.spec) && has(object.spec.policy) ? object.spec.policy : '') != " +
+				"(has(oldObject.spec) && has(oldObject.spec.policy) ? oldObject.spec.policy : '')",
+		},
+	}
 	recordingRules = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
@@ -1463,6 +1476,7 @@ func getValidatingWebhookConfig(
 						},
 					},
 				},
+				MatchConditions: rawSelinuxProfileMatchConditions,
 				ClientConfig: admissionregv1.WebhookClientConfig{
 					CABundle: caBundle,
 					Service: &admissionregv1.ServiceReference{

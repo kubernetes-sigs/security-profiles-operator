@@ -18,6 +18,7 @@ package spod
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -234,6 +235,226 @@ func TestReconcileAllowListDeleteErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func enforcedAllowList(t *testing.T, cl client.Client) (string, bool) {
+	t.Helper()
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: config.SPOdName, Namespace: testNamespace,
+	}, spod))
+
+	hash, ok := spod.GetAnnotations()[enforcedAllowListAnnotation]
+
+	return hash, ok
+}
+
+// The SPOD passes the predicate again whenever the manager starts, which must
+// not delete the profiles that got created after the allow lists were
+// enforced, because the daemons only reject those.
+func TestReconcileAllowListEnforcesOnce(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Spec.Security.AllowedSyscalls = []string{"read"}
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{},
+		allowListProfile("forbidden", "", "read", "write"))
+
+	require.NoError(t, reconcileAllowList(t, r))
+	require.Empty(t, remainingProfiles(t, cl))
+
+	hash, ok := enforcedAllowList(t, cl)
+	require.True(t, ok)
+	require.Equal(t, allowListHash(&spod.Spec.Security), hash)
+
+	require.NoError(t, cl.Create(t.Context(), allowListProfile("created-later", "", "write")))
+	require.NoError(t, reconcileAllowList(t, r))
+	require.Equal(t, []string{"created-later"}, remainingProfiles(t, cl))
+
+	// Removing the allow lists removes the hash, so that setting the same
+	// allow lists again enforces them again.
+	current := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(spod), current))
+	current.Spec.Security.AllowedSyscalls = nil
+	require.NoError(t, cl.Update(t.Context(), current))
+	require.NoError(t, reconcileAllowList(t, r))
+
+	_, ok = enforcedAllowList(t, cl)
+	require.False(t, ok)
+
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(spod), current))
+	current.Spec.Security.AllowedSyscalls = []string{"read"}
+	require.NoError(t, cl.Update(t.Context(), current))
+	require.NoError(t, reconcileAllowList(t, r))
+	require.Empty(t, remainingProfiles(t, cl))
+}
+
+func TestReconcileAllowListNotEnforced(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		security spodapi.SPODSecurityConfig
+		funcs    *interceptor.Funcs
+	}{
+		{
+			name: "invalid action",
+			security: spodapi.SPODSecurityConfig{
+				AllowedSyscalls:       []string{"read"},
+				AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActErrno},
+			},
+			funcs: &interceptor.Funcs{},
+		},
+		{
+			name:     "failing deletion",
+			security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+			funcs: &interceptor.Funcs{
+				Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+					return errTest
+				},
+			},
+		},
+	} {
+		for _, previous := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/previous=%v", tc.name, previous), func(t *testing.T) {
+				t.Parallel()
+
+				spod := testSPOD()
+				spod.Spec.Security = tc.security
+
+				// The hash of other allow lists which were enforced before
+				// must not stay.
+				if previous {
+					spod.Annotations = map[string]string{
+						enforcedAllowListAnnotation: allowListHash(&spodapi.SPODSecurityConfig{
+							AllowedSyscalls: []string{"write"},
+						}),
+					}
+				}
+
+				r, cl, _ := newReconcileTest(t, spod, tc.funcs,
+					allowListProfile("forbidden", "", "read", "write"))
+
+				//nolint:errcheck // only the missing hash matters
+				reconcileAllowList(t, r)
+
+				_, ok := enforcedAllowList(t, cl)
+				require.False(t, ok)
+			})
+		}
+	}
+}
+
+// Allow lists which get changed without being enforced, and then changed
+// back, get enforced again.
+func TestReconcileAllowListRevertedChange(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Spec.Security.AllowedSyscalls = []string{"read"}
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+	require.NoError(t, reconcileAllowList(t, r))
+
+	_, ok := enforcedAllowList(t, cl)
+	require.True(t, ok)
+
+	update := func(security spodapi.SPODSecurityConfig) {
+		t.Helper()
+
+		current := &spodapi.SecurityProfilesOperatorDaemon{}
+		require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(spod), current))
+		current.Spec.Security = security
+		require.NoError(t, cl.Update(t.Context(), current))
+		require.NoError(t, reconcileAllowList(t, r))
+	}
+
+	update(spodapi.SPODSecurityConfig{
+		AllowedSyscalls:       []string{"read"},
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActErrno},
+	})
+
+	require.NoError(t, cl.Create(t.Context(), allowListProfile("created-later", "", "write")))
+
+	update(spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}})
+	require.Empty(t, remainingProfiles(t, cl))
+}
+
+// The allow lists which get enforced are the ones the hash is computed of,
+// also if they change while the hash of the ones enforced before gets
+// removed, which reads the SPOD back.
+func TestReconcileAllowListChangedDuringReconcile(t *testing.T) {
+	t.Parallel()
+
+	allowed := []string{"read"}
+
+	spod := testSPOD()
+	spod.Spec.Security.AllowedSyscalls = allowed
+	spod.Annotations = map[string]string{
+		enforcedAllowListAnnotation: allowListHash(&spodapi.SPODSecurityConfig{
+			AllowedSyscalls: []string{"exit"},
+		}),
+	}
+
+	patched := false
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{
+		Patch: func(
+			ctx context.Context, c client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			if !patched {
+				patched = true
+
+				current := &spodapi.SecurityProfilesOperatorDaemon{}
+				require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(obj), current))
+				current.Spec.Security.AllowedSyscalls = []string{"read", "write"}
+				require.NoError(t, c.Update(ctx, current))
+			}
+
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}, allowListProfile("forbidden", "", "read", "write"))
+
+	require.NoError(t, reconcileAllowList(t, r))
+	require.True(t, patched)
+
+	// The change gets reverted before its own reconcile.
+	current := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(spod), current))
+	current.Spec.Security.AllowedSyscalls = allowed
+	require.NoError(t, cl.Update(t.Context(), current))
+	require.NoError(t, reconcileAllowList(t, r))
+
+	require.Empty(t, remainingProfiles(t, cl))
+}
+
+func TestAllowListHash(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, allowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
+	}))
+
+	hash := allowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls:       []string{"read", "write"},
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
+	})
+	require.NotEmpty(t, hash)
+	require.Equal(t, hash, allowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls: []string{"write", "read", "read"},
+		AllowedSeccompActions: []seccompprofileapi.Action{
+			seccompprofileapi.ActLog, seccompprofileapi.ActLog,
+		},
+	}))
+	require.NotEqual(t, hash, allowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls: []string{"read", "write"},
+	}))
+	require.NotEqual(t, hash, allowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls:       []string{"read"},
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
+	}))
 }
 
 func TestRejectedByAllowLists(t *testing.T) {

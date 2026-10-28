@@ -543,6 +543,68 @@ func TestTrackAddsFinalizerWithoutReadingAgain(t *testing.T) {
 	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
 }
 
+// The finalizer gets removed from the object which got written, without
+// reading it again. A conflict of the removal reads it from the API server.
+func TestUntrackRemovesFinalizerWithoutReadingAgain(t *testing.T) {
+	t.Parallel()
+
+	for _, conflict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("conflict=%v", conflict), func(t *testing.T) {
+			t.Parallel()
+
+			pb := testBinding()
+			pb.Finalizers = []string{testFinalizer}
+			pb.Status.ActiveWorkloads = []string{"pod-a", "pod-b"}
+
+			conflicted := false
+			sut, c := newTracker(t, &interceptor.Funcs{
+				Update: func(
+					ctx context.Context, cl client.WithWatch, obj client.Object,
+					opts ...client.UpdateOption,
+				) error {
+					if conflict && !conflicted {
+						conflicted = true
+
+						return kerrors.NewConflict(schema.GroupResource{}, obj.GetName(), errTest)
+					}
+
+					return cl.Update(ctx, obj, opts...)
+				},
+			}, pb)
+
+			apiReads := 0
+			sut.Reader = fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(
+						ctx context.Context, _ client.WithWatch, key client.ObjectKey,
+						obj client.Object, opts ...client.GetOption,
+					) error {
+						apiReads++
+
+						return c.Get(ctx, key, obj, opts...)
+					},
+				}).
+				Build()
+
+			require.NoError(t, sut.Untrack(t.Context(), stored(t, c), "pod-a"))
+			require.Zero(t, apiReads)
+			require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
+
+			require.NoError(t, sut.Untrack(t.Context(), stored(t, c), "pod-b"))
+			require.Empty(t, stored(t, c).Status.ActiveWorkloads)
+			require.Empty(t, stored(t, c).Finalizers)
+			require.Equal(t, conflict, conflicted)
+
+			if conflict {
+				require.Equal(t, 1, apiReads)
+			} else {
+				require.Zero(t, apiReads)
+			}
+		})
+	}
+}
+
 // A conflict of the finalizer patch reads the object from the API server and
 // adds the finalizer to it.
 func TestTrackAddsFinalizerAfterConflict(t *testing.T) {

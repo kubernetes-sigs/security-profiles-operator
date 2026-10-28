@@ -19,6 +19,10 @@ limitations under the License.
 package recordingkinds
 
 import (
+	"context"
+	"fmt"
+	"sync"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -66,4 +70,61 @@ func Of(kind profilerecordingapi.ProfileRecordingKind) (Kind, bool) {
 	}
 
 	return Kind{}, false
+}
+
+// RecordingNames returns the names which a recording that recorded the
+// profile may have: the recorded profiles are named after the recording,
+// followed by a dash and the container, see util.RecordedProfileName. A
+// recording name ends in front of any of the dashes of the profile name.
+func RecordingNames(profileName string) []string {
+	var names []string
+
+	for i := range len(profileName) {
+		if profileName[i] == '-' && i > 0 {
+			names = append(names, profileName[:i])
+		}
+	}
+
+	return names
+}
+
+// RecordingNameKey indexes the recordings by their name, see
+// IndexRecordingNames. The API server supports it as field selector as well.
+const RecordingNameKey = "metadata.name"
+
+// RecordingNameIndex indexes the recordings by their name.
+func RecordingNameIndex(obj client.Object) []string {
+	return []string{obj.GetName()}
+}
+
+var (
+	recordingNamesIndexedMu sync.Mutex
+	// recordingNamesIndexed holds the indexers which have the
+	// RecordingNameKey index, the caches of the managers are pointers.
+	recordingNamesIndexed = map[client.FieldIndexer]bool{}
+)
+
+// IndexRecordingNames adds the RecordingNameKey index of the recordings to
+// the indexer, unless it has it already. The recording merger and the
+// recording tracker both use it and can be enabled independently, while an
+// informer rejects an index which it has already. That error has no type to
+// tell it apart, and the informers of a cache restricted to namespaces do not
+// expose their indexers, so the indexers which got the index are recorded.
+func IndexRecordingNames(ctx context.Context, indexer client.FieldIndexer) error {
+	recordingNamesIndexedMu.Lock()
+	defer recordingNamesIndexedMu.Unlock()
+
+	if recordingNamesIndexed[indexer] {
+		return nil
+	}
+
+	if err := indexer.IndexField(
+		ctx, &profilerecordingapi.ProfileRecording{}, RecordingNameKey, RecordingNameIndex,
+	); err != nil {
+		return fmt.Errorf("creating profile recording name index: %w", err)
+	}
+
+	recordingNamesIndexed[indexer] = true
+
+	return nil
 }

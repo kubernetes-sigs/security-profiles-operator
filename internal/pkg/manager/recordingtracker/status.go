@@ -436,13 +436,14 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 	}
 
 	// The partial profiles get merged into the profile of their container,
-	// also if the merge strategy changed since.
+	// also if the merge strategy changed since. Only their labels are read,
+	// so they are not copied.
 	partials := kind.NewList()
 	if err := r.client.List(ctx, partials, client.MatchingLabels{
 		profilerecordingapi.ProfileToRecordingLabel:          recording.GetName(),
 		profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.GetNamespace(),
 		profilebase.ProfilePartialLabel:                      "true",
-	}); err != nil {
+	}, client.UnsafeDisableDeepCopy); err != nil {
 		return nil, fmt.Errorf("listing partial profiles: %w", err)
 	}
 
