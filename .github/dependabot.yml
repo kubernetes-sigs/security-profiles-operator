@@ -44,10 +44,12 @@ updates:
     - "/"
     - "/.github/actions/e2e-vm"
     - "/.github/actions/e2e-vm-artifacts"
+    - "/.github/actions/e2e-vm-image"
     - "/.github/actions/scan-image"
     - "/.github/actions/setup-go-build"
     - "/.github/actions/setup-nix"
     - "/.github/actions/setup-vagrant"
+    - "/.github/actions/wait-for-artifact"
   schedule:
     interval: daily
   cooldown:

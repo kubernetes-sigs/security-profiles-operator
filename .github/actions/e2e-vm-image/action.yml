@@ -1,0 +1,26 @@
+name: Load the operator image into an e2e VM
+description: >-
+  Wait until the image job of the workflow run uploaded the operator image,
+  download it and load it into the Vagrant VM of an e2e job, which the e2e-vm
+  action booted. The job needs the actions: read permission, see the
+  wait-for-artifact action.
+inputs:
+  vm:
+    description: The VM, "fedora", "debian" or "flatcar"
+    required: true
+runs:
+  using: composite
+  steps:
+    # Outside of the workspace, which the shared folder of the Debian VM
+    # would sync into it.
+    - uses: ./.github/actions/wait-for-artifact
+      with:
+        name: image
+        job: image
+        step: Upload the image
+        path: ${{ runner.temp }}/image
+    - name: Load the image into the VM
+      shell: bash
+      env:
+        VM: ${{ inputs.vm }}
+      run: hack/ci/load-vm-image.sh "$VM" "$RUNNER_TEMP/image/image.tar"

@@ -19,6 +19,7 @@ presumed and PRs are always welcome.
   - [Distribution specific instructions: OpenShift](#distribution-specific-instructions-openshift)
   - [Tearing down your test environment](#tearing-down-your-test-environment)
 - [Running e2e tests](#running-e2e-tests)
+  - [Sharding the test cases](#sharding-the-test-cases)
   - [Quarantined test cases](#quarantined-test-cases)
   - [Failure diagnostics](#failure-diagnostics)
   - [Running the Ubuntu e2e tests on kubernix](#running-the-ubuntu-e2e-tests-on-kubernix)
@@ -523,7 +524,8 @@ the suite are documented next to their definition in
 | Variable                    | Default                            | Description                                                                                                                                                                                                                                                                                                                              |
 | --------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `E2E_CLUSTER_TYPE`          | `kind`                             | The cluster driver: `kind` creates a kind cluster per test, `vanilla` uses the cluster of the current context, like the Fedora, Flatcar and Ubuntu CI jobs, `openshift` a Red Hat OpenShift cluster.                                                                                                                                     |
-| `E2E_SPO_IMAGE`             | per driver                         | The operator image to test. `kind` builds and loads it under this name, `vanilla` deploys it as is, `openshift` skips pushing an image when set.                                                                                                                                                                                         |
+| `E2E_SPO_IMAGE`             | per driver                         | The operator image to test. `kind` builds and loads it under this name, unless `E2E_SPO_IMAGE_ARCHIVE` is set, `vanilla` deploys it as is, `openshift` skips pushing an image when set.                                                                                                                                                  |
+| `E2E_SPO_IMAGE_ARCHIVE`     | none                               | `kind` only: an archive of the operator image, like `podman save` writes it, to load instead of building the image. `E2E_SPO_IMAGE` has to name the image in it.                                                                                                                                                                         |
 | `E2E_SKIP_BUILD_IMAGES`     | `false`                            | OpenShift only: push the image without building it first.                                                                                                                                                                                                                                                                                |
 | `E2E_SELINUXD_IMAGE`        | `RELATED_IMAGE_SELINUXD`           | The selinuxd image to deploy for all node operating systems. `kind` and `vanilla` default to the `RELATED_IMAGE_SELINUXD` image of the operator manifest, `openshift` keeps the images the operator selects per operating system. With `E2E_TEST_SELINUX` on `kind`, it has to be a tagged image, `kind` cannot load one by digest only. |
 | `E2E_SPOD_CONFIG`           | none                               | A SPOD manifest which gets applied after deploying the operator, like `test/flatcar-spod-config.yaml`.                                                                                                                                                                                                                                   |
@@ -538,6 +540,7 @@ the suite are documented next to their definition in
 | `E2E_TEST_WEBHOOK_CONFIG`   | `true`                             | Run the webhook configuration test cases.                                                                                                                                                                                                                                                                                                |
 | `E2E_TEST_WEBHOOK_HTTP`     | `true`                             | Run the webhook HTTP version test case.                                                                                                                                                                                                                                                                                                  |
 | `E2E_TEST_METRICS_HTTP`     | `true`                             | Run the metrics HTTP version test case.                                                                                                                                                                                                                                                                                                  |
+| `E2E_SHARD`                 | none                               | Only run the shard `INDEX/TOTAL` of the test cases, the index starting at 1, see [sharding the test cases](#sharding-the-test-cases).                                                                                                                                                                                                    |
 | `E2E_ARTIFACTS_DIR`         | none                               | Write the [diagnostics of failed tests](#failure-diagnostics) to a directory per test below it instead of logging them.                                                                                                                                                                                                                  |
 | `CONTAINER_RUNTIME`         | `podman` if found, else `docker`   | The container runtime of the host, detected by the `Makefile`.                                                                                                                                                                                                                                                                           |
 | `NODE_ROOTFS_PREFIX`        | none                               | The prefix of the node root filesystem, when commands reach the node through a chroot.                                                                                                                                                                                                                                                   |
@@ -549,9 +552,27 @@ the suite are documented next to their definition in
 | `E2E_TEST_FLAKY_TESTS_ONLY` | `false`                            | CI scripts in `hack/ci`: run `make test-flaky-e2e` instead of `make test-e2e`.                                                                                                                                                                                                                                                           |
 | `E2E_FEDORA_SUITE`          | `enricher`                         | `hack/ci/e2e-fedora.sh`: the test cases of the Fedora job, `enricher` or `selinux`.                                                                                                                                                                                                                                                      |
 | `E2E_SPOC_REQUIRE_BPF_LSM`  | `false`                            | `test/spoc`: fail the spoc AppArmor recording tests instead of skipping them without the BPF LSM.                                                                                                                                                                                                                                        |
+| `VAGRANT_BUILD_IMAGE`       | `true`                             | `Makefile`: build `image.tar` before booting a test VM if it is missing. CI boots the VMs without it and loads the image later, see `hack/ci/load-vm-image.sh`.                                                                                                                                                                          |
 
 The suite deploys copies of the manifests below `build/e2e-manifests`, the
 tracked manifests stay untouched.
+
+### Sharding the test cases
+
+The slow CI jobs split the test cases between parallel jobs, each running one
+shard of them selected by `E2E_SHARD`, like `E2E_SHARD=2/3`. The quarantined
+and the other test cases get split separately, by their duration in CI, which
+`testCaseCosts` in [shard_cases_test.go](../test/shard_cases_test.go) lists
+together with the switches each test case needs. The test cases which skip
+themselves without their switches, or which `E2E_TEST_SKIP` leaves out, count
+as nothing. The shards do not depend on `-test.run`, so that the retry of a
+failed test case by `make test-flaky-e2e` runs in the shard which failed it.
+Every test case runs in exactly one shard, so a cost which is off only makes
+the shards less balanced. `TestShardCosts` fails for a test case without a
+cost, `go test -tags e2e -run TestShardCosts ./test` runs it in milliseconds
+without a cluster. Update the costs when test cases get much slower or faster.
+A shard without test cases skips the suite method, so it neither starts a
+cluster nor deploys the operator.
 
 ### Quarantined test cases
 
@@ -596,7 +617,8 @@ quarantined, ideally with a link to the issue which tracks it.
 
 To quarantine a flaky test case, set `flaky: true` and its `issue`. To promote
 it, remove both again. New test cases start quarantined until they pass
-reliably in CI.
+reliably in CI, and need an entry in `testCaseCosts`, see
+[sharding the test cases](#sharding-the-test-cases).
 
 ### Failure diagnostics
 

@@ -23,7 +23,10 @@ and [doc/hacking.md](doc/hacking.md).
   packages you changed. Do not run the e2e suite, `make verify` or the full
   linter unless asked to: they need a cluster or take a long time.
 - The e2e tests only build with the `e2e` build tag. New e2e test cases start
-  quarantined with `flaky: true`, see doc/hacking.md.
+  quarantined with `flaky: true` and need an entry in `testCaseCosts` in
+  `test/shard_cases_test.go`, which
+  `go test -tags e2e -run TestShardCosts ./test` checks in milliseconds, see
+  doc/hacking.md.
 
 ## Generated files
 
