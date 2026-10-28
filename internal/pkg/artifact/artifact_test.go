@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -71,6 +72,7 @@ func TestPushDisableSigning(t *testing.T) {
 	mock.ParseReferenceReturns(testRef, nil)
 	mock.NewRepositoryReturns(&remote.Repository{}, nil)
 	// Signing would fail if it ran at all.
+	mock.CheckKeylessSignerReturns(ErrNoKeylessSigner)
 	mock.SigningConfigReturns(nil, errTest)
 
 	sut := New(logr.Discard())
@@ -89,7 +91,7 @@ func TestPushDisableSigning(t *testing.T) {
 	))
 	require.Zero(t, mock.SigningConfigCallCount())
 	require.Zero(t, mock.IDTokenCallCount())
-	require.Zero(t, mock.SignBundleCallCount())
+	require.Zero(t, mock.DSSESignerCallCount())
 }
 
 // A digest is the result of a push, it cannot be pushed to like a tag.
@@ -168,11 +170,11 @@ func TestPush(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on SignBundle",
+			name: "failure on signing",
 			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.SignBundleReturns(nil, errTest)
+				stubDSSESigner(mock, nil, errTest)
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
@@ -1664,14 +1666,38 @@ func stubSignature(mock *artifactfakes.FakeImpl) {
 	}
 }
 
+// dsseSigner is a fake of the function which signs DSSE payloads.
+type dsseSigner struct {
+	bundle *protobundle.Bundle
+	err    error
+	calls  atomic.Int32
+}
+
+func (s *dsseSigner) sign(context.Context, []byte, string) (*protobundle.Bundle, error) {
+	s.calls.Add(1)
+
+	return s.bundle, s.err
+}
+
+// stubDSSESigner makes signing return the bundle and the error.
+func stubDSSESigner(
+	mock *artifactfakes.FakeImpl, bundle *protobundle.Bundle, err error,
+) *dsseSigner {
+	signer := &dsseSigner{bundle: bundle, err: err}
+	mock.DSSESignerReturns(signer.sign, nil)
+
+	return signer
+}
+
 // stubSigning makes signing succeed.
-func stubSigning(t *testing.T, mock *artifactfakes.FakeImpl) {
+func stubSigning(t *testing.T, mock *artifactfakes.FakeImpl) *dsseSigner {
 	t.Helper()
 
 	mock.CopyReturns(testSubject(), nil)
 	mock.SigningConfigReturns(testSigningConfig(t), nil)
 	mock.IDTokenReturns("token", nil)
-	mock.SignBundleReturns(&protobundle.Bundle{}, nil)
+
+	return stubDSSESigner(mock, &protobundle.Bundle{}, nil)
 }
 
 // TestPushConfigBlob verifies that the config blob of a runtime format
@@ -2055,7 +2081,7 @@ func TestRegistryOptions(t *testing.T) {
 		repo := &remote.Repository{}
 
 		mock := &artifactfakes.FakeImpl{}
-		stubSigning(t, mock)
+		signer := stubSigning(t, mock)
 		mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
 		mock.ParseReferenceReturns(testRef, nil)
 		mock.NewRepositoryReturns(repo, nil)
@@ -2069,7 +2095,7 @@ func TestRegistryOptions(t *testing.T) {
 			"", "user", "secret", nil, &PushOptions{PlainHTTP: true},
 		)
 		require.NoError(t, err)
-		require.Equal(t, 1, mock.SignBundleCallCount())
+		require.EqualValues(t, 1, signer.calls.Load())
 
 		// The bundle and its referrer manifest go to the pushed repository.
 		require.Equal(t, 1, mock.RepositoryPushCallCount())

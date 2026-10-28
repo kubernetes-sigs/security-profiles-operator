@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -34,6 +35,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,8 +43,6 @@ import (
 	"github.com/stretchr/testify/suite"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2/textlogger"
-	"sigs.k8s.io/release-utils/command"
-	"sigs.k8s.io/release-utils/helpers"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -400,7 +400,7 @@ func TestSuite(t *testing.T) {
 // SetupSuite downloads kind and searches for kubectl in $PATH.
 func (e *kinde2e) SetupSuite() {
 	e.logf("Setting up suite")
-	command.SetGlobalVerbose(true)
+	verboseCommands.Store(true)
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeKind
 	e.nodeCommand = e.nodeCommandKind
@@ -565,7 +565,7 @@ func (e *openShifte2e) SetupSuite() {
 	var err error
 
 	e.logf("Setting up suite")
-	command.SetGlobalVerbose(true)
+	verboseCommands.Store(true)
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeOCP
 	e.nodeCommand = e.nodeCommandOCP
@@ -706,7 +706,7 @@ func (e *vanilla) SetupSuite() {
 	e.execNode = e.execNodeVanilla
 	e.nodeCommand = e.nodeCommandVanilla
 	// The container log files belong to root.
-	e.nodeSudo = os.Geteuid() != 0 && command.New("sudo", "-n", "true").RunSilentSuccess() == nil
+	e.nodeSudo = os.Geteuid() != 0 && sudoWorks()
 	e.readNodeLogFiles = os.Geteuid() == 0 || e.nodeSudo
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.waitForReadyPods = e.waitForReadyPodsVanilla
@@ -794,25 +794,102 @@ func (e *e2e) run(cmd string, args ...string) string {
 }
 
 func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
-	return commandOutput(command.New(cmd, args...).RunSuccessOutput())
+	return runCommandSuccess(true, cmd, args...)
 }
 
 // runSilentCommand is runCommand without printing the output, for the
 // commands whose output is large, like logs, or which go to the diagnostics.
 func (e *e2e) runSilentCommand(cmd string, args ...string) (string, error) {
-	return commandOutput(command.New(cmd, args...).RunSilentSuccessOutput())
+	return runCommandSuccess(false, cmd, args...)
 }
 
-func commandOutput(output *command.Stream, err error) (string, error) {
+// verboseCommands prints every command before it runs.
+var verboseCommands atomic.Bool
+
+// commandStatus is the result of a command which ran to its end. As an error,
+// it is the error output of a command which failed.
+//
+//nolint:errname // the result of every command, an error only for the failed ones
+type commandStatus struct {
+	exitCode int
+	stdout   string
+	stderr   string
+}
+
+func (s *commandStatus) Error() string {
+	return s.stderr
+}
+
+func (s *commandStatus) ExitCode() int {
+	return s.exitCode
+}
+
+func (s *commandStatus) Success() bool {
+	return s.exitCode == 0
+}
+
+func (s *commandStatus) OutputTrimNL() string {
+	return strings.TrimSpace(s.stdout)
+}
+
+// runCommandStatus runs the command and copies its output to the one of the
+// test if printOutput is set. The error is only set if the command could not
+// run, the status has the exit code otherwise.
+func runCommandStatus(printOutput bool, name string, args ...string) (*commandStatus, error) {
+	//nolint:noctx // the commands of the tests, which run until they end
+	cmd := exec.Command(name, args...)
+	if verboseCommands.Load() {
+		fmt.Fprintf(os.Stderr, "+ %s\n", cmd)
+	}
+
+	var stdout, stderr strings.Builder
+
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if printOutput {
+		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	}
+
+	err := cmd.Run()
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		return &commandStatus{
+			exitCode: exitErr.ExitCode(),
+			stdout:   stdout.String(),
+			stderr:   stderr.String(),
+		}, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &commandStatus{stdout: stdout.String(), stderr: stderr.String()}, nil
+}
+
+// runCommandSuccess runs the command like runCommandStatus and returns its
+// output without the surrounding white space. A failed command returns its
+// status as the error.
+func runCommandSuccess(printOutput bool, name string, args ...string) (string, error) {
+	status, err := runCommandStatus(printOutput, name, args...)
 	if err != nil {
 		return "", err
 	}
 
-	if output != nil {
-		return output.OutputTrimNL(), nil
+	if !status.Success() {
+		return "", fmt.Errorf("command %s %s did not succeed: %w",
+			name, strings.Join(args, " "), status)
 	}
 
-	return "", nil
+	return status.OutputTrimNL(), nil
+}
+
+// sudoWorks returns true if sudo runs commands without asking for a password.
+func sudoWorks() bool {
+	_, err := runCommandSuccess(false, "sudo", "-n", "true")
+
+	return err == nil
 }
 
 // downloadAndVerify downloads the binary unless one with the checksum is
@@ -820,7 +897,7 @@ func commandOutput(output *command.Stream, err error) (string, error) {
 // the binary of an older version, gets downloaded again. The test stops if the
 // download does not match the checksum either.
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512Sum string) {
-	if helpers.Exists(binaryPath) {
+	if _, err := os.Stat(binaryPath); !errors.Is(err, os.ErrNotExist) {
 		if e.hasSHA512(binaryPath, sha512Sum) {
 			// A run which got stopped right after the download left it
 			// without the exec bit.

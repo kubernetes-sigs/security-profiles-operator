@@ -24,7 +24,6 @@ import (
 	"os"
 	"reflect"
 
-	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -104,8 +103,6 @@ func (p *Merger) Run() error {
 		return fmt.Errorf("normalize merged profile: %w", err)
 	}
 
-	printer := printers.YAMLPrinter{}
-
 	if p.options.check {
 		if reflect.DeepEqual(baseProfile, merged) {
 			log.Println("Base profile is up-to-date.")
@@ -115,7 +112,7 @@ func (p *Merger) Run() error {
 
 		log.Println("Base profile needs an update.")
 
-		if err := printer.PrintObj(merged, os.Stderr); err != nil {
+		if err := cli.PrintYAML(merged, os.Stderr); err != nil {
 			return fmt.Errorf("print YAML: %w", err)
 		}
 
@@ -123,7 +120,7 @@ func (p *Merger) Run() error {
 	}
 
 	var buffer bytes.Buffer
-	if err := printer.PrintObj(merged, &buffer); err != nil {
+	if err := cli.PrintYAML(merged, &buffer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 

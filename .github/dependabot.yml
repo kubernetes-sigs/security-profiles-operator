@@ -14,12 +14,6 @@ updates:
     # Newer releases moved to cel.dev/cel-go, which Dependabot cannot follow.
     # Switch together with the Kubernetes libraries.
     - dependency-name: "github.com/google/cel-go"
-    # The generators of committed files, Dependabot cannot regenerate them and
-    # verify fails on its pull requests. Bump them by hand, see the
-    # "Dependencies" section of doc/hacking.md.
-    - dependency-name: "github.com/maxbrunsfeld/counterfeiter/v6"
-    - dependency-name: "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
-    - dependency-name: "sigs.k8s.io/controller-tools"
     # dependencies.yaml tracks the libbpf release it is built against, bump it
     # together with libbpf.
     - dependency-name: "github.com/aquasecurity/libbpfgo"
@@ -28,6 +22,21 @@ updates:
       patterns:
         - "k8s.io/*"
         - "sigs.k8s.io/*"
+# The module of the generators of committed files. Its requires are all
+# indirect, which version updates do not cover, so the entry only shapes the
+# security updates. The generators are bumped by hand, see the "Dependencies"
+# section of doc/hacking.md.
+- package-ecosystem: gomod
+  directory: "/hack/tools"
+  schedule:
+    interval: daily
+  labels:
+    - "release-note-none"
+    - "ok-to-test"
+  ignore:
+    - dependency-name: "github.com/maxbrunsfeld/counterfeiter/v6"
+    - dependency-name: "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
+    - dependency-name: "sigs.k8s.io/controller-tools"
 - package-ecosystem: "github-actions"
   # The composite actions pin actions of their own, every directory below
   # .github/actions has to be listed.

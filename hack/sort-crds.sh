@@ -29,11 +29,9 @@ cat <<EOF >"${TEMP}/kustomization.yaml"
 resources:
 EOF
 
-# save output from controller-gen command
-echo "$1" | bash >"${TEMP}/tmp_output.yaml"
-
+# The controller-gen command of $1 writes one file per CRD.
 mkdir -p "${TEMP}/crds"
-"${BUILD_DIR:-build}/kubernetes-split-yaml" --outdir "${TEMP}/crds" "${TEMP}/tmp_output.yaml"
+echo "$1 output:crd:dir=${TEMP}/crds" | bash
 
 find "${TEMP}/crds" -type f -exec basename {} \; | sort | xargs -I {} echo "- ./crds/{}" >>"${TEMP}/kustomization.yaml"
 cat "${TEMP}/kustomization.yaml"

@@ -49,6 +49,13 @@ func (a *Artifact) Push(
 		opts = &PushOptions{}
 	}
 
+	// Without a signer, nothing gets pushed which could not be signed.
+	if !opts.DisableSigning {
+		if err := a.CheckKeylessSigner(); err != nil {
+			return err
+		}
+	}
+
 	// An invalid reference fails before the sign in, which may be
 	// interactive. The digest of the artifact is only known after the push,
 	// the reference needs a tag instead.
@@ -106,7 +113,7 @@ func (a *Artifact) Push(
 	}
 
 	// The timeout starts after the sign in, which may be interactive.
-	ctx, cancel := context.WithTimeout(c, defaultTimeout)
+	ctx, cancel := context.WithTimeout(c, DefaultTimeout)
 	defer cancel()
 
 	repo, pushed, err := a.copyToRepository(

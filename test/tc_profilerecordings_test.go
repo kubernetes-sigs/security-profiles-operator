@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
-	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/yaml"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -276,7 +275,7 @@ func (e *e2e) rotatedContainerLogs(node, dir string, since time.Time) (string, e
 			return b.String(), nil
 		}
 
-		if status, ok := errors.AsType[*command.Status](err); !ok || status.ExitCode() != 3 {
+		if status, ok := errors.AsType[*commandStatus](err); !ok || status.ExitCode() != 3 {
 			return "", fmt.Errorf("reading the log files %v: %w", files, commandError(err))
 		}
 	}
@@ -288,7 +287,7 @@ func (e *e2e) rotatedContainerLogs(node, dir string, since time.Time) (string, e
 // commandError returns the error output of a failed command without the
 // command line, which can be long, like with a script.
 func commandError(err error) error {
-	if status, ok := errors.AsType[*command.Status](err); ok {
+	if status, ok := errors.AsType[*commandStatus](err); ok {
 		return fmt.Errorf("exit code %d: %s", status.ExitCode(), strings.TrimSpace(status.Error()))
 	}
 

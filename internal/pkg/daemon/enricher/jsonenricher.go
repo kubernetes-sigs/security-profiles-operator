@@ -27,9 +27,9 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/go-logr/logr"
-	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
 	"gopkg.in/natefinch/lumberjack.v2"
 
@@ -621,7 +621,7 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	// In future map this to a object and produce JSON using marshal/unmarshal functions
 	auditMap := map[string]any{
 		"version":    "spo/v1_alpha",
-		"auditID":    uuid.New().String(),
+		"auditID":    uuid.NewV4().String(),
 		"executable": logBucket.ProcessInfo.Executable,
 		"cmdLine":    logBucket.ProcessInfo.CmdLine,
 		"resource":   resource,

@@ -35,21 +35,22 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact/artifactfakes"
 )
 
-// pushSigningMock returns a fake which pushes and signs successfully.
-func pushSigningMock(t *testing.T) *artifactfakes.FakeImpl {
+// pushSigningMock returns a fake which pushes and signs successfully, and
+// the fake of the signing.
+func pushSigningMock(t *testing.T) (*artifactfakes.FakeImpl, *dsseSigner) {
 	t.Helper()
 
 	testRef, err := name.ParseReference("registry.example.com/foo/bar:v1")
 	require.NoError(t, err)
 
 	mock := &artifactfakes.FakeImpl{}
-	stubSigning(t, mock)
+	signer := stubSigning(t, mock)
 	mock.ParseReferenceReturns(testRef, nil)
 	mock.NewRepositoryReturns(&remote.Repository{
 		Reference: registry.Reference{Registry: "registry.example.com", Repository: "foo/bar"},
 	}, nil)
 
-	return mock
+	return mock, signer
 }
 
 func push(t *testing.T, ctx context.Context, mock *artifactfakes.FakeImpl) error {
@@ -75,7 +76,7 @@ func push(t *testing.T, ctx context.Context, mock *artifactfakes.FakeImpl) error
 func TestPushSignsInBeforeTheTimeout(t *testing.T) {
 	t.Parallel()
 
-	mock := pushSigningMock(t)
+	mock, signer := pushSigningMock(t)
 	mock.IDTokenStub = func(ctx context.Context, _ string, _ bool) (string, error) {
 		_, hasDeadline := ctx.Deadline()
 		require.False(t, hasDeadline, "the sign in must not count against the push timeout")
@@ -94,13 +95,52 @@ func TestPushSignsInBeforeTheTimeout(t *testing.T) {
 	require.NoError(t, push(t, context.Background(), mock))
 	require.Equal(t, 1, mock.IDTokenCallCount())
 	require.Equal(t, 1, mock.CopyCallCount())
-	require.Equal(t, 1, mock.SignBundleCallCount())
+	require.EqualValues(t, 1, signer.calls.Load())
 
-	mock = pushSigningMock(t)
+	mock, _ = pushSigningMock(t)
 	mock.IDTokenReturns("", ErrNoInteractiveSignIn)
 
 	require.ErrorIs(t, push(t, t.Context(), mock), ErrNoInteractiveSignIn)
 	require.Zero(t, mock.CopyCallCount())
+}
+
+// TestNoKeylessSigner verifies that an Artifact without a signer fails to
+// push and sign before it looks anything up.
+func TestNoKeylessSigner(t *testing.T) {
+	t.Parallel()
+
+	sut := New(logr.Discard())
+
+	err := sut.Push(
+		t.Context(),
+		map[*ocispec.Platform]string{nil: "profile.yaml"},
+		"registry.invalid/foo/bar:v1", "", "", nil, nil,
+	)
+	require.ErrorIs(t, err, ErrNoKeylessSigner)
+
+	err = sut.Sign(t.Context(), "registry.invalid/foo/bar:v1", "", "", nil)
+	require.ErrorIs(t, err, ErrNoKeylessSigner)
+
+	mock := &artifactfakes.FakeImpl{}
+	mock.CheckKeylessSignerReturns(ErrNoKeylessSigner)
+	sut.impl = mock
+
+	err = sut.Push(
+		t.Context(),
+		map[*ocispec.Platform]string{nil: "profile.yaml"},
+		"registry.invalid/foo/bar:v1", "", "", nil, nil,
+	)
+	require.ErrorIs(t, err, ErrNoKeylessSigner)
+	require.ErrorIs(
+		t,
+		sut.Sign(t.Context(), "registry.invalid/foo/bar:v1", "", "", nil),
+		ErrNoKeylessSigner,
+	)
+	require.Zero(t, mock.ParseReferenceCallCount())
+	require.Zero(t, mock.MkdirTempCallCount())
+	require.Zero(t, mock.NewRepositoryCallCount())
+	require.Zero(t, mock.TrustedMaterialCallCount())
+	require.Zero(t, mock.SigningConfigCallCount())
 }
 
 // TestPushWithoutOIDCProvider asserts that a signing config without OIDC
@@ -109,13 +149,13 @@ func TestPushSignsInBeforeTheTimeout(t *testing.T) {
 func TestPushWithoutOIDCProvider(t *testing.T) {
 	t.Parallel()
 
-	mock := pushSigningMock(t)
+	mock, signer := pushSigningMock(t)
 	mock.SigningConfigReturns(testSigningConfigWithoutOIDC(t), nil)
 	mock.IDTokenReturns("token", nil)
 
 	require.NoError(t, push(t, t.Context(), mock))
 	require.Equal(t, 1, mock.IDTokenCallCount())
-	require.Equal(t, 1, mock.SignBundleCallCount())
+	require.EqualValues(t, 1, signer.calls.Load())
 
 	_, issuer, _ := mock.IDTokenArgsForCall(0)
 	require.Empty(t, issuer, "there is no provider to sign in at")
@@ -126,8 +166,8 @@ func TestPushWithoutOIDCProvider(t *testing.T) {
 func TestPushUnsigned(t *testing.T) {
 	t.Parallel()
 
-	mock := pushSigningMock(t)
-	mock.SignBundleReturns(nil, errTest)
+	mock, _ := pushSigningMock(t)
+	stubDSSESigner(mock, nil, errTest)
 
 	err := push(t, t.Context(), mock)
 	require.ErrorIs(t, err, errTest)

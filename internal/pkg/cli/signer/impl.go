@@ -20,12 +20,13 @@ import (
 	"context"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact/signing"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	Sign(context.Context, string, string, string, *artifact.SignOptions) error
@@ -36,5 +37,6 @@ func (*defaultImpl) Sign(
 	image, username, password string,
 	opts *artifact.SignOptions,
 ) error {
-	return artifact.New(cli.Logger()).Sign(ctx, image, username, password, opts)
+	return artifact.NewWithSigner(cli.Logger(), signing.New()).
+		Sign(ctx, image, username, password, opts)
 }

@@ -40,7 +40,7 @@ func (a *Artifact) Pull(
 	platform *v1.Platform,
 	signOpts *PullOptions,
 ) (*PullResult, error) {
-	ctx, cancel := context.WithTimeout(c, defaultTimeout)
+	ctx, cancel := context.WithTimeout(c, DefaultTimeout)
 	defer cancel()
 
 	if signOpts == nil {

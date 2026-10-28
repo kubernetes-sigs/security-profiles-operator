@@ -772,6 +772,8 @@ dependencies:
     refPaths:
     - path: go.mod
       match: "^toolchain go"
+    - path: hack/tools/go.mod
+      match: "^toolchain go"
     - path: cloudbuild.yaml
       match: "name: golang:"
     - path: cloudbuild-release.yaml

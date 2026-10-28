@@ -82,7 +82,10 @@ GO_RUN_TOOL := GOFLAGS= CGO_ENABLED=0 $(GO) run
 GOTESTSUM := GOFLAGS= $(GO) run gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
 CI_IMAGE ?= golang:$(shell hack/go-version.sh)
 
-CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) tool controller-gen
+# The generators of committed files have a module of their own in hack/tools,
+# so that neither go.mod nor vendor/ of the operator carry them.
+GO_RUN_GENERATOR := CGO_LDFLAGS= $(GO) run -modfile=hack/tools/go.mod -mod=readonly
+CONTROLLER_GEN_CMD := $(GO_RUN_GENERATOR) sigs.k8s.io/controller-tools/cmd/controller-gen
 
 NIX := nix --extra-experimental-features 'nix-command flakes'
 
@@ -286,9 +289,6 @@ $(KUSTOMIZE): | $(BUILD_DIR)
 $(BUILD_DIR)/kustomize: $(KUSTOMIZE)
 	ln -sf $(notdir $(KUSTOMIZE)) $@
 
-$(BUILD_DIR)/kubernetes-split-yaml: | $(BUILD_DIR)
-	$(call go-build,./vendor/github.com/mogensen/kubernetes-split-yaml)
-
 .PHONY: deployments
 deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build deploy/overlays/cluster -o deploy/operator.yaml
@@ -418,7 +418,9 @@ update-nixpkgs: ## Update the pinned nixpkgs to the latest master
 update-go-mod: ## Cleanup, vendor and verify go modules
 	$(GO) mod tidy && \
 		$(GO) mod vendor && \
-		$(GO) mod verify
+		$(GO) mod verify && \
+		$(GO) -C hack/tools mod tidy && \
+		$(GO) -C hack/tools mod verify
 
 .PHONY: push-base-profiles
 push-base-profiles: $(BUILD_DIR)/$(CLI_BINARY) ## Publish the recorded base profiles as OCI artifacts
@@ -437,7 +439,7 @@ define go-build
 endef
 
 $(BUILD_DIR)/protoc-gen-go-grpc: | $(BUILD_DIR)
-	$(call go-build,./vendor/google.golang.org/grpc/cmd/protoc-gen-go-grpc)
+	CGO_LDFLAGS= $(GO) build -modfile=hack/tools/go.mod -mod=readonly -o $@ google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
 $(BUILD_DIR)/protoc-gen-go: | $(BUILD_DIR)
 	$(call go-build,./vendor/google.golang.org/protobuf/cmd/protoc-gen-go)
@@ -916,14 +918,14 @@ endif
 test-spoc-e2e: $(BUILD_DIR)/$(CLI_BINARY) ## Run the spoc end-to-end tests
 	$(GO) test -tags e2e -v -timeout 20m ./test/spoc $(ARGS)
 
-manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize ## Generate the CRD manifests
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilenodestatus.yaml"
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base-crds/crds/seccompprofile.yaml"
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base-crds/crds/selinuxpolicy.yaml"
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base-crds/crds/profilebinding.yaml"
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base-crds/crds/profilerecording.yaml"
-	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/apparmorprofile/...' output:crd:stdout" "deploy/base-crds/crds/apparmorprofile.yaml"
+manifests: $(BUILD_DIR)/kustomize ## Generate the CRD manifests
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...'" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...'" "deploy/base-crds/crds/securityprofilenodestatus.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...'" "deploy/base-crds/crds/seccompprofile.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...'" "deploy/base-crds/crds/selinuxpolicy.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...'" "deploy/base-crds/crds/profilebinding.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...'" "deploy/base-crds/crds/profilerecording.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/apparmorprofile/...'" "deploy/base-crds/crds/apparmorprofile.yaml"
 
 generate: ## Generate the deepcopy code and the RBAC roles
 	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt" paths="./api/..."

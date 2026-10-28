@@ -1,0 +1,295 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package signing
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+
+	"cloud.google.com/go/compute/metadata"
+	"github.com/sigstore/sigstore/pkg/oauthflow"
+	"golang.org/x/term"
+	"oras.land/oras-go/v2/registry/remote/retry"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+)
+
+const (
+	// oidcAudience is the audience of the identity tokens Fulcio accepts.
+	oidcAudience = "sigstore"
+
+	// oidcClientID is the OAuth client of the Sigstore OIDC provider.
+	oidcClientID = "sigstore"
+
+	// envSigstoreIDToken passes an identity token explicitly.
+	envSigstoreIDToken = "SIGSTORE_ID_TOKEN" //nolint:gosec // the name of the variable, not a token
+
+	// envGitHubRequestToken and envGitHubRequestURL are set by GitHub
+	// Actions for jobs with the id-token: write permission.
+	envGitHubRequestToken = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+	envGitHubRequestURL   = "ACTIONS_ID_TOKEN_REQUEST_URL"
+
+	// filesystemTokenPath is where cosign reads a mounted identity token
+	// from, for example a projected service account token.
+	filesystemTokenPath = "/var/run/sigstore/cosign/oidc-token" //nolint:gosec // a path, not a token
+
+	// maxTokenSize bounds the identity token responses.
+	maxTokenSize = 1 << 20
+
+	// privacyStatement is what cosign shows before an interactive sign in.
+	privacyStatement = `
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to ` +
+		`the Hosted Project Tools Terms of Use, available at ` +
+		`https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will ` +
+		`be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your ` +
+		`contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency ` +
+		`logs and cannot be removed later, and is subject to the Immutable Record notice at ` +
+		`https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+`
+)
+
+// tokenProvider furnishes an identity token from the environment. It returns
+// ok false if it is not available there.
+type tokenProvider struct {
+	name    string
+	provide func(context.Context) (token string, ok bool, err error)
+}
+
+// ambientTokenProviders are the sources of identity tokens in CI systems and
+// cloud environments, in the order cosign tries them.
+var ambientTokenProviders = []tokenProvider{
+	{name: "github-actions", provide: githubActionsToken},
+	{name: "envvar", provide: envToken},
+	{name: "filesystem", provide: filesystemToken},
+	{name: "google-workload-identity", provide: googleWorkloadIdentityToken},
+}
+
+// stdinIsTerminal reports whether stdin is a terminal, which an interactive
+// sign in needs.
+func stdinIsTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// idToken returns an identity token for Fulcio: from the first provider of
+// the environment which furnishes one, otherwise by signing in to the OIDC
+// issuer in the browser. Without a terminal, the sign in uses the device flow
+// if deviceFlow is set and fails with artifact.ErrNoInteractiveSignIn
+// otherwise. An empty issuer means that the signing config has no OIDC
+// provider, which fails with artifact.ErrNoOIDCProvider without a token of
+// the environment.
+func idToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
+	// The lookups in the environment are bounded, the interactive sign in
+	// below waits for the user as long as it takes.
+	ambientCtx, cancel := context.WithTimeout(ctx, artifact.DefaultTimeout)
+	defer cancel()
+
+	getter, err := tokenGetter(
+		ambientCtx, ambientTokenProviders, issuer, deviceFlow, stdinIsTerminal(),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if getter.token != "" {
+		return getter.token, nil
+	}
+
+	if issuer == "" {
+		return "", artifact.ErrNoOIDCProvider
+	}
+
+	token, err := oauthflow.OIDConnect(issuer, oidcClientID, "", "", getter.interactive)
+	if err != nil {
+		return "", fmt.Errorf("authenticate at %s: %w", issuer, err)
+	}
+
+	return token.RawString, nil
+}
+
+// tokenSource is either an identity token of the environment or the
+// interactive sign in to get one.
+type tokenSource struct {
+	token       string
+	interactive oauthflow.TokenGetter
+}
+
+// tokenGetter returns the token of the first provider of the environment
+// which furnishes one, otherwise the interactive sign in to use.
+func tokenGetter(
+	ctx context.Context,
+	providers []tokenProvider,
+	issuer string,
+	deviceFlow, terminal bool,
+) (*tokenSource, error) {
+	var errs []error
+
+	for _, provider := range providers {
+		token, ok, err := provider.provide(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", provider.name, err))
+
+			continue
+		}
+
+		if ok {
+			return &tokenSource{token: token}, nil
+		}
+	}
+
+	// An environment which has an identity but fails to furnish it must not
+	// fall back to an interactive sign in.
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("fetch ambient OIDC credentials: %w", errors.Join(errs...))
+	}
+
+	switch {
+	case terminal:
+		fmt.Fprint(os.Stderr, privacyStatement)
+
+		return &tokenSource{interactive: oauthflow.DefaultIDTokenGetter}, nil
+	case deviceFlow:
+		fmt.Fprintln(os.Stderr, "Non-interactive mode detected, using device flow.")
+
+		return &tokenSource{
+			interactive: oauthflow.NewDeviceFlowTokenGetterForIssuer(issuer),
+		}, nil
+	default:
+		return nil, artifact.ErrNoInteractiveSignIn
+	}
+}
+
+// envToken returns the token of SIGSTORE_ID_TOKEN. An empty variable does not
+// count as identity, like an unset one.
+func envToken(context.Context) (token string, ok bool, err error) {
+	token = strings.TrimSpace(os.Getenv(envSigstoreIDToken))
+
+	return token, token != "", nil
+}
+
+// filesystemToken returns the token mounted at the path cosign reads.
+func filesystemToken(context.Context) (token string, ok bool, err error) {
+	return fileToken(filesystemTokenPath)
+}
+
+// fileToken returns the token stored in the file at path. Like cosign, a file
+// which cannot be found, also because its directory cannot be read, does not
+// count as identity. A file which exists but cannot be read is an error, so
+// that the sign in does not fall back to another identity. A file without a
+// token does not count as identity either.
+func fileToken(path string) (token string, ok bool, err error) {
+	if _, err := os.Stat(path); err != nil {
+		return "", false, nil //nolint:nilerr // not an environment with an identity
+	}
+
+	raw, err := os.ReadFile(path) //nolint:gosec // the token path of cosign or a test
+	if err != nil {
+		return "", false, fmt.Errorf("read identity token: %w", err)
+	}
+
+	// Like the environment variable, a file ends with a newline often.
+	token = strings.TrimSpace(string(raw))
+
+	return token, token != "", nil
+}
+
+// githubActionsToken requests a token for the job from GitHub Actions.
+func githubActionsToken(ctx context.Context) (token string, ok bool, err error) {
+	requestToken, requestURL := os.Getenv(envGitHubRequestToken), os.Getenv(envGitHubRequestURL)
+	if requestToken == "" || requestURL == "" {
+		return "", false, nil
+	}
+
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return "", false, fmt.Errorf("parse %s: %w", envGitHubRequestURL, err)
+	}
+
+	query := u.Query()
+	query.Set("audience", oidcAudience)
+	u.RawQuery = query.Encode()
+
+	//nolint:gosec // GitHub Actions sets the URL of its token service
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
+	if err != nil {
+		return "", false, err
+	}
+
+	req.Header.Set("Authorization", "bearer "+requestToken)
+
+	resp, err := retry.DefaultClient.Do(req) //nolint:gosec // see above
+	if err != nil {
+		return "", false, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", false, fmt.Errorf("%w: status %s", artifact.ErrIDToken, resp.Status)
+	}
+
+	var body struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxTokenSize)).Decode(&body); err != nil {
+		return "", false, fmt.Errorf("decode response: %w", err)
+	}
+
+	if body.Value == "" {
+		return "", false, fmt.Errorf("%w: empty token", artifact.ErrIDToken)
+	}
+
+	return body.Value, true, nil
+}
+
+// googleWorkloadIdentityToken requests a token for the service account of
+// the Google Compute Engine metadata server, which Cloud Build and GKE
+// workload identity provide.
+func googleWorkloadIdentityToken(ctx context.Context) (token string, ok bool, err error) {
+	if !metadata.OnGCEWithContext(ctx) {
+		return "", false, nil
+	}
+
+	query := url.Values{}
+	query.Set("audience", oidcAudience)
+	query.Set("format", "full")
+
+	token, err = metadata.GetWithContext(
+		ctx,
+		"instance/service-accounts/default/identity?"+query.Encode(),
+	)
+	if err != nil {
+		// Like cosign, a metadata server which furnishes no identity token,
+		// like the one of an instance without a service account or of a GKE
+		// pod without Workload Identity, does not count as identity. The sign
+		// in falls back to an interactive one then.
+		return "", false, nil //nolint:nilerr // not an environment with an identity
+	}
+
+	token = strings.TrimSpace(token)
+
+	return token, token != "", nil
+}

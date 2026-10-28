@@ -17,11 +17,15 @@ limitations under the License.
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 // TestWriteFileStdoutAppends verifies that the output to stdout goes there as
@@ -59,4 +63,37 @@ func TestWriteFile(t *testing.T) {
 	content, err := os.ReadFile(name)
 	require.NoError(t, err)
 	require.Equal(t, "new\n", string(content))
+}
+
+func TestPrintYAML(t *testing.T) {
+	t.Parallel()
+
+	profile := &seccompprofileapi.SeccompProfile{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "SeccompProfile",
+			APIVersion: seccompprofileapi.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			DefaultAction: seccompprofileapi.ActErrno,
+		},
+	}
+
+	var out bytes.Buffer
+	require.NoError(t, PrintYAML(profile, &out))
+	require.Equal(t, `apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+metadata:
+  name: profile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+`, out.String())
+
+	// Printing again writes no document separator.
+	out.Reset()
+	require.NoError(t, PrintYAML(profile, &out))
+	require.NotContains(t, out.String(), "---")
+
+	profile.TypeMeta = metav1.TypeMeta{}
+	require.ErrorIs(t, PrintYAML(profile, &out), errMissingKind)
 }

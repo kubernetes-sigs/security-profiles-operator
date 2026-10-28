@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"go.podman.io/common/pkg/seccomp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -33,7 +32,7 @@ import (
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform,
@@ -84,7 +83,7 @@ func (*defaultImpl) GetSPOD(
 
 // seccompSupported reports whether the node supports seccomp, which does not
 // change while the daemon runs.
-var seccompSupported = sync.OnceValue(seccomp.IsSupported)
+var seccompSupported = sync.OnceValue(kernelSupportsSeccomp)
 
 // IsSupported returns true if the node supports seccomp.
 func (*defaultImpl) IsSupported() bool {

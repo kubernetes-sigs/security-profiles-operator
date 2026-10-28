@@ -189,9 +189,13 @@ Dependabot only updates the files of its own ecosystem, so it owns the Go
 modules, the GitHub actions and the base image digests of the Dockerfiles,
 which `dependencies.yaml` does not track.
 
-Dependabot ignores the generators of committed files, because their output
-changes with their version and `make verify` would fail on its pull requests.
-Bump them by hand in `go.mod` and regenerate the files:
+The generators of committed files have a module of their own,
+[`hack/tools/go.mod`](../hack/tools/go.mod), so that neither `go.mod` nor
+`vendor/` of the operator carry them. Dependabot ignores them, because their
+output changes with their version and `make verify` would fail on its pull
+requests. Its entry for `hack/tools` only shapes the security updates of the
+module, version updates do not cover its requires, which are all indirect.
+Bump the generators by hand in `hack/tools/go.mod` and regenerate the files:
 
 - `sigs.k8s.io/controller-tools` with `make manifests generate deployments
   bundle`.
@@ -199,9 +203,11 @@ Bump them by hand in `go.mod` and regenerate the files:
 - `github.com/maxbrunsfeld/counterfeiter/v6` with `make update-mocks`.
 
 `google.golang.org/protobuf` is not ignored, it is a runtime library and
-Dependabot bumps it for security fixes too. Its version is in the headers of
-the generated `api/grpc` files, so push the result of `make update-proto` onto
-its pull requests, and onto the ones of other modules which raise it.
+Dependabot bumps it for security fixes too. Its generator `protoc-gen-go`
+stays a tool of `go.mod`, so that it has the version of the runtime library.
+That version is in the headers of the generated `api/grpc` files, so push the
+result of `make update-proto` onto its pull requests, and onto the ones of
+other modules which raise it.
 
 Dependabot ignores `github.com/aquasecurity/libbpfgo` as well. Its version
 names the libbpf release it is built against, which `dependencies.yaml`
@@ -394,7 +400,7 @@ calls into the node or the cluster, the state they need, like the file system
 and the logger, is set up by `newDefaultImpl`.
 
 ```go
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	StartTail(src auditsource.AuditLineSource) (chan *types.AuditLine, error)
@@ -416,8 +422,9 @@ func (d *defaultImpl) ContainerIDForPID(
 The most important part is the `go:generate` and `counterfeiter:generate`
 annotations above the interface. These annotations are used by `go generate` to
 generate the mocked interfaces, the fake of the enricher is `FakeImpl` of the
-`enricherfakes` package. SPO provides a makefile target `update-mocks` to
-regenerate the mocked interfaces.
+`enricherfakes` package. The `-modfile` of `go:generate` runs counterfeiter from
+the module of the generators, see [Dependencies](#dependencies). SPO provides a
+makefile target `update-mocks` to regenerate the mocked interfaces.
 
 The last step is to actually use the mocked functions in a test. Here is an
 example of a test that feeds the audit lines of a channel to the enricher and

@@ -242,7 +242,7 @@ func TestRun(t *testing.T) {
 				require.Equal(t, 2, mock.GetNameCallCount())
 				require.Equal(t, 1, mock.PrintObjCallCount())
 
-				_, obj, _ := mock.PrintObjArgsForCall(0)
+				obj, _ := mock.PrintObjArgsForCall(0)
 				profile, ok := obj.(*seccompprofileapi.SeccompProfile)
 				require.True(t, ok)
 				require.Len(t, profile.Spec.Syscalls, 1)

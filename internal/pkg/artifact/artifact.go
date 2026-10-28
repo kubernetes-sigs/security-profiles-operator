@@ -17,10 +17,13 @@ limitations under the License.
 package artifact
 
 import (
+	"context"
 	"strings"
 
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
+	"github.com/sigstore/sigstore-go/pkg/root"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -77,10 +80,33 @@ type Artifact struct {
 	logger logr.Logger
 }
 
-// New returns a new Artifact instance.
+// KeylessSigner furnishes the Sigstore clients which Push and Sign need to
+// sign keylessly. The signing package implements it, so that only the
+// binaries which sign link these clients.
+type KeylessSigner interface {
+	// IDToken returns an identity token of the signer for the OIDC issuer,
+	// with the device flow if deviceFlow is set and no terminal is there for
+	// an interactive sign in.
+	IDToken(ctx context.Context, issuer string, deviceFlow bool) (string, error)
+
+	// DSSESigner selects the services of the signing config. The returned
+	// function signs a DSSE payload of the payload type for the identity
+	// token into a Sigstore bundle.
+	DSSESigner(
+		signingConfig *root.SigningConfig, material root.TrustedMaterial, token string,
+	) (func(ctx context.Context, payload []byte, payloadType string) (*protobundle.Bundle, error), error)
+}
+
+// New returns a new Artifact instance, which does not sign. Sign, and Push
+// unless signing is disabled, fail with ErrNoKeylessSigner.
 func New(logger logr.Logger) *Artifact {
+	return NewWithSigner(logger, nil)
+}
+
+// NewWithSigner returns a new Artifact instance which signs with the signer.
+func NewWithSigner(logger logr.Logger, signer KeylessSigner) *Artifact {
 	return &Artifact{
-		impl:   &defaultImpl{},
+		impl:   &defaultImpl{signer: signer},
 		logger: logger,
 	}
 }

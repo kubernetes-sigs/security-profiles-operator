@@ -16,7 +16,14 @@ limitations under the License.
 
 package cli
 
-import "os"
+import (
+	"errors"
+	"io"
+	"os"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/yaml"
+)
 
 // Stdout is the output file name which writes to the standard output of spoc.
 const Stdout = "/dev/stdout"
@@ -32,4 +39,25 @@ func WriteFile(name string, data []byte, perm os.FileMode) error {
 	}
 
 	return os.WriteFile(name, data, perm)
+}
+
+var errMissingKind = errors.New(
+	"missing apiVersion or kind; try GetObjectKind().SetGroupVersionKind() if you know the type",
+)
+
+// PrintYAML writes the object as YAML, like the YAML printer of kubectl does
+// for a single object.
+func PrintYAML(obj runtime.Object, w io.Writer) error {
+	if obj.GetObjectKind().GroupVersionKind().Empty() {
+		return errMissingKind
+	}
+
+	output, err := yaml.Marshal(obj)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(output)
+
+	return err
 }

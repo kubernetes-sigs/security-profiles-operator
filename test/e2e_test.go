@@ -33,8 +33,6 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/release-utils/command"
-
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -1048,10 +1046,10 @@ func (e *e2e) getSELinuxPolicyUsage(kind, policy string) string {
 
 func (e *e2e) waitForSpod() {
 	e.eventually(150*time.Second, defaultPollInterval, func() error {
-		output, err := command.New(
-			e.kubectlPath, "-n", config.OperatorName,
+		output, err := runCommandStatus(
+			false, e.kubectlPath, "-n", config.OperatorName,
 			"get", "pod", "-l", "name=spod",
-		).RunSilent()
+		)
 		if err != nil {
 			return fmt.Errorf("listing the spod pods: %w", err)
 		}
@@ -1074,9 +1072,9 @@ func (e *e2e) retryGet(args ...string) string {
 	var result string
 
 	e.eventually(time.Minute, defaultPollInterval, func() error {
-		output, err := command.New(
-			e.kubectlPath, append([]string{"get"}, args...)...,
-		).RunSilent()
+		output, err := runCommandStatus(
+			false, e.kubectlPath, append([]string{"get"}, args...)...,
+		)
 		if err != nil {
 			return fmt.Errorf("kubectl get %s: %w", strings.Join(args, " "), err)
 		}
@@ -1094,9 +1092,9 @@ func (e *e2e) retryGet(args ...string) string {
 }
 
 func (e *e2e) exists(args ...string) bool {
-	output, err := command.New(
-		e.kubectlPath, append([]string{"get"}, args...)...,
-	).RunSilent()
+	output, err := runCommandStatus(
+		false, e.kubectlPath, append([]string{"get"}, args...)...,
+	)
 	e.Require().NoError(err)
 
 	if output.Success() {
