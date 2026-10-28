@@ -1,11 +1,19 @@
 name: dependencies
 # Checks the pinned selinuxd images and the pinned versions of
-# dependencies.yaml against their upstreams, and scans main and the published
-# images for vulnerabilities once a week, which new releases and advisories can
-# affect without any change here. Opens an issue when a scheduled run fails.
+# dependencies.yaml against their upstreams and scans the last released image
+# for vulnerabilities once a week, and scans main and the staging image every
+# day, which new releases and advisories can affect without any change here. A
+# new advisory with a fix fails the image scan of every pull request which
+# changes code, the daily scan reports it also while no pull request runs. Only
+# a release fixes the released image, so it gets scanned weekly, which keeps the
+# issue of its failure from getting a comment every day. Opens an issue when a
+# scheduled run fails.
 on:
   schedule:
-    - cron: '17 6 * * 1'
+    # govulncheck and the scan of the staging image, see DAILY below.
+    - cron: '17 6 * * *'
+    # The upstream checks and the scan of the released image, see WEEKLY below.
+    - cron: '47 6 * * 1'
   workflow_dispatch:
 
 permissions: {}
@@ -14,6 +22,9 @@ jobs:
   # The pinned selinuxd images and the selinuxd commit of the Fedora e2e job,
   # see hack/update-selinuxd.sh.
   selinuxd:
+    # WEEKLY: the schedule of the upstream checks and the scan of the released
+    # image, a manual run runs all jobs.
+    if: github.event.schedule != '17 6 * * *'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -32,6 +43,8 @@ jobs:
   # make verify only checks that the files reference them. Fails with the
   # available updates.
   upstream:
+    # WEEKLY, see selinuxd.
+    if: github.event.schedule != '17 6 * * *'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -52,6 +65,9 @@ jobs:
 
   # Reachable vulnerabilities in the code of main, like make verify.
   vulnerabilities:
+    # DAILY: the schedule of govulncheck and the scan of the staging image, a
+    # manual run runs all jobs.
+    if: github.event.schedule != '47 6 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -65,14 +81,13 @@ jobs:
       - run: make verify-vulnerabilities
 
   # The last released and the current staging image, with the assessments of
-  # .openvex.json.
+  # .openvex.json. The staging image is DAILY and the released one WEEKLY, see
+  # vulnerabilities and selinuxd, a manual run scans both.
   image-scan:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - release
-          - staging
+        image: ${{ fromJSON(github.event.schedule == '17 6 * * *' && '["staging"]' || github.event.schedule == '47 6 * * 1' && '["release"]' || '["release", "staging"]') }}
     name: image-scan / ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20

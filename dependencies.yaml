@@ -208,8 +208,14 @@ dependencies:
       match: ^ALPINE_IMAGE=
 
   # The local registry of the kind clusters of the Helm and OLM tests.
+  # Version 3 is a new major release, which needs testing. The -0 of the
+  # constraint leaves out its release candidates too.
   - name: kind-registry
     version: 2.8.3
+    upstream:
+      flavour: container
+      registry: docker.io/library/registry
+      constraints: "< 3.0.0-0"
     refPaths:
     - path: hack/kind-with-registry.sh
       match: "registry:2"
@@ -220,6 +226,27 @@ dependencies:
     refPaths:
     - path: hack/kind-with-registry.sh
       match: "registry:2"
+
+  # The busybox image of the e2e test pods, from the Kubernetes test images
+  # instead of Docker Hub.
+  - name: e2e-busybox
+    version: 1.38.0-1
+    upstream:
+      flavour: container
+      registry: registry.k8s.io/e2e-test-images/busybox
+    refPaths:
+    - path: test/suite_test.go
+      match: "^const busyboxImage ="
+
+  # The pause image of the e2e tests.
+  - name: e2e-pause
+    version: 3.10.2
+    upstream:
+      flavour: container
+      registry: registry.k8s.io/pause
+    refPaths:
+    - path: test/tc_selinux_profilebindings_test.go
+      match: "registry.k8s.io/pause:"
 
   - name: kind
     version: 0.33.0
@@ -428,7 +455,8 @@ dependencies:
   # The selinuxd commit which hack/ci/build-selinuxd-fedora.sh builds for the
   # Fedora release of the e2e VM. Commits have no versions to compare,
   # hack/update-selinuxd.sh pins it to the head of the selinuxd main branch
-  # and its --check of the weekly dependencies workflow reports a newer one.
+  # and its --check in the weekly selinuxd job of the dependencies workflow
+  # reports a newer one.
   - name: selinuxd-fedora-commit
     version: 6bd301111e8f151e1bf5931cb46a6e50c34b42c8
     refPaths:
@@ -767,6 +795,8 @@ dependencies:
       match: "^CRANE_VERSION="
 
   # nix brings its own Go, make verify-go-version checks that it matches.
+  # No upstream: zeitgeist knows no Go releases. hack/check-release-tags.py
+  # checks for a newer patch release of the same minor version instead.
   - name: golang
     version: 1.27.3
     refPaths:
@@ -792,7 +822,8 @@ dependencies:
       match: "name: golang:"
 
   # Must be bumped together with golang above, the checksums of
-  # go<version>.linux-<arch>.tar.gz from https://go.dev/dl/.
+  # go<version>.linux-<arch>.tar.gz from https://go.dev/dl/. The test VMs of
+  # hack/ci/Vagrantfile-* read the amd64 one from Dockerfile.ubi.
   - name: golang-sha256-linux-amd64
     version: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
     refPaths:
@@ -887,8 +918,10 @@ dependencies:
       - path: Makefile
         match: "^MDTOC_VERSION"
 
+  # No upstream: golang/vuln publishes no current GitHub releases.
+  # hack/check-release-tags.py checks the module proxy instead.
   - name: govulncheck
-    version: v1.8.0
+    version: v1.9.0
     refPaths:
       - path: Makefile
         match: "^GOVULNCHECK_VERSION"

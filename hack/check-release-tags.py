@@ -13,16 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Checks the dependencies with release tags zeitgeist cannot parse.
+"""Checks the dependencies whose releases zeitgeist cannot find or parse.
 
 zeitgeist only understands semantic version tags with an optional v prefix and
-fails on dependencies with other tags. The dependencies below therefore have
-no upstream in dependencies.yaml, and this script compares their versions
-there with the latest GitHub release whose tag matches their pattern instead.
-It prints the available updates like zeitgeist and a "Check failed" line for
-each dependency whose releases it cannot get, which make
-verify-dependencies-upstream fails on. Set GITHUB_TOKEN for the API rate
-limit.
+fails on dependencies with other tags. Its GitHub upstream only knows releases,
+which some Go projects do not publish, and it knows no Go releases. The
+dependencies below therefore have no upstream in dependencies.yaml, and this
+script compares their versions there with the latest GitHub release whose tag
+matches their pattern, the latest version of a Go module on the module proxy,
+or the latest patch release of Go, instead. It prints the available updates
+like zeitgeist and a "Check failed" line for each dependency whose releases it
+cannot get, which make verify-dependencies-upstream fails on. Set GITHUB_TOKEN
+for the API rate limit.
 """
 
 import http.client
@@ -42,6 +44,17 @@ DEPENDENCIES = [
     # The repository releases the lychee-lib crate too.
     ("lychee", "lycheeverse/lychee", r"lychee-v(\d+\.\d+\.\d+)"),
 ]
+
+# The name in dependencies.yaml and the Go module whose latest version on the
+# module proxy is the latest release. The GitHub mirrors of the golang.org/x
+# repositories have tags, but no current releases.
+MODULES = [
+    ("govulncheck", "golang.org/x/vuln"),
+]
+
+# The name of Go in dependencies.yaml. Only patch releases of its minor
+# version count, a new minor version needs more than a bump.
+GOLANG = "golang"
 
 
 def versions(path):
@@ -77,30 +90,67 @@ def latest_release(api, repo, pattern):
     return max(found, key=parse)
 
 
+def fetch_json(url):
+    with urllib.request.urlopen(url, timeout=60) as response:
+        return json.load(response)
+
+
+def latest_module(proxy, module):
+    """Returns the latest version of module on the Go module proxy."""
+    return fetch_json(f"{proxy}/{module}/@latest")["Version"]
+
+
+def latest_go_patch(current):
+    """Returns the latest stable Go release of the minor version of current."""
+    minor = current.split(".")[:2]
+    found = [
+        release["version"].removeprefix("go")
+        for release in fetch_json("https://go.dev/dl/?mode=json&include=all")
+        if release.get("stable")
+    ]
+    found = [version for version in found if version.split(".")[:2] == minor]
+    if not found:
+        raise ValueError(f"no stable Go release of {'.'.join(minor)}")
+    return max(found, key=parse)
+
+
+def report(name, current, latest):
+    # The version keeps the v prefix style of dependencies.yaml.
+    latest = latest.removeprefix("v")
+    if current.startswith("v"):
+        latest = f"v{latest}"
+    if parse(latest) > parse(current):
+        print(f"Update available for dependency {name}: {latest} (current: {current})")
+    else:
+        print(f"No update available for dependency {name}: {current} (latest: {latest})")
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "dependencies.yaml"
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    proxy = "https://proxy.golang.org"
     pinned = versions(path)
-    missing = [name for name, _, _ in DEPENDENCIES if name not in pinned]
+    checks = [
+        (name, lambda repo=repo, pattern=pattern: latest_release(api, repo, pattern))
+        for name, repo, pattern in DEPENDENCIES
+    ]
+    checks += [
+        (name, lambda module=module: latest_module(proxy, module))
+        for name, module in MODULES
+    ]
+    checks.append((GOLANG, lambda: latest_go_patch(pinned[GOLANG])))
+    missing = [name for name, _ in checks if name not in pinned]
     if missing:
         sys.exit(f"{path} has no dependencies {', '.join(missing)}")
 
-    for name, repo, pattern in DEPENDENCIES:
-        current = pinned[name]
+    for name, latest in checks:
         try:
-            latest = latest_release(api, repo, pattern)
+            report(name, pinned[name], latest())
         # A connection which breaks while the response gets read raises an
-        # HTTPException, which is no OSError.
-        except (OSError, ValueError, http.client.HTTPException) as error:
+        # HTTPException, which is no OSError. A response without the expected
+        # fields raises a KeyError or a TypeError.
+        except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException) as error:
             print(f"Check failed for dependency {name}: {error}")
-            continue
-        # The version keeps the v prefix style of dependencies.yaml.
-        if current.startswith("v"):
-            latest = f"v{latest}"
-        if parse(latest) > parse(current):
-            print(f"Update available for dependency {name}: {latest} (current: {current})")
-        else:
-            print(f"No update available for dependency {name}: {current} (latest: {latest})")
 
 
 if __name__ == "__main__":

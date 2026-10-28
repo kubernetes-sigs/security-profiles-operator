@@ -115,7 +115,8 @@ container build directly.
   commit which the Fedora e2e job builds to the head of the selinuxd main
   branch. Run `make deployments bundle` afterwards to regenerate the
   manifests. `hack/update-selinuxd.sh --check` only reports moved tags and a
-  newer commit, which the weekly dependencies workflow does.
+  newer commit, which the weekly selinuxd job of the dependencies workflow
+  does.
 - `make update-docs` regenerates the command line reference of `spoc` and the
   operator binary below [`reference/`](reference/) after changing their flags,
   `make verify-docs` checks that it is up to date.
@@ -188,7 +189,13 @@ all hooks once.
 more than one file, and `make verify-dependencies` checks that they match.
 Dependabot only updates the files of its own ecosystem, so it owns the Go
 modules, the GitHub actions and the base image digests of the Dockerfiles,
-which `dependencies.yaml` does not track.
+which `dependencies.yaml` does not track. It also bumps the nixpkgs revision
+of `flake.lock` once a week, which the images, the BPF objects and `spoc` get
+built with. If the new revision changes the compiler of the BPF objects, `make
+verify-bpf` fails, so push the result of `make update-bpf` onto its pull
+request. If it changes the Go patch release, `make verify-go-version` fails
+until the Go version of `go.mod` and the `golang` entries of
+`dependencies.yaml` follow.
 
 The generators of committed files have a module of their own,
 [`hack/tools/go.mod`](../hack/tools/go.mod), so that neither `go.mod` nor
@@ -243,16 +250,34 @@ Two checks keep known vulnerabilities out:
   the code calls a vulnerable function that has a fixed version upstream.
 - The `ubi-image` job in
   [`.github/workflows/build.yml`](../.github/workflows/build.yml) and the
-  `image` jobs in [`.github/workflows/test.yml`](../.github/workflows/test.yml)
-  scan the UBI image and the image of `Dockerfile` with trivy and fail on every
+  `image-scan` jobs in
+  [`.github/workflows/test.yml`](../.github/workflows/test.yml) scan the UBI
+  image and the images of `Dockerfile` with trivy and fail on every
   vulnerability with an available fix, including the OS packages of the UBI
-  image. The scheduled build workflow run scans the UBI image weekly and opens
-  an issue when the scan fails.
+  image. The trivy scan fails on every vulnerable module in the binaries,
+  while govulncheck only fails on the code paths the operator calls, so the
+  scan can fail while `make verify` passes. The e2e jobs don't depend on the
+  `image-scan` jobs and still run when the scan fails.
+
+Scheduled runs catch new advisories also while no pull request runs, and open
+an issue when they fail:
+
+- The build workflow scans the UBI image weekly.
+- The [dependencies workflow](../.github/workflows/dependencies.yml) runs
+  govulncheck on main and scans the current staging image daily, and scans
+  the last released image weekly, since only a new release can fix that one.
 
 Vulnerabilities without a fix are reported but don't fail either check. Both
 checks can also fail when a fix gets published for a dependency the operator
-already uses, without any change in the pull request. Updating the dependency,
-usually through a Dependabot pull request, resolves that for all pull requests.
+already uses, without any change in the pull request. Updating the dependency
+to the fixed version resolves that for all pull requests. Dependabot opens
+security updates for the advisories of the GitHub advisory database, also for
+indirect Go modules, but version updates only for the direct Go modules. The
+`golang.org/x` modules often get fixes with an advisory of the Go
+vulnerability database only, so an indirect one like `golang.org/x/net` gets
+bumped by hand when the daily scan or the scan of a pull request flags it,
+like any other indirect module without a security update: `go get
+<module>@<fixed version>`, `go mod tidy` and `go mod vendor`.
 
 The UBI image installs the OS package updates of the UBI repositories at build
 time. The `ubi-image` job reruns that update whenever the repositories change,

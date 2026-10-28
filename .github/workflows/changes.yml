@@ -1,16 +1,20 @@
 name: changes
-# Tells whether a change touches more than the documentation, and whether it
-# touches the inputs of the toolchain image, see hack/ci/code-changed.sh. The
-# build, codeql, test, olm and image-reproducible workflows call it as their
-# changes job and skip their other jobs unless the code output is true. The
-# build workflow builds the toolchain image only if the build-image output is
-# true.
+# Tells whether a change touches more than the documentation, whether it
+# touches the inputs of the images and whether it touches the inputs of the
+# toolchain image, see hack/ci/code-changed.sh. The build, codeql, test and olm
+# workflows call it as their changes job and skip their other jobs unless the
+# code output is true, the image-reproducible workflow unless the images output
+# is true. The build workflow builds the toolchain image only if the
+# build-image output is true.
 on:
   workflow_call:
     outputs:
       code:
         description: Whether the change touches more than the documentation
         value: ${{ jobs.changes.outputs.code }}
+      images:
+        description: Whether the change touches the inputs of the images of hack/image-cross.sh
+        value: ${{ jobs.changes.outputs.images }}
       build-image:
         description: Whether the change touches the inputs of the toolchain image
         value: ${{ jobs.changes.outputs.build-image }}
@@ -23,6 +27,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.changes.outputs.code }}
+      images: ${{ steps.changes.outputs.images }}
       build-image: ${{ steps.changes.outputs.build-image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

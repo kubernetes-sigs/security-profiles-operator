@@ -209,7 +209,7 @@ func (e *e2e) testCases() []testCase {
 		},
 		{
 			description:     "Selinux: Verify profile binding: image",
-			fn:              func([]string) { e.testCaseSelinuxProfileBinding("busybox:latest") },
+			fn:              func([]string) { e.testCaseSelinuxProfileBinding(busyboxImage) },
 			clusterWideOnly: true,
 		},
 		{
@@ -301,7 +301,7 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "Seccomp: Verify profile binding: image",
 			fn: func(nodes []string) {
-				e.testCaseSeccompProfileBinding(nodes, "busybox:latest")
+				e.testCaseSeccompProfileBinding(nodes, busyboxImage)
 			},
 			flaky:           true,
 			issue:           inUseFinalizerIssue,

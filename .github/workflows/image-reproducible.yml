@@ -30,13 +30,14 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Documentation only pull requests skip the build, see hack/ci/code-changed.sh.
+  # Pull requests which change no input of the images skip the build, see
+  # hack/ci/code-changed.sh.
   changes:
     uses: ./.github/workflows/changes.yml
 
   image-reproducible:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.images == 'true'
     name: image / reproducible
     runs-on: ubuntu-24.04
     timeout-minutes: 120

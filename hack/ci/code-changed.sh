@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Writes code and build-image to the GitHub step output, so that workflows can
-# skip the jobs whose inputs did not change. Workflows gate the jobs with `if:`
-# instead of skipping the whole workflow with `paths-ignore`, because a skipped
-# job still reports a check run for required checks, while a skipped workflow
-# reports none and leaves the pull request waiting.
+# Writes code, images and build-image to the GitHub step output, so that
+# workflows can skip the jobs whose inputs did not change. Workflows gate the
+# jobs with `if:` instead of skipping the whole workflow with `paths-ignore`,
+# because a skipped job still reports a check run for required checks, while a
+# skipped workflow reports none and leaves the pull request waiting.
 #
 # code is false for a pull request which only changes documentation, and for
 # scheduled and manual runs, which change nothing: the build workflow only
@@ -28,6 +28,12 @@
 # toolchain image of Dockerfile.build-image, see build-image-inputs.sh, and for
 # scheduled and manual runs. Releases never rebuild it.
 #
+# images is false for a pull request which changes no input of the per-arch
+# images, the bundle and the catalog of hack/image-cross.sh, which the
+# image-reproducible workflow builds. Pull request runs only check that they
+# still build, the comparison with the staging images runs on main. Everything
+# else is like code.
+#
 # Pull request checkouts are merge commits, so the first parent is the base
 # branch. A push gets compared with BEFORE, the previous head of the branch.
 
@@ -36,18 +42,34 @@ set -euo pipefail
 # shellcheck source=hack/ci/build-image-inputs.sh
 source "$(dirname "${BASH_SOURCE[0]}")/build-image-inputs.sh"
 
+# The files of a pull request which are no input of the images, as extended
+# regular expressions: the builds leave out test, .github, deploy, examples
+# and most of hack through .dockerignore, and the bundle has its own
+# directory. The top-level dotfiles reach the build context, but
+# nix/derivation.nix builds the binaries from a fileset without them, and the
+# final stage of Dockerfile is FROM scratch with only the binaries. The
+# workflow and the scripts which build and compare the images, and the
+# preamble of the catalog in deploy stay inputs.
+NO_IMAGE_INPUTS='^(test/|\.github/|hack/|deploy/|examples/|Vagrantfile|\.[^/]*$)'
+IMAGE_INPUTS='^(\.github/workflows/(image-reproducible|changes)\.yml|hack/(image-cross\.sh|lib/|go-version\.sh|native-sbom\.sh|ci/(code-changed|compare-staging-images)\.sh)|deploy/catalog-preamble\.json$|\.dockerignore$)'
+
 code=true
+images=true
 build_image=false
 case "${EVENT_NAME:-}" in
 pull_request)
     files="$(git diff --name-only HEAD^1 HEAD)"
     code=false
+    images=false
     while IFS= read -r file; do
         case "$file" in
         "" | *.md | doc/* | LICENSE | OWNERS | OWNERS_ALIASES | SECURITY_CONTACTS) ;;
         *)
             code=true
-            break
+            if [[ "$file" =~ $IMAGE_INPUTS || ! "$file" =~ $NO_IMAGE_INPUTS ]]; then
+                images=true
+                break
+            fi
             ;;
         esac
     done <<<"$files"
@@ -69,13 +91,16 @@ push)
     ;;
 schedule | workflow_dispatch)
     code=false
+    images=false
     build_image=true
     ;;
 esac
 
 echo "Code changed: $code"
+echo "Image inputs changed: $images"
 echo "Toolchain image inputs changed: $build_image"
 {
     echo "code=$code"
+    echo "images=$images"
     echo "build-image=$build_image"
 } >>"${GITHUB_OUTPUT:-/dev/stdout}"

@@ -216,7 +216,7 @@ spec:
 	// exec metadata webhook patches. Its sleep is not asserted below, the
 	// enricher does not reliably attribute it.
 	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
-		"busybox:latest", "--", "sleep", "6")
+		busyboxImage, "--", "sleep", "6")
 
 	// In 5 seconds the process info will be captured.
 	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
@@ -226,7 +226,7 @@ spec:
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
 	nodeDebuggingPodEnvOutput := e.kubectl("debug", "--profile", "general",
-		"node/"+strings.Trim(nodeName, "'"), "--image", "busybox", "-it", "--", "env")
+		"node/"+strings.Trim(nodeName, "'"), "--image", busyboxImage, "-it", "--", "env")
 	e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
 	e.logf("The env output has SPO_EXEC_REQUEST_UID")
 

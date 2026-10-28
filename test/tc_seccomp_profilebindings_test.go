@@ -51,7 +51,7 @@ metadata:
   name: hello
 spec:
   containers:
-  - image: busybox:latest
+  - image: ` + busyboxImage + `
     name: hello
     command: ["sh", "-c", "echo Hello from the bound container; exec sleep 3600"]
     resources: {}
