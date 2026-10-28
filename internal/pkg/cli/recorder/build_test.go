@@ -26,10 +26,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/cli-runtime/pkg/printers"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder/recorderfakes"
 )
 
@@ -81,7 +81,7 @@ func TestBuildProfileCRD(t *testing.T) {
 	require.NoError(t, sut.buildProfile(out, []string{"write"}))
 	require.Equal(t, 1, mock.PrintObjCallCount())
 
-	_, obj, writer := mock.PrintObjArgsForCall(0)
+	obj, writer := mock.PrintObjArgsForCall(0)
 	require.Same(t, out, writer)
 
 	profile, ok := obj.(*seccompprofileapi.SeccompProfile)
@@ -94,7 +94,7 @@ func TestBuildProfileCRD(t *testing.T) {
 
 	// The real printer produces a YAML profile CRD.
 	yaml := &bytes.Buffer{}
-	require.NoError(t, (&printers.YAMLPrinter{}).PrintObj(profile, yaml))
+	require.NoError(t, cli.PrintYAML(profile, yaml))
 	require.Contains(t, yaml.String(), "kind: SeccompProfile")
 	require.Contains(t, yaml.String(), "defaultAction: SCMP_ACT_ERRNO")
 }
@@ -143,7 +143,7 @@ func TestBuildAppArmorProfileCRD(t *testing.T) {
 			require.NoError(t, sut.buildAppArmorProfileCRD(out, appArmorSpec()))
 			require.Equal(t, 1, mock.PrintObjCallCount())
 
-			_, obj, _ := mock.PrintObjArgsForCall(0)
+			obj, _ := mock.PrintObjArgsForCall(0)
 			profile, ok := obj.(*apparmorprofileapi.AppArmorProfile)
 			require.True(t, ok)
 			require.Equal(t, "AppArmorProfile", profile.Kind)

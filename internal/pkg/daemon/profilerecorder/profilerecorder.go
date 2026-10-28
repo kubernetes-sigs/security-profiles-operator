@@ -2589,5 +2589,5 @@ func (r *RecorderReconciler) goArchToSeccompArch(goarch string) (seccompprofilea
 		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}
 
-	return seccompprofileapi.Arch(seccompArch), nil
+	return seccompArch, nil
 }

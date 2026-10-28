@@ -19,7 +19,6 @@ package profilerecorder
 import (
 	"context"
 
-	"go.podman.io/common/pkg/seccomp"
 	"google.golang.org/grpc"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +34,7 @@ import (
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
@@ -45,7 +45,7 @@ import (
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 
 // impl is everything the recorder does outside of its own logic, split by
 // concern so that the fakes stay small.
@@ -141,7 +141,7 @@ type enricherImpl interface {
 //
 //counterfeiter:generate . profileImpl
 type profileImpl interface {
-	GoArchToSeccompArch(string) (seccomp.Arch, error)
+	GoArchToSeccompArch(string) (seccompprofileapi.Arch, error)
 }
 
 func (*defaultImpl) NewClient(mgr ctrl.Manager) (client.Client, error) {
@@ -301,8 +301,8 @@ func (*defaultImpl) CreateOrUpdate(
 	return controllerutil.CreateOrUpdate(ctx, c, obj, f)
 }
 
-func (*defaultImpl) GoArchToSeccompArch(goArch string) (seccomp.Arch, error) {
-	return seccomp.GoArchToSeccompArch(goArch)
+func (*defaultImpl) GoArchToSeccompArch(goArch string) (seccompprofileapi.Arch, error) {
+	return util.GoArchToSeccompArch(goArch)
 }
 
 func (*defaultImpl) Syscalls(

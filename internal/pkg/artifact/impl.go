@@ -27,7 +27,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	"github.com/sigstore/sigstore-go/pkg/root"
-	"github.com/sigstore/sigstore-go/pkg/sign"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -36,9 +35,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type defaultImpl struct{}
+type defaultImpl struct {
+	// signer signs keylessly, nil if the Artifact does not sign.
+	signer KeylessSigner
+}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	ParseReference(string, ...ggcrname.Option) (ggcrname.Reference, error)
@@ -77,8 +79,11 @@ type impl interface {
 	) ([]ocispec.Descriptor, error)
 	SigningConfig(context.Context) (*root.SigningConfig, error)
 	TrustedMaterial(context.Context, string, bool) (root.TrustedMaterial, error)
+	CheckKeylessSigner() error
 	IDToken(context.Context, string, bool) (string, error)
-	SignBundle(context.Context, sign.Content, *sign.BundleOptions) (*protobundle.Bundle, error)
+	DSSESigner(
+		*root.SigningConfig, root.TrustedMaterial, string,
+	) (func(context.Context, []byte, string) (*protobundle.Bundle, error), error)
 	VerifyEntity(
 		verify.SignedEntity,
 		root.TrustedMaterial,
@@ -279,23 +284,32 @@ func (*defaultImpl) TrustedMaterial(
 	return tufTrustedRoot(offline)
 }
 
-func (*defaultImpl) IDToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
-	return idToken(ctx, issuer, deviceFlow)
-}
-
-// SignBundle signs the content with an ephemeral key into a Sigstore bundle.
-func (*defaultImpl) SignBundle(
-	ctx context.Context, data sign.Content, opts *sign.BundleOptions,
-) (*protobundle.Bundle, error) {
-	keypair, err := sign.NewEphemeralKeypair(nil)
-	if err != nil {
-		return nil, err
+// CheckKeylessSigner returns ErrNoKeylessSigner if the Artifact does not
+// sign.
+func (d *defaultImpl) CheckKeylessSigner() error {
+	if d.signer == nil {
+		return ErrNoKeylessSigner
 	}
 
-	bundleOpts := *opts
-	bundleOpts.Context = ctx
+	return nil
+}
 
-	return sign.Bundle(data, keypair, bundleOpts)
+func (d *defaultImpl) IDToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
+	if d.signer == nil {
+		return "", ErrNoKeylessSigner
+	}
+
+	return d.signer.IDToken(ctx, issuer, deviceFlow)
+}
+
+func (d *defaultImpl) DSSESigner(
+	signingConfig *root.SigningConfig, material root.TrustedMaterial, token string,
+) (func(context.Context, []byte, string) (*protobundle.Bundle, error), error) {
+	if d.signer == nil {
+		return nil, ErrNoKeylessSigner
+	}
+
+	return d.signer.DSSESigner(signingConfig, material, token)
 }
 
 // VerifyEntity verifies the signed entity against the trusted material. A

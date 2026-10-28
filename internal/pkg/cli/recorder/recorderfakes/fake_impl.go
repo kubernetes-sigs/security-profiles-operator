@@ -29,7 +29,6 @@ import (
 	"github.com/aquasecurity/libbpfgo"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
@@ -138,7 +137,7 @@ type FakeImpl struct {
 	NotifyStub          func(chan<- os.Signal, ...os.Signal)
 	notifyMutex         sync.RWMutex
 	notifyArgsForCall   []FakeImplNotifyArgs
-	PrintObjStub        func(printers.YAMLPrinter, runtime.Object, io.Writer) error
+	PrintObjStub        func(runtime.Object, io.Writer) error
 	printObjMutex       sync.RWMutex
 	printObjArgsForCall []FakeImplPrintObjArgs
 	printObjReturns     struct {
@@ -257,9 +256,8 @@ type FakeImplNotifyArgs struct {
 
 // FakeImplPrintObjArgs holds the arguments of one call to PrintObj.
 type FakeImplPrintObjArgs struct {
-	Arg1 printers.YAMLPrinter
-	Arg2 runtime.Object
-	Arg3 io.Writer
+	Arg1 runtime.Object
+	Arg2 io.Writer
 }
 
 // FakeImplStartBpfRecordingArgs holds the arguments of one call to StartBpfRecording.
@@ -1013,16 +1011,16 @@ func (fake *FakeImpl) NotifyArgs() []FakeImplNotifyArgs {
 	return args
 }
 
-func (fake *FakeImpl) PrintObj(arg1 printers.YAMLPrinter, arg2 runtime.Object, arg3 io.Writer) error {
+func (fake *FakeImpl) PrintObj(arg1 runtime.Object, arg2 io.Writer) error {
 	fake.printObjMutex.Lock()
 	ret, specificReturn := fake.printObjReturnsOnCall[len(fake.printObjArgsForCall)]
-	fake.printObjArgsForCall = append(fake.printObjArgsForCall, FakeImplPrintObjArgs{arg1, arg2, arg3})
+	fake.printObjArgsForCall = append(fake.printObjArgsForCall, FakeImplPrintObjArgs{arg1, arg2})
 	stub := fake.PrintObjStub
 	fakeReturns := fake.printObjReturns
-	fake.recordInvocation("PrintObj", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("PrintObj", []interface{}{arg1, arg2})
 	fake.printObjMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1
@@ -1036,17 +1034,17 @@ func (fake *FakeImpl) PrintObjCallCount() int {
 	return len(fake.printObjArgsForCall)
 }
 
-func (fake *FakeImpl) PrintObjCalls(stub func(printers.YAMLPrinter, runtime.Object, io.Writer) error) {
+func (fake *FakeImpl) PrintObjCalls(stub func(runtime.Object, io.Writer) error) {
 	fake.printObjMutex.Lock()
 	defer fake.printObjMutex.Unlock()
 	fake.PrintObjStub = stub
 }
 
-func (fake *FakeImpl) PrintObjArgsForCall(i int) (printers.YAMLPrinter, runtime.Object, io.Writer) {
+func (fake *FakeImpl) PrintObjArgsForCall(i int) (runtime.Object, io.Writer) {
 	fake.printObjMutex.RLock()
 	defer fake.printObjMutex.RUnlock()
 	argsForCall := fake.printObjArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+	return argsForCall.Arg1, argsForCall.Arg2
 }
 
 func (fake *FakeImpl) PrintObjArgs() []FakeImplPrintObjArgs {

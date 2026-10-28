@@ -22,12 +22,13 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact/signing"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	Push(
@@ -48,6 +49,6 @@ func (*defaultImpl) Push(
 	annotations map[string]string,
 	signOpts *artifact.PushOptions,
 ) error {
-	return artifact.New(cli.Logger()).
+	return artifact.NewWithSigner(cli.Logger(), signing.New()).
 		Push(ctx, files, to, username, password, annotations, signOpts)
 }

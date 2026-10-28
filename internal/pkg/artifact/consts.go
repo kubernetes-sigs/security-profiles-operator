@@ -75,8 +75,8 @@ const (
 	// list, which has the layout of an OCI image index.
 	mediaTypeDockerManifestList = "application/vnd.docker.distribution.manifest.list.v2+json"
 
-	// defaultTimeout is the default timeout for push and pull operations.
-	defaultTimeout = 5 * time.Minute
+	// DefaultTimeout is the default timeout for push and pull operations.
+	DefaultTimeout = 5 * time.Minute
 
 	// bundleMediaType is the media type of a Sigstore bundle, which is the
 	// artifact type of the referrer manifest a signature is attached with
@@ -307,6 +307,17 @@ var (
 	ErrNoInteractiveSignIn = errors.New(
 		"no OIDC identity token in the environment and no terminal to sign in interactively",
 	)
+
+	// ErrNoOIDCProvider is returned if the signing config has no OIDC
+	// provider to sign in at, and the environment furnishes no identity token
+	// either.
+	ErrNoOIDCProvider = errors.New(
+		"no OIDC provider in the signing config and no identity token in the environment",
+	)
+
+	// ErrNoKeylessSigner is returned when signing with an Artifact which got
+	// created without a KeylessSigner.
+	ErrNoKeylessSigner = errors.New("no keyless signer to sign with")
 )
 
 // PullResultType are the different types returned for a PullResult.

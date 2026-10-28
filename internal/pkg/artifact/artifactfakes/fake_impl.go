@@ -26,7 +26,6 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	v1a "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	"github.com/sigstore/sigstore-go/pkg/root"
-	"github.com/sigstore/sigstore-go/pkg/sign"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 	oras "oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -36,6 +35,15 @@ import (
 )
 
 type FakeImpl struct {
+	CheckKeylessSignerStub        func() error
+	checkKeylessSignerMutex       sync.RWMutex
+	checkKeylessSignerArgsForCall []struct{}
+	checkKeylessSignerReturns     struct {
+		result1 error
+	}
+	checkKeylessSignerReturnsOnCall map[int]struct {
+		result1 error
+	}
 	CopyStub        func(context.Context, oras.ReadOnlyTarget, string, oras.Target, string, oras.CopyOptions) (v1.Descriptor, error)
 	copyMutex       sync.RWMutex
 	copyArgsForCall []FakeImplCopyArgs
@@ -45,6 +53,17 @@ type FakeImpl struct {
 	}
 	copyReturnsOnCall map[int]struct {
 		result1 v1.Descriptor
+		result2 error
+	}
+	DSSESignerStub        func(*root.SigningConfig, root.TrustedMaterial, string) (func(context.Context, []byte, string) (*v1a.Bundle, error), error)
+	dSSESignerMutex       sync.RWMutex
+	dSSESignerArgsForCall []FakeImplDSSESignerArgs
+	dSSESignerReturns     struct {
+		result1 func(context.Context, []byte, string) (*v1a.Bundle, error)
+		result2 error
+	}
+	dSSESignerReturnsOnCall map[int]struct {
+		result1 func(context.Context, []byte, string) (*v1a.Bundle, error)
 		result2 error
 	}
 	FetchAllStub        func(context.Context, *remote.Repository, *v1.Descriptor) ([]byte, error)
@@ -208,17 +227,6 @@ type FakeImpl struct {
 		result1 v1.Descriptor
 		result2 error
 	}
-	SignBundleStub        func(context.Context, sign.Content, *sign.BundleOptions) (*v1a.Bundle, error)
-	signBundleMutex       sync.RWMutex
-	signBundleArgsForCall []FakeImplSignBundleArgs
-	signBundleReturns     struct {
-		result1 *v1a.Bundle
-		result2 error
-	}
-	signBundleReturnsOnCall map[int]struct {
-		result1 *v1a.Bundle
-		result2 error
-	}
 	SignatureReferrersStub        func(context.Context, *remote.Repository, *v1.Descriptor) ([]v1.Descriptor, error)
 	signatureReferrersMutex       sync.RWMutex
 	signatureReferrersArgsForCall []FakeImplSignatureReferrersArgs
@@ -303,6 +311,13 @@ type FakeImplCopyArgs struct {
 	Arg4 oras.Target
 	Arg5 string
 	Arg6 oras.CopyOptions
+}
+
+// FakeImplDSSESignerArgs holds the arguments of one call to DSSESigner.
+type FakeImplDSSESignerArgs struct {
+	Arg1 *root.SigningConfig
+	Arg2 root.TrustedMaterial
+	Arg3 string
 }
 
 // FakeImplFetchAllArgs holds the arguments of one call to FetchAll.
@@ -398,13 +413,6 @@ type FakeImplResolveRepositoryArgs struct {
 	Arg3 string
 }
 
-// FakeImplSignBundleArgs holds the arguments of one call to SignBundle.
-type FakeImplSignBundleArgs struct {
-	Arg1 context.Context
-	Arg2 sign.Content
-	Arg3 *sign.BundleOptions
-}
-
 // FakeImplSignatureReferrersArgs holds the arguments of one call to SignatureReferrers.
 type FakeImplSignatureReferrersArgs struct {
 	Arg1 context.Context
@@ -454,6 +462,58 @@ type FakeImplVerifyEntityArgs struct {
 	Arg3 []verify.VerifierOption
 	Arg4 verify.ArtifactPolicyOption
 	Arg5 *verify.CertificateIdentity
+}
+
+func (fake *FakeImpl) CheckKeylessSigner() error {
+	fake.checkKeylessSignerMutex.Lock()
+	ret, specificReturn := fake.checkKeylessSignerReturnsOnCall[len(fake.checkKeylessSignerArgsForCall)]
+	fake.checkKeylessSignerArgsForCall = append(fake.checkKeylessSignerArgsForCall, struct{}{})
+	stub := fake.CheckKeylessSignerStub
+	fakeReturns := fake.checkKeylessSignerReturns
+	fake.recordInvocation("CheckKeylessSigner", []interface{}{})
+	fake.checkKeylessSignerMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) CheckKeylessSignerCallCount() int {
+	fake.checkKeylessSignerMutex.RLock()
+	defer fake.checkKeylessSignerMutex.RUnlock()
+	return len(fake.checkKeylessSignerArgsForCall)
+}
+
+func (fake *FakeImpl) CheckKeylessSignerCalls(stub func() error) {
+	fake.checkKeylessSignerMutex.Lock()
+	defer fake.checkKeylessSignerMutex.Unlock()
+	fake.CheckKeylessSignerStub = stub
+}
+
+func (fake *FakeImpl) CheckKeylessSignerReturns(result1 error) {
+	fake.checkKeylessSignerMutex.Lock()
+	defer fake.checkKeylessSignerMutex.Unlock()
+	fake.CheckKeylessSignerStub = nil
+	fake.checkKeylessSignerReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) CheckKeylessSignerReturnsOnCall(i int, result1 error) {
+	fake.checkKeylessSignerMutex.Lock()
+	defer fake.checkKeylessSignerMutex.Unlock()
+	fake.CheckKeylessSignerStub = nil
+	if fake.checkKeylessSignerReturnsOnCall == nil {
+		fake.checkKeylessSignerReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.checkKeylessSignerReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) Copy(arg1 context.Context, arg2 oras.ReadOnlyTarget, arg3 string, arg4 oras.Target, arg5 string, arg6 oras.CopyOptions) (v1.Descriptor, error) {
@@ -522,6 +582,76 @@ func (fake *FakeImpl) CopyReturnsOnCall(i int, result1 v1.Descriptor, result2 er
 	}
 	fake.copyReturnsOnCall[i] = struct {
 		result1 v1.Descriptor
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) DSSESigner(arg1 *root.SigningConfig, arg2 root.TrustedMaterial, arg3 string) (func(context.Context, []byte, string) (*v1a.Bundle, error), error) {
+	fake.dSSESignerMutex.Lock()
+	ret, specificReturn := fake.dSSESignerReturnsOnCall[len(fake.dSSESignerArgsForCall)]
+	fake.dSSESignerArgsForCall = append(fake.dSSESignerArgsForCall, FakeImplDSSESignerArgs{arg1, arg2, arg3})
+	stub := fake.DSSESignerStub
+	fakeReturns := fake.dSSESignerReturns
+	fake.recordInvocation("DSSESigner", []interface{}{arg1, arg2, arg3})
+	fake.dSSESignerMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) DSSESignerCallCount() int {
+	fake.dSSESignerMutex.RLock()
+	defer fake.dSSESignerMutex.RUnlock()
+	return len(fake.dSSESignerArgsForCall)
+}
+
+func (fake *FakeImpl) DSSESignerCalls(stub func(*root.SigningConfig, root.TrustedMaterial, string) (func(context.Context, []byte, string) (*v1a.Bundle, error), error)) {
+	fake.dSSESignerMutex.Lock()
+	defer fake.dSSESignerMutex.Unlock()
+	fake.DSSESignerStub = stub
+}
+
+func (fake *FakeImpl) DSSESignerArgsForCall(i int) (*root.SigningConfig, root.TrustedMaterial, string) {
+	fake.dSSESignerMutex.RLock()
+	defer fake.dSSESignerMutex.RUnlock()
+	argsForCall := fake.dSSESignerArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) DSSESignerArgs() []FakeImplDSSESignerArgs {
+	fake.dSSESignerMutex.RLock()
+	defer fake.dSSESignerMutex.RUnlock()
+	args := make([]FakeImplDSSESignerArgs, len(fake.dSSESignerArgsForCall))
+	copy(args, fake.dSSESignerArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) DSSESignerReturns(result1 func(context.Context, []byte, string) (*v1a.Bundle, error), result2 error) {
+	fake.dSSESignerMutex.Lock()
+	defer fake.dSSESignerMutex.Unlock()
+	fake.DSSESignerStub = nil
+	fake.dSSESignerReturns = struct {
+		result1 func(context.Context, []byte, string) (*v1a.Bundle, error)
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) DSSESignerReturnsOnCall(i int, result1 func(context.Context, []byte, string) (*v1a.Bundle, error), result2 error) {
+	fake.dSSESignerMutex.Lock()
+	defer fake.dSSESignerMutex.Unlock()
+	fake.DSSESignerStub = nil
+	if fake.dSSESignerReturnsOnCall == nil {
+		fake.dSSESignerReturnsOnCall = make(map[int]struct {
+			result1 func(context.Context, []byte, string) (*v1a.Bundle, error)
+			result2 error
+		})
+	}
+	fake.dSSESignerReturnsOnCall[i] = struct {
+		result1 func(context.Context, []byte, string) (*v1a.Bundle, error)
 		result2 error
 	}{result1, result2}
 }
@@ -1576,76 +1706,6 @@ func (fake *FakeImpl) ResolveRepositoryReturnsOnCall(i int, result1 v1.Descripto
 	}
 	fake.resolveRepositoryReturnsOnCall[i] = struct {
 		result1 v1.Descriptor
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) SignBundle(arg1 context.Context, arg2 sign.Content, arg3 *sign.BundleOptions) (*v1a.Bundle, error) {
-	fake.signBundleMutex.Lock()
-	ret, specificReturn := fake.signBundleReturnsOnCall[len(fake.signBundleArgsForCall)]
-	fake.signBundleArgsForCall = append(fake.signBundleArgsForCall, FakeImplSignBundleArgs{arg1, arg2, arg3})
-	stub := fake.SignBundleStub
-	fakeReturns := fake.signBundleReturns
-	fake.recordInvocation("SignBundle", []interface{}{arg1, arg2, arg3})
-	fake.signBundleMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) SignBundleCallCount() int {
-	fake.signBundleMutex.RLock()
-	defer fake.signBundleMutex.RUnlock()
-	return len(fake.signBundleArgsForCall)
-}
-
-func (fake *FakeImpl) SignBundleCalls(stub func(context.Context, sign.Content, *sign.BundleOptions) (*v1a.Bundle, error)) {
-	fake.signBundleMutex.Lock()
-	defer fake.signBundleMutex.Unlock()
-	fake.SignBundleStub = stub
-}
-
-func (fake *FakeImpl) SignBundleArgsForCall(i int) (context.Context, sign.Content, *sign.BundleOptions) {
-	fake.signBundleMutex.RLock()
-	defer fake.signBundleMutex.RUnlock()
-	argsForCall := fake.signBundleArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
-}
-
-func (fake *FakeImpl) SignBundleArgs() []FakeImplSignBundleArgs {
-	fake.signBundleMutex.RLock()
-	defer fake.signBundleMutex.RUnlock()
-	args := make([]FakeImplSignBundleArgs, len(fake.signBundleArgsForCall))
-	copy(args, fake.signBundleArgsForCall)
-	return args
-}
-
-func (fake *FakeImpl) SignBundleReturns(result1 *v1a.Bundle, result2 error) {
-	fake.signBundleMutex.Lock()
-	defer fake.signBundleMutex.Unlock()
-	fake.SignBundleStub = nil
-	fake.signBundleReturns = struct {
-		result1 *v1a.Bundle
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) SignBundleReturnsOnCall(i int, result1 *v1a.Bundle, result2 error) {
-	fake.signBundleMutex.Lock()
-	defer fake.signBundleMutex.Unlock()
-	fake.SignBundleStub = nil
-	if fake.signBundleReturnsOnCall == nil {
-		fake.signBundleReturnsOnCall = make(map[int]struct {
-			result1 *v1a.Bundle
-			result2 error
-		})
-	}
-	fake.signBundleReturnsOnCall[i] = struct {
-		result1 *v1a.Bundle
 		result2 error
 	}{result1, result2}
 }

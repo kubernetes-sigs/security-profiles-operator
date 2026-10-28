@@ -21,3 +21,7 @@ package seccompprofile
 // builtWithSeccomp reports whether the operator got built with seccomp
 // support. Without it, every node looks like one without seccomp.
 const builtWithSeccomp = false
+
+func kernelSupportsSeccomp() bool {
+	return false
+}

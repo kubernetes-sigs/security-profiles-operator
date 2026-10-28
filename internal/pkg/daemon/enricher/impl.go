@@ -65,7 +65,7 @@ func newDefaultImpl(logger logr.Logger) *defaultImpl {
 	}
 }
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	Dial() (*grpc.ClientConn, error)

@@ -253,7 +253,7 @@ func (n *NonRootEnabler) linkProfilesRoot(logger logr.Logger, kubeletOperatorDir
 	return nil
 }
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
+//go:generate go run -modfile=../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	MkdirAll(dirpath string, perm os.FileMode) error

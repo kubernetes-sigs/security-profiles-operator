@@ -63,6 +63,8 @@ import (
 	"oras.land/oras-go/v2"
 	orascontent "oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact/signing/dsse"
 )
 
 const (
@@ -361,22 +363,34 @@ func (*testSigstoreImpl) IDToken(context.Context, string, bool) (string, error) 
 	return "token", nil
 }
 
-func (i *testSigstoreImpl) SignBundle(
-	ctx context.Context, content sign.Content, opts *sign.BundleOptions,
-) (*protobundle.Bundle, error) {
-	require.NotNil(i.t, opts.CertificateProvider)
-	require.Equal(i.t, "token", opts.CertificateProviderOptions.IDToken)
-	require.Len(i.t, opts.TransparencyLogs, 1)
+func (i *testSigstoreImpl) DSSESigner(
+	_ *root.SigningConfig, material root.TrustedMaterial, token string,
+) (func(context.Context, []byte, string) (*protobundle.Bundle, error), error) {
+	require.Equal(i.t, "token", token)
 
-	testOpts := *opts
-	testOpts.CertificateProvider = &testFulcio{
-		sigstore: i.sigstore,
-		identity: i.identity,
-		issuer:   testIssuer,
-	}
-	testOpts.TransparencyLogs = []sign.Transparency{&testRekor{t: i.t, sigstore: i.sigstore}}
+	return func(ctx context.Context, payload []byte, payloadType string) (*protobundle.Bundle, error) {
+		return dsse.Sign(
+			ctx,
+			&sign.BundleOptions{
+				CertificateProvider: &testFulcio{
+					sigstore: i.sigstore,
+					identity: i.identity,
+					issuer:   testIssuer,
+				},
+				CertificateProviderOptions: &sign.CertificateProviderOptions{IDToken: token},
+				TransparencyLogs: []sign.Transparency{
+					&testRekor{t: i.t, sigstore: i.sigstore},
+				},
+				TrustedRoot: material,
+			},
+			payload,
+			payloadType,
+		)
+	}, nil
+}
 
-	return i.defaultImpl.SignBundle(ctx, content, &testOpts)
+func (*testSigstoreImpl) CheckKeylessSigner() error {
+	return nil
 }
 
 // testRegistry starts an in-process registry and returns its host.
@@ -1127,52 +1141,6 @@ func (e *testSignedEntity) TlogEntries() ([]*tlog.Entry, error) {
 	}
 
 	return entries, nil
-}
-
-func TestBundleOptions(t *testing.T) {
-	t.Parallel()
-
-	service := func(url string, version uint32) []root.Service {
-		return []root.Service{
-			{URL: url, MajorAPIVersion: version, ValidityPeriodStart: time.Now().Add(-time.Hour)},
-		}
-	}
-	any1 := root.ServiceConfiguration{Selector: prototrustroot.ServiceSelector_ANY, Count: 1}
-
-	config := func(t *testing.T, rekorVersion uint32, tsa bool) *root.SigningConfig {
-		t.Helper()
-
-		var authorities []root.Service
-		if tsa {
-			authorities = service("https://tsa.example.com", 1)
-		}
-
-		signingConfig, err := root.NewSigningConfig(
-			root.SigningConfigMediaType02,
-			service("https://fulcio.example.com", 1),
-			service("https://oauth2.example.com", 1),
-			service("https://rekor.example.com", rekorVersion),
-			any1, authorities, any1,
-		)
-		require.NoError(t, err)
-
-		return signingConfig
-	}
-
-	opts, err := bundleOptions(config(t, 1, false), nil, "token")
-	require.NoError(t, err)
-	require.NotNil(t, opts.CertificateProvider)
-	require.Equal(t, "token", opts.CertificateProviderOptions.IDToken)
-	require.Len(t, opts.TransparencyLogs, 1)
-	require.Empty(t, opts.TimestampAuthorities)
-
-	opts, err = bundleOptions(config(t, 2, true), nil, "token")
-	require.NoError(t, err)
-	require.Len(t, opts.TransparencyLogs, 1)
-	require.Len(t, opts.TimestampAuthorities, 1)
-
-	_, err = bundleOptions(config(t, 2, false), nil, "token")
-	require.ErrorIs(t, err, ErrRekorV2WithoutTimestampAuthority)
 }
 
 func TestSignatureStatement(t *testing.T) {

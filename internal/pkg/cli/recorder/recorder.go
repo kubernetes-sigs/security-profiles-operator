@@ -36,10 +36,8 @@ import (
 	"time"
 
 	libseccomp "github.com/seccomp/libseccomp-golang"
-	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -49,6 +47,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -491,8 +490,7 @@ func (r *Recorder) buildProfileCRD(
 		Spec: *spec,
 	}
 
-	printer := printers.YAMLPrinter{}
-	if err := r.PrintObj(printer, profile, writer); err != nil {
+	if err := r.PrintObj(profile, writer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
@@ -514,8 +512,7 @@ func (r *Recorder) buildAppArmorProfileCRD(
 		Spec: *spec,
 	}
 
-	printer := printers.YAMLPrinter{}
-	if err := r.PrintObj(printer, profile, writer); err != nil {
+	if err := r.PrintObj(profile, writer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
@@ -557,10 +554,10 @@ func (r *Recorder) buildAppArmorProfileRaw(
 }
 
 func (r *Recorder) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
-	seccompArch, err := seccomp.GoArchToSeccompArch(goarch)
+	seccompArch, err := util.GoArchToSeccompArch(goarch)
 	if err != nil {
 		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}
 
-	return seccompprofileapi.Arch(seccompArch), nil
+	return seccompArch, nil
 }

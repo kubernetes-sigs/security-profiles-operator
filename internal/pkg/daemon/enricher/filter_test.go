@@ -20,10 +20,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
@@ -224,7 +224,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -244,7 +244,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -271,7 +271,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -299,7 +299,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -321,7 +321,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -350,7 +350,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -372,7 +372,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",
@@ -382,7 +382,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 					"node":       nil,
 					"syscalls":   "",
 					"timestamp":  "test",
-					"requestUID": uuid.New().String(),
+					"requestUID": uuid.NewV4().String(),
 				},
 				enricherFilters: []types.EnricherFilterOptions{
 					{Priority: 100, Level: "Metadata", MatchKeys: []string{"requestUID"}},
@@ -401,7 +401,7 @@ func TestApplyEnricherFilters(t *testing.T) {
 			args: args{
 				logMap: map[string]any{
 					"version":    "spo/v1_alpha",
-					"auditID":    uuid.New().String(),
+					"auditID":    uuid.NewV4().String(),
 					"executable": "test",
 					"cmdLine":    "test",
 					"uid":        "test",

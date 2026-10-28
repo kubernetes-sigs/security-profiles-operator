@@ -28,7 +28,6 @@ import (
 	"github.com/aquasecurity/libbpfgo"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/cli-runtime/pkg/printers"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
@@ -37,7 +36,7 @@ import (
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.bpf.txt
+//go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.bpf.txt
 //counterfeiter:generate . impl
 type impl interface {
 	LoadBpfRecorder(*bpfrecorder.BpfRecorder) error
@@ -55,7 +54,7 @@ type impl interface {
 	AppArmorProcessed(*bpfrecorder.BpfRecorder, []uint64) (bpfrecorder.BpfAppArmorProcessed, bool)
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	Create(string) (io.WriteCloser, error)
-	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
+	PrintObj(runtime.Object, io.Writer) error
 	Notify(chan<- os.Signal, ...os.Signal)
 	StopNotify(chan<- os.Signal)
 }
@@ -143,8 +142,8 @@ func (nopCloser) Close() error {
 	return nil
 }
 
-func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Writer) error {
-	return p.PrintObj(obj, w)
+func (*defaultImpl) PrintObj(obj runtime.Object, w io.Writer) error {
+	return cli.PrintYAML(obj, w)
 }
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {

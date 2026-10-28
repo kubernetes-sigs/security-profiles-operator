@@ -20,19 +20,19 @@ package profilerecorderfakes
 import (
 	"sync"
 
-	"go.podman.io/common/pkg/seccomp"
+	v1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 type FakeProfileImpl struct {
-	GoArchToSeccompArchStub        func(string) (seccomp.Arch, error)
+	GoArchToSeccompArchStub        func(string) (v1.Arch, error)
 	goArchToSeccompArchMutex       sync.RWMutex
 	goArchToSeccompArchArgsForCall []FakeProfileImplGoArchToSeccompArchArgs
 	goArchToSeccompArchReturns     struct {
-		result1 seccomp.Arch
+		result1 v1.Arch
 		result2 error
 	}
 	goArchToSeccompArchReturnsOnCall map[int]struct {
-		result1 seccomp.Arch
+		result1 v1.Arch
 		result2 error
 	}
 	invocations      map[string][][]interface{}
@@ -45,7 +45,7 @@ type FakeProfileImplGoArchToSeccompArchArgs struct {
 	Arg1 string
 }
 
-func (fake *FakeProfileImpl) GoArchToSeccompArch(arg1 string) (seccomp.Arch, error) {
+func (fake *FakeProfileImpl) GoArchToSeccompArch(arg1 string) (v1.Arch, error) {
 	fake.goArchToSeccompArchMutex.Lock()
 	ret, specificReturn := fake.goArchToSeccompArchReturnsOnCall[len(fake.goArchToSeccompArchArgsForCall)]
 	fake.goArchToSeccompArchArgsForCall = append(fake.goArchToSeccompArchArgsForCall, FakeProfileImplGoArchToSeccompArchArgs{arg1})
@@ -68,7 +68,7 @@ func (fake *FakeProfileImpl) GoArchToSeccompArchCallCount() int {
 	return len(fake.goArchToSeccompArchArgsForCall)
 }
 
-func (fake *FakeProfileImpl) GoArchToSeccompArchCalls(stub func(string) (seccomp.Arch, error)) {
+func (fake *FakeProfileImpl) GoArchToSeccompArchCalls(stub func(string) (v1.Arch, error)) {
 	fake.goArchToSeccompArchMutex.Lock()
 	defer fake.goArchToSeccompArchMutex.Unlock()
 	fake.GoArchToSeccompArchStub = stub
@@ -89,28 +89,28 @@ func (fake *FakeProfileImpl) GoArchToSeccompArchArgs() []FakeProfileImplGoArchTo
 	return args
 }
 
-func (fake *FakeProfileImpl) GoArchToSeccompArchReturns(result1 seccomp.Arch, result2 error) {
+func (fake *FakeProfileImpl) GoArchToSeccompArchReturns(result1 v1.Arch, result2 error) {
 	fake.goArchToSeccompArchMutex.Lock()
 	defer fake.goArchToSeccompArchMutex.Unlock()
 	fake.GoArchToSeccompArchStub = nil
 	fake.goArchToSeccompArchReturns = struct {
-		result1 seccomp.Arch
+		result1 v1.Arch
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeProfileImpl) GoArchToSeccompArchReturnsOnCall(i int, result1 seccomp.Arch, result2 error) {
+func (fake *FakeProfileImpl) GoArchToSeccompArchReturnsOnCall(i int, result1 v1.Arch, result2 error) {
 	fake.goArchToSeccompArchMutex.Lock()
 	defer fake.goArchToSeccompArchMutex.Unlock()
 	fake.GoArchToSeccompArchStub = nil
 	if fake.goArchToSeccompArchReturnsOnCall == nil {
 		fake.goArchToSeccompArchReturnsOnCall = make(map[int]struct {
-			result1 seccomp.Arch
+			result1 v1.Arch
 			result2 error
 		})
 	}
 	fake.goArchToSeccompArchReturnsOnCall[i] = struct {
-		result1 seccomp.Arch
+		result1 v1.Arch
 		result2 error
 	}{result1, result2}
 }
