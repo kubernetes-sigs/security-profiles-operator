@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"reflect"
 
 	yamlv3 "go.yaml.in/yaml/v3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -87,7 +89,30 @@ func ReadSingleProfile(content []byte) (client.Object, error) {
 		return nil, err
 	}
 
-	return ReadProfile(content)
+	profile, err := ReadProfile(content)
+	if err != nil {
+		return nil, err
+	}
+
+	// A misspelled field would be dropped without a word. Profiles written
+	// by newer versions may have fields this one does not know, so they are
+	// only warned about.
+	if err := unknownFields(content, profile); err != nil {
+		log.Printf("WARNING: Ignoring what the profile has beyond the known fields: %v", err)
+	}
+
+	return profile, nil
+}
+
+// unknownFields returns the error of decoding content strictly into a new
+// object of the type of profile, which tells the fields it does not know.
+func unknownFields(content []byte, profile client.Object) error {
+	fresh, ok := reflect.TypeAssert[client.Object](reflect.New(reflect.TypeOf(profile).Elem()))
+	if !ok {
+		return nil
+	}
+
+	return yaml.UnmarshalStrict(content, fresh)
 }
 
 // ReadProfile unmarshals a raw security profile YAML byte slice into a SeccompProfile, SelinuxProfile,

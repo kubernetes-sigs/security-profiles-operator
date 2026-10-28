@@ -89,6 +89,9 @@ type Reconciler struct {
 	// traversalWarned holds the generation of the profiles which were
 	// already reported for file system paths with a directory traversal.
 	traversalWarned common.Reports[int64]
+	// overlapWarned holds the generation of the profiles which were
+	// reported for overlapping deny rules.
+	overlapWarned common.Reports[int64]
 
 	// unsupported remembers the profiles which got reported for a node
 	// without AppArmor.
@@ -115,6 +118,7 @@ type rejection struct {
 func (r *Reconciler) forgetProfile(key types.NamespacedName) {
 	r.ptraceWarned.Forget(key)
 	r.traversalWarned.Forget(key)
+	r.overlapWarned.Forget(key)
 	r.rejected.Forget(key)
 }
 
@@ -154,6 +158,33 @@ func (r *Reconciler) warnTraversalPaths(
 	}
 
 	l.Info("WARNING: "+crd2armor.TraversalPathsMessage, "profile", sp.GetName(), "paths", paths)
+}
+
+// warnOverlappingDenyRules logs once per profile generation the deny rules
+// which overlap with rules allowing the same files, which then never allow
+// what they were meant for.
+func (r *Reconciler) warnOverlappingDenyRules(
+	sp *apparmorprofileapi.AppArmorProfile,
+	l logr.Logger,
+) {
+	// Checking the paths takes a while for a large profile, so a generation
+	// gets checked once.
+	if !r.overlapWarned.ShouldReport(client.ObjectKeyFromObject(sp), sp.GetGeneration()) {
+		return
+	}
+
+	overlaps := crd2armor.OverlappingDenyRules(sp.Spec.Mode, &sp.Spec.Abstract)
+	if len(overlaps) == 0 {
+		return
+	}
+
+	l.Info(
+		"WARNING: "+crd2armor.OverlappingDenyMessage,
+		"profile",
+		sp.GetName(),
+		"overlaps",
+		overlaps,
+	)
 }
 
 // reportError increments the error metric of the profile for reason and
@@ -397,6 +428,7 @@ func (r *Reconciler) installProfile(
 
 	r.warnDeprecatedPtraceRules(sp, l)
 	r.warnTraversalPaths(sp, l)
+	r.warnOverlappingDenyRules(sp, l)
 
 	// The profiles of the operator carry the ownership marker, so only the
 	// name tells that they are not the ones of this profile.

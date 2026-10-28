@@ -26,7 +26,9 @@ import (
 type Options struct {
 	inputFiles []string
 	outputFile string
-	check      bool
+	// outputFileSet is set if the output file got passed.
+	outputFileSet bool
+	check         bool
 }
 
 // Default returns a default options instance.
@@ -70,6 +72,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
+		options.outputFileSet = true
 	}
 
 	if options.outputFile == "" {

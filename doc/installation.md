@@ -393,7 +393,7 @@ its last lines:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator --tail=-1 | grep "Set logging verbosity"
-"Set logging verbosity to 1"
+"Set logging verbosity" verbosity=1
 ```
 
 ### Pull images from private registry

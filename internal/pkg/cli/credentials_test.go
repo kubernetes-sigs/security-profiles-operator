@@ -67,6 +67,34 @@ func TestRegistryCredentials(t *testing.T) {
 			wantPassword: "secret",
 		},
 		{
+			// A password cut off at the limit would only fail to log in.
+			name:    "password from stdin too long",
+			args:    []string{"--username", "user", "--password-stdin"},
+			stdin:   strings.Repeat("a", maxPasswordSize+1),
+			wantErr: ErrPasswordTooLong,
+		},
+		{
+			name:         "password from stdin at the limit with a line break",
+			args:         []string{"--username", "user", "--password-stdin"},
+			stdin:        strings.Repeat("a", maxPasswordSize) + "\n",
+			wantUser:     "user",
+			wantPassword: strings.Repeat("a", maxPasswordSize),
+		},
+		{
+			name:         "password from stdin at the limit with a CRLF",
+			args:         []string{"--username", "user", "--password-stdin"},
+			stdin:        strings.Repeat("a", maxPasswordSize) + "\r\n",
+			wantUser:     "user",
+			wantPassword: strings.Repeat("a", maxPasswordSize),
+		},
+		{
+			name:         "password from stdin at the limit",
+			args:         []string{"--username", "user", "--password-stdin"},
+			stdin:        strings.Repeat("a", maxPasswordSize),
+			wantUser:     "user",
+			wantPassword: strings.Repeat("a", maxPasswordSize),
+		},
+		{
 			name:    "password from stdin and environment",
 			args:    []string{"--username", "user", "--password-stdin"},
 			env:     map[string]string{EnvKeyPassword: "pass"},

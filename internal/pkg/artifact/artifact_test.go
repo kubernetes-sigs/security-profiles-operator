@@ -1353,7 +1353,7 @@ func TestDecodeRuntimeSpecSeccompProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			runtimeSpec, err := decodeRuntimeSpecSeccompProfile([]byte(tc.content))
+			runtimeSpec, err := DecodeRuntimeSpecSeccompProfile([]byte(tc.content))
 
 			switch {
 			case tc.wantErr != nil:

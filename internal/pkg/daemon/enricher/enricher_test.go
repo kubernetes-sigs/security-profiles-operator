@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -1100,6 +1101,22 @@ func TestRunStopsWithContext(t *testing.T) {
 	waitForCallCount(t, mock.CloseCallCount, 1)
 }
 
+// TestRunFailsWithGRPCServer asserts that the enricher fails once its GRPC
+// server does, instead of running on with a socket nobody answers on.
+func TestRunFailsWithGRPCServer(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRunSut(t, make(chan *types.AuditLine))
+	mock.ServeReturns(errTest)
+
+	select {
+	case err := <-startRun(t, sut):
+		require.ErrorIs(t, err, errTest)
+	case <-time.After(time.Minute):
+		t.Fatal("Run did not return")
+	}
+}
+
 // TestRunClosesListenerOnChownFailure asserts that the listener of the GRPC
 // server is not leaked if its socket cannot be handed to the rootless user.
 func TestRunClosesListenerOnChownFailure(t *testing.T) {
@@ -1145,23 +1162,117 @@ func TestBacklogKeepsItsTTL(t *testing.T) {
 	require.Len(t, lines, 2)
 }
 
+// TestBacklogTotalIsBounded asserts that the backlogs of all containers keep
+// at most auditBacklogTotalMax lines together, and that a backlog which left
+// the cache frees its lines.
+func TestBacklogTotalIsBounded(t *testing.T) {
+	t.Parallel()
+
+	var total atomic.Int64
+
+	backlogs := make([]*auditBacklog, 0, auditBacklogTotalMax/auditBacklogMax)
+
+	for range auditBacklogTotalMax / auditBacklogMax {
+		backlog := newAuditBacklog(&total)
+		backlogs = append(backlogs, backlog)
+
+		for range auditBacklogMax {
+			kept, _, _ := backlog.add(&types.AuditLine{AuditType: types.AuditTypeSeccomp})
+			require.True(t, kept)
+		}
+	}
+
+	require.EqualValues(t, auditBacklogTotalMax, total.Load())
+
+	other := newAuditBacklog(&total)
+	kept, dropped, overBudget := other.add(&types.AuditLine{AuditType: types.AuditTypeSeccomp})
+	require.False(t, kept)
+	require.True(t, overBudget)
+	require.EqualValues(t, 1, dropped)
+
+	backlogs[0].release()
+	backlogs[0].release()
+	require.EqualValues(t, auditBacklogTotalMax-auditBacklogMax, total.Load())
+
+	kept, _, _ = other.add(&types.AuditLine{AuditType: types.AuditTypeSeccomp})
+	require.True(t, kept)
+
+	// A released backlog is not dispatched any more.
+	kept, _, overBudget = backlogs[0].add(&types.AuditLine{AuditType: types.AuditTypeSelinux})
+	require.False(t, kept)
+	require.False(t, overBudget)
+}
+
+// TestBacklogReleasesBudget asserts that the lines of a backlog leave the
+// budget of all backlogs once it got flushed or dropped.
+func TestBacklogReleasesBudget(t *testing.T) {
+	t.Parallel()
+
+	sut, err := New(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	line := &types.AuditLine{AuditType: types.AuditTypeSeccomp}
+
+	require.NoError(t, sut.addToBacklog(containerID, line))
+	require.EqualValues(t, 1, sut.backlogLines.Load())
+
+	sut.dispatchBacklog(node, &types.ContainerInfo{ContainerID: containerID})
+	require.Zero(t, sut.backlogLines.Load(), "a flushed backlog is released right away")
+
+	// A backlog dropped because the cache is full is released as well.
+	for i := range maxCacheItems + 1 {
+		require.NoError(t, sut.addToBacklog(fmt.Sprintf("container-%d", i), line))
+	}
+
+	require.Eventually(t, func() bool {
+		return sut.backlogLines.Load() == int64(maxCacheItems)
+	}, time.Minute, time.Millisecond)
+}
+
+// TestBacklogBudgetDropsAreLoggedRarely asserts that the lines dropped because
+// all backlogs are full are not logged for each line, although every one of
+// them starts a backlog of its own.
+func TestBacklogBudgetDropsAreLoggedRarely(t *testing.T) {
+	t.Parallel()
+
+	var logged atomic.Int64
+
+	sut, err := New(funcr.New(func(_, args string) {
+		if strings.Contains(args, "Audit backlogs of all containers are full") {
+			logged.Add(1)
+		}
+	}, funcr.Options{}), nil)
+	require.NoError(t, err)
+
+	sut.backlogLines.Store(auditBacklogTotalMax)
+
+	for i := range 2*auditBacklogMax + 1 {
+		require.NoError(t, sut.addToBacklog(fmt.Sprintf("container-%d", i),
+			&types.AuditLine{AuditType: types.AuditTypeSeccomp}))
+	}
+
+	require.EqualValues(t, 3, logged.Load())
+	require.Zero(t, sut.auditLineCache.Len(), "the backlogs which did not fit are not kept")
+}
+
 // TestBacklogAddCountsDropped asserts that adding a line tells the number of
 // the dropped lines.
 func TestBacklogAddCountsDropped(t *testing.T) {
 	t.Parallel()
 
-	backlog := &auditBacklog{seen: map[types.AuditLine]struct{}{}}
+	backlog := newAuditBacklog(&atomic.Int64{})
 	line := &types.AuditLine{AuditType: types.AuditTypeSeccomp}
 
 	for range auditBacklogMax {
-		kept, dropped := backlog.add(line)
+		kept, dropped, _ := backlog.add(line)
 		require.True(t, kept)
 		require.Zero(t, dropped)
 	}
 
 	for want := range uint64(3) {
-		kept, dropped := backlog.add(line)
+		kept, dropped, overBudget := backlog.add(line)
 		require.False(t, kept)
+		require.False(t, overBudget)
 		require.Equal(t, want+1, dropped)
 	}
 }

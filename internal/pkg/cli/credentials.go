@@ -26,7 +26,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 )
 
-// maxPasswordSize is the most read from stdin for --password-stdin.
+// maxPasswordSize is the longest password accepted from stdin for --password-stdin.
 const maxPasswordSize = 64 << 10
 
 var (
@@ -39,6 +39,10 @@ var (
 	// ErrConflictingPasswords is returned if the password is given via stdin
 	// and the environment at the same time.
 	ErrConflictingPasswords = errors.New("password given via stdin and environment")
+
+	// ErrPasswordTooLong is returned if the password given via stdin does not
+	// fit into maxPasswordSize.
+	ErrPasswordTooLong = errors.New("password given via stdin is too long")
 )
 
 // RegistryCredentials returns the username and password for the registry
@@ -66,12 +70,19 @@ func RegistryCredentials(
 			)
 		}
 
-		content, err := io.ReadAll(io.LimitReader(stdin, maxPasswordSize))
+		// Reading beyond the limit and its line break tells a password which
+		// does not fit, which must not be cut off.
+		const lineBreak = 2 // "\r\n"
+
+		content, err := io.ReadAll(io.LimitReader(stdin, maxPasswordSize+lineBreak+1))
 		if err != nil {
 			return "", "", fmt.Errorf("read password from stdin: %w", err)
 		}
 
 		password = strings.TrimRight(string(content), "\r\n")
+		if len(password) > maxPasswordSize || len(content) > maxPasswordSize+lineBreak {
+			return "", "", fmt.Errorf("%w: more than %d bytes", ErrPasswordTooLong, maxPasswordSize)
+		}
 	}
 
 	// A password requested from stdin must not be replaced by the one of the

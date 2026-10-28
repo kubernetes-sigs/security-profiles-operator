@@ -363,3 +363,34 @@ func TestRunWarnsAboutDeprecatedPtraceRules(t *testing.T) {
 	_, merged, _ := mock.WriteFileArgsForCall(0)
 	require.Contains(t, string(merged), "- ptrace (read),")
 }
+
+// The test replaces the output of the global logger.
+//
+//nolint:paralleltest // see above
+func TestRunCheckWarnsAboutOutputFile(t *testing.T) {
+	logs := &bytes.Buffer{}
+	log.SetOutput(logs)
+
+	defer log.SetOutput(os.Stderr)
+
+	mock := &mergerfakes.FakeImpl{}
+	mock.ReadFileReturns([]byte(SeccompA), nil)
+
+	options := Default()
+	options.inputFiles = []string{"base.yaml", "other.yaml"}
+	options.check = true
+	options.outputFile = "merged.yaml"
+	options.outputFileSet = true
+
+	sut := New(options)
+	sut.impl = mock
+
+	require.NoError(t, sut.Run())
+	require.Contains(t, logs.String(), "Checking 1 profiles against base.yaml")
+	require.Contains(
+		t,
+		logs.String(),
+		"WARNING: --check writes no output file, ignoring the output file merged.yaml",
+	)
+	require.Zero(t, mock.WriteFileCallCount())
+}

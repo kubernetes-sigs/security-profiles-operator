@@ -522,14 +522,25 @@ func (c *Command) Wait() error {
 // killedBySignal reports whether err tells that the command got killed by a
 // signal.
 func killedBySignal(err error) bool {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		return false
+	_, signaled := exitSignal(err)
+
+	return signaled
+}
+
+// exitSignal returns the signal which killed the command err tells the exit
+// of, and false if it was not killed by one.
+func exitSignal(err error) (syscall.Signal, bool) {
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok {
+		return 0, false
 	}
 
 	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() {
+		return 0, false
+	}
 
-	return ok && status.Signaled()
+	return status.Signal(), true
 }
 
 // ExitCode returns the exit code of a command which ran but did not succeed,
@@ -537,14 +548,14 @@ func killedBySignal(err error) bool {
 // if the command got killed by a signal. It returns false if err does not
 // come from the exit of the command.
 func ExitCode(err error) (int, bool) {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok {
 		return 0, false
 	}
 
 	const signalOffset = 128
-	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-		return signalOffset + int(status.Signal()), true
+	if signal, signaled := exitSignal(err); signaled {
+		return signalOffset + int(signal), true
 	}
 
 	return exitErr.ExitCode(), true

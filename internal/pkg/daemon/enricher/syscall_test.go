@@ -20,6 +20,7 @@ package enricher
 
 import (
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"testing"
 
@@ -140,7 +141,13 @@ func TestUnknownSyscallWarnedOncePerArch(t *testing.T) {
 
 	warner.warn(logger, unknownSyscallKey("40000028"), "no syscall name found for ID", "id", 1)
 
-	require.Len(t, logged, 2)
+	// The architecture of the audit lines is arbitrary as well.
+	for arch := range 100 {
+		warner.warn(logger, unknownSyscallKey(fmt.Sprintf("bogus%d", arch)),
+			"no syscall name found for ID", "id", 1)
+	}
+
+	require.Len(t, logged, 3)
 
 	keys := 0
 
@@ -149,5 +156,30 @@ func TestUnknownSyscallWarnedOncePerArch(t *testing.T) {
 
 		return true
 	})
-	require.Equal(t, 2, keys)
+	require.Equal(t, 3, keys)
+}
+
+// TestSyscallNameCached asserts that the names of the syscalls are cached per
+// architecture, and that unknown ones are not.
+func TestSyscallNameCached(t *testing.T) {
+	t.Parallel()
+
+	for range 2 {
+		name, err := syscallName(0, "c000003e")
+		require.NoError(t, err)
+		require.Equal(t, "read", name)
+
+		name, err = syscallName(0, "c00000b7")
+		require.NoError(t, err)
+		require.Equal(t, "io_setup", name)
+	}
+
+	_, cached := syscallNames.Load(syscallKey{id: 0, arch: "c000003e"})
+	require.True(t, cached)
+
+	_, err := syscallName(-1000, "c000003e")
+	require.Error(t, err)
+
+	_, cached = syscallNames.Load(syscallKey{id: -1000, arch: "c000003e"})
+	require.False(t, cached)
 }

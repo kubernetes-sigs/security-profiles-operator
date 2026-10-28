@@ -85,6 +85,10 @@ func (r *Runner) Run() error {
 		log.Print("JSON profile has a kind, using it as profile CRD")
 	}
 
+	// The spec of a CRD has fields beyond the runtime-spec ones, like its
+	// state, and ReadSingleProfile warned about the unknown ones already.
+	fromCRD := false
+
 	if !isJSON || hasKind(content) {
 		if !isJSON {
 			log.Print("Assuming YAML profile")
@@ -101,12 +105,26 @@ func (r *Runner) Run() error {
 			return crdErr
 		default:
 			content = spec
+			fromCRD = true
 		}
 	}
 
 	runtimeSpecConfig := &specs.LinuxSeccomp{}
 	if err := json.Unmarshal(content, runtimeSpecConfig); err != nil {
 		return fmt.Errorf("unmarshal JSON profile: %w", err)
+	}
+
+	// A misspelled field would leave out its rules without a word. The
+	// profiles of other tools, like the seccomp.json of docker and podman,
+	// have fields of their own, so they are only warned about.
+	if !fromCRD {
+		if _, err := artifact.DecodeRuntimeSpecSeccompProfile(content); err != nil &&
+			!errors.Is(err, artifact.ErrNoDefaultAction) {
+			log.Printf(
+				"WARNING: Ignoring what the profile has beyond the runtime-spec fields: %v",
+				err,
+			)
+		}
 	}
 
 	// The run helper takes a profile without a default action for no

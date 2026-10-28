@@ -333,7 +333,7 @@ func (a *Artifact) runtimeSpecPullResult(
 ) (*PullResult, error) {
 	spec, err := runtimeSpecSeccompProfileSpec(content)
 	if err == nil {
-		return seccompPullResult(image, spec, content, true), nil
+		return seccompPullResult(image, spec, content), nil
 	}
 
 	if !keepRaw || !errors.Is(err, ErrCRDConversion) {
@@ -346,7 +346,7 @@ func (a *Artifact) runtimeSpecPullResult(
 		err.Error(),
 	)
 
-	return seccompPullResult(image, &seccompprofileapi.SeccompProfileSpec{}, content, true), nil
+	return seccompPullResult(image, &seccompprofileapi.SeccompProfileSpec{}, content), nil
 }
 
 // seccompPullResult builds the PullResult for a raw OCI runtime-spec seccomp
@@ -355,7 +355,6 @@ func seccompPullResult(
 	image string,
 	spec *seccompprofileapi.SeccompProfileSpec,
 	content []byte,
-	runtimeFormat bool,
 ) *PullResult {
 	return &PullResult{
 		typ: PullResultTypeSeccompProfile,
@@ -370,6 +369,6 @@ func seccompPullResult(
 			Spec: *spec,
 		},
 		content:       content,
-		runtimeFormat: runtimeFormat,
+		runtimeFormat: true,
 	}
 }

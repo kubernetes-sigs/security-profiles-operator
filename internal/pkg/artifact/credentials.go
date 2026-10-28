@@ -19,6 +19,7 @@ package artifact
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -65,11 +66,50 @@ func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, passwor
 		)
 	}
 
+	if repo.PlainHTTP && !loopbackRegistry(repo.Reference.Registry) {
+		credential = a.warnPlainHTTP(credential)
+	}
+
 	repo.Client = &auth.Client{
 		Client:     retry.DefaultClient,
 		Cache:      auth.DefaultCache,
 		Credential: credential,
 	}
+}
+
+// warnPlainHTTP warns once that the credentials go over plain HTTP, where
+// anybody on the way can read them.
+func (a *Artifact) warnPlainHTTP(credential auth.CredentialFunc) auth.CredentialFunc {
+	var warnOnce sync.Once
+
+	return func(ctx context.Context, hostport string) (auth.Credential, error) {
+		cred, err := credential(ctx, hostport)
+		if err == nil && cred != auth.EmptyCredential {
+			warnOnce.Do(func() {
+				a.logger.Info("WARNING: Sending the registry credentials over plain HTTP",
+					"registry", hostport)
+			})
+		}
+
+		return cred, err
+	}
+}
+
+// loopbackRegistry reports whether the registry runs on this host, where
+// plain HTTP does not leave it.
+func loopbackRegistry(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+
+	if host == "localhost" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
 }
 
 // keychainCredential resolves the registry credentials from the docker config

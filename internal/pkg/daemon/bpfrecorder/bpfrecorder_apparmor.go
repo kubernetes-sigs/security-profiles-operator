@@ -138,7 +138,12 @@ type AppArmorRecorder struct {
 
 	// trackedKeys holds the keys data is recorded for, bounded by
 	// maxTrackedKeys across files, sockets and capabilities.
-	trackedKeys     map[recordingKey]struct{}
+	trackedKeys map[recordingKey]struct{}
+	// untrackedKeys holds the keys whose capabilities or sockets got
+	// reported while no slot was free, bounded by maxTrackedKeys. The BPF
+	// program reports them again once a slot frees up, see Clear. Guarded
+	// by lockTrackedKeys.
+	untrackedKeys   map[recordingKey]struct{}
 	lockTrackedKeys sync.Mutex
 
 	maxPathsWarned map[recordingKey]bool
@@ -213,6 +218,7 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 		statOnly:                 map[recordingKey]map[string]struct{}{},
 		lockRecordedFiles:        sync.Mutex{},
 		trackedKeys:              map[recordingKey]struct{}{},
+		untrackedKeys:            map[recordingKey]struct{}{},
 		maxPathsWarned:           map[recordingKey]bool{},
 		excluded:                 map[recordingKey]struct{}{},
 		normalizedPaths:          map[string]normalizedPath{},
@@ -368,6 +374,7 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 
 	b.lockTrackedKeys.Lock()
 	clear(b.trackedKeys)
+	clear(b.untrackedKeys)
 	b.maxKeysWarned = false
 	b.lockTrackedKeys.Unlock()
 
@@ -379,14 +386,17 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.normalizedPaths)
 	b.lockNormalizedPaths.Unlock()
 
-	// The kernel side is not maintained while nothing is recording.
+	// The kernel side is not maintained while nothing is recording. Both
+	// maps are cleared even if clearing one fails.
+	var errs []error
+
 	for _, bpfMap := range []*bpf.BPFMap{b.recordedCaps, b.recordedSockets} {
 		if err := clearBpfMap(r, bpfMap); err != nil {
-			return fmt.Errorf("clear reported capabilities and sockets: %w", err)
+			errs = append(errs, fmt.Errorf("clear reported capabilities and sockets: %w", err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // trackKey reports whether data can be recorded for key. The number of keys
@@ -421,6 +431,30 @@ func (b *AppArmorRecorder) trackKey(key recordingKey) bool {
 	b.trackedKeys[key] = struct{}{}
 
 	return true
+}
+
+// skipUntracked handles a capability or socket of a key which trackKey
+// rejected. The BPF program reports each of them only once per key, so it
+// has to report them again once the key can be tracked. Until a slot frees
+// up, see Clear, the key stays reported in the kernel, which keeps its events
+// from crowding out the ones of the tracked keys.
+func (b *AppArmorRecorder) skipUntracked(key recordingKey) {
+	b.lockTrackedKeys.Lock()
+	defer b.lockTrackedKeys.Unlock()
+
+	if _, ok := b.untrackedKeys[key]; ok {
+		return
+	}
+
+	if len(b.untrackedKeys) < maxTrackedKeys {
+		b.untrackedKeys[key] = struct{}{}
+
+		return
+	}
+
+	// Too many keys wait for a slot already, so this one gets reported
+	// again right away.
+	b.forgetReported([]uint64{uint64(key)})
 }
 
 // normalizePath returns the path the profile gets for a path the kernel
@@ -568,9 +602,7 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 	}
 
 	if !b.trackKey(key) {
-		// The BPF program reports a socket type only once per key, so it
-		// has to report it again once the key can be tracked.
-		b.forgetReported([]uint64{socketEvent.Key})
+		b.skipUntracked(key)
 
 		return
 	}
@@ -629,9 +661,7 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	}
 
 	if !b.trackKey(key) {
-		// The BPF program reports a capability only once per key, so it
-		// has to report it again once the key can be tracked.
-		b.forgetReported([]uint64{capEvent.Key})
+		b.skipUntracked(key)
 
 		return
 	}
@@ -675,6 +705,8 @@ func (b *AppArmorRecorder) Clear(keys []uint64) {
 	b.lockTrackedKeys.Lock()
 	defer b.lockTrackedKeys.Unlock()
 
+	freed := false
+
 	for _, k := range keys {
 		key := recordingKey(k)
 		delete(b.recordedFiles, key)
@@ -682,10 +714,28 @@ func (b *AppArmorRecorder) Clear(keys []uint64) {
 		delete(b.recordedCapabilities, key)
 		delete(b.recordedSocketsUse, key)
 		delete(b.maxPathsWarned, key)
-		delete(b.trackedKeys, key)
+		delete(b.untrackedKeys, key)
+
+		if _, ok := b.trackedKeys[key]; ok {
+			delete(b.trackedKeys, key)
+
+			freed = true
+		}
 	}
 
-	b.forgetReported(keys)
+	// The keys waiting for a slot get reported again, the ones which do
+	// not get one wait again.
+	reported := keys
+	if freed && len(b.untrackedKeys) > 0 {
+		reported = slices.Clone(keys)
+		for key := range b.untrackedKeys {
+			reported = append(reported, uint64(key))
+		}
+
+		clear(b.untrackedKeys)
+	}
+
+	b.forgetReported(reported)
 }
 
 // forgetReported makes the BPF program report the capabilities and sockets of
@@ -833,13 +883,7 @@ func ReplaceVarianceInFilePath(filePath string) string {
 }
 
 func shouldExcludeFile(filePath string) bool {
-	for _, f := range excludedFilePrefixes {
-		if strings.HasPrefix(filePath, f) {
-			return true
-		}
-	}
-
-	return false
+	return isKnownFile(filePath, excludedFilePrefixes)
 }
 
 // fileRule is the access a profile has to allow for a path.

@@ -305,6 +305,28 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
+			// Without the command, every recorded mount namespace is
+			// taken, of which there is none.
+			name: "failure without starting the command if nothing got recorded",
+			prepare: func(_ *testing.T, mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.IteratorNextReturnsOnCall(0, false)
+				mock.NotifyStub = func(c chan<- os.Signal, _ ...os.Signal) {
+					c <- os.Interrupt
+				}
+
+				options := Default()
+				options.noProcStart = true
+
+				return options
+			},
+			assert: func(t *testing.T, _ *recorderfakes.FakeImpl, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, errNothingRecorded)
+			},
+		},
+		{
 			name: "failure seccomp on CmdStart",
 			prepare: func(_ *testing.T, mock *recorderfakes.FakeImpl) *Options {
 				mock.CommandRunReturns(0, errTest)

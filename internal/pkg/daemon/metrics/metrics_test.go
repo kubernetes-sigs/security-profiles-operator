@@ -18,6 +18,8 @@ package metrics
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 
@@ -80,6 +82,38 @@ func TestRegister(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
+	}
+}
+
+// TestHandler asserts that the handler serves the metrics of the operator
+// together with the Go, process and handler metrics, like the default
+// registry, without registering anything there.
+func TestHandler(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	require.NoError(t, sut.Register())
+	sut.IncSeccompProfileUpdate()
+
+	// Metrics are created for every test, which would conflict in the
+	// default registry.
+	require.NoError(t, New().Register())
+
+	for range 2 {
+		rec := httptest.NewRecorder()
+		sut.Handler().
+			ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, HandlerPath, http.NoBody))
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		body := rec.Body.String()
+		for _, want := range []string{
+			metricNamespace + "_" + metricNameSeccompProfile + `{operation="update"} 1`,
+			"go_goroutines ",
+			"process_start_time_seconds ",
+			"promhttp_metric_handler_requests_total",
+		} {
+			require.Contains(t, body, want)
+		}
 	}
 }
 

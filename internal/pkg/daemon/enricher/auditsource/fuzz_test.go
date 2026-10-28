@@ -237,7 +237,9 @@ func FuzzParseBpfAuditEvent(f *testing.F) {
 	now := time.UnixMilli(1700000000042)
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
-		line, mntns, err := parseBpfAuditEvent(raw, now)
+		// Without the time since boot, every event is timestamped with
+		// when it got read.
+		line, mntns, err := parseBpfAuditEvent(raw, now, 0)
 		if err != nil {
 			require.ErrorIs(t, err, errInvalidBpfAuditEvent)
 			require.Nil(t, line)

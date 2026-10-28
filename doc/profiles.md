@@ -973,6 +973,21 @@ that a policy has been installed:
 # semodule -l | grep nginx-secure
 ```
 
+A node reports a SELinux profile as `Installed` once the kernel policy got reloaded with it, which a
+`selinux-policy-reload-` Job on the node does in the operator namespace. While that Job runs, the profile
+is `InProgress`. If the Job fails, exceeds its deadline or cannot be created, for example because an
+admission policy rejects its pod or its image cannot be pulled, the node reports `Error` with the reason
+in the status message of the `SecurityProfileNodeStatus`. The reload is retried with a growing delay, and
+the profile turns `Installed` once a reload succeeded. A failed Job gets deleted together with its pods
+right away, so the reason is in the status message of the node status and the events of the profile. The
+pods of a retried Job which is still running show why they do not start:
+
+```shell
+kubectl get securityprofilenodestatuses -l spo.x-k8s.io/profile-id=SelinuxProfile-<name> \
+  -o custom-columns=NODE:.spec.nodeName,STATUS:.status.status,MESSAGE:.status.message
+kubectl -n security-profiles-operator get pods -l app=selinux-policy-reload
+```
+
 _Make a SELinux profile permissive:_
 Similarly to how a `SeccompProfile` might have a default action `SCMP_ACT_LOG`
 which would merely log violations of the policy, but not actually block the
@@ -1370,7 +1385,10 @@ spec:
   identity and OIDC issuer and take precedence over the regexps.
 - `publicKeySecretRef` selects a key of a Secret in the operator namespace
   which holds a PEM encoded public key. The signatures are then verified with
-  that key and the identity settings are ignored.
+  that key and the identity settings are ignored. The signatures need a
+  transparency log entry like keyless ones, so signatures made without
+  uploading to the transparency log, like with
+  `cosign sign --tlog-upload=false`, do not verify.
 - `trustedRootConfigMapRef` selects a key of a ConfigMap in the operator
   namespace which holds a Sigstore trusted root JSON, for private Sigstore
   deployments and air-gapped clusters. If it cannot be read or an official
@@ -1871,6 +1889,12 @@ The paths are absolute and may use the AppArmor globs `*`, `**` and `?` as well 
 `_`, `.`, `/`, `*`, `?`, `+`, `@` and `-`. Other characters, like commas, quotes, braces, `:`, `=` or
 the AppArmor character classes in `[]`, are rejected. AppArmor denies everything which the policy
 does not allow, apart from the `abstractions/base` rules that every generated policy includes.
+
+In `Enforce` mode, the deny rules of `readOnlyPaths` and `writeOnlyPaths` win over every rule which
+allows the same files. With `readOnlyPaths: [/etc/**]` and `readWritePaths: [/etc/app/state]`,
+`/etc/app/state` cannot be written, and an executable or library below a `writeOnlyPaths` entry
+cannot be read. The daemon logs a warning once per profile generation for a path which falls under
+the glob of a conflicting one, which does not catch every overlap of two globs.
 
 Entries of the form `ptrace (read),` in the path lists of `filesystem` or `executable` are deprecated
 and will be removed in a future API version. They are still accepted and rendered as ptrace rules

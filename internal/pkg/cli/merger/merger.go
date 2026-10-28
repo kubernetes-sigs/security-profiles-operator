@@ -55,11 +55,17 @@ func New(options *Options) *Merger {
 // Run the Merger.
 func (p *Merger) Run() error {
 	if p.options.check {
+		// The other profiles are checked against the first one.
 		log.Printf(
 			"Checking %d profiles against %s",
-			len(p.options.inputFiles),
-			p.options.outputFile,
+			len(p.options.inputFiles)-1,
+			p.options.inputFiles[0],
 		)
+
+		if p.options.outputFileSet {
+			log.Printf("WARNING: --check writes no output file, ignoring the output file %s",
+				p.options.outputFile)
+		}
 	} else {
 		log.Printf("Merging %d profiles into %s", len(p.options.inputFiles), p.options.outputFile)
 	}

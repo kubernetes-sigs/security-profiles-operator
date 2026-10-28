@@ -96,6 +96,7 @@ type impl interface {
 	DeleteActivePid(m *bpf.BPFMap, pid uint32, key uint64) error
 	MapKeys(*bpf.BPFMap) ([][]byte, error)
 	DeleteMapKey(*bpf.BPFMap, []byte) error
+	DeleteMapKeys(*bpf.BPFMap, [][]byte) (int, error)
 }
 
 func (d *defaultImpl) InClusterConfig() (*rest.Config, error) {
@@ -470,4 +471,61 @@ func (d *defaultImpl) DeleteMapKey(m *bpf.BPFMap, key []byte) error {
 	}
 
 	return m.DeleteKey(unsafe.Pointer(&key[0]))
+}
+
+// errBatchUnsupported is returned by DeleteMapKeys if the kernel or the map
+// type do not support deleting keys in a batch.
+var errBatchUnsupported = errors.New("batch operations are not supported")
+
+// errENOTSUPP is the ENOTSUPP of the kernel, which is not one of the error
+// numbers of user space.
+const errENOTSUPP = syscall.Errno(524)
+
+// DeleteMapKeys deletes the keys, as MapKeys returns them, in batches. Keys
+// which are gone already are skipped. It returns how many of the keys got
+// handled, so that the caller can delete the others one by one if the error
+// is errBatchUnsupported.
+func (d *defaultImpl) DeleteMapKeys(m *bpf.BPFMap, keys [][]byte) (int, error) {
+	if m == nil {
+		return 0, errors.New("provided bpf map is nil")
+	}
+
+	if len(keys) == 0 {
+		return 0, nil
+	}
+
+	size := len(keys[0])
+	if size == 0 {
+		return 0, errors.New("provided key is empty")
+	}
+
+	raw := make([]byte, 0, size*len(keys))
+	for _, key := range keys {
+		if len(key) != size {
+			return 0, errors.New("provided keys differ in size")
+		}
+
+		raw = append(raw, key...)
+	}
+
+	done := 0
+	for done < len(keys) {
+		//nolint:gosec // The number of keys of a map fits into an uint32.
+		deleted, err := m.DeleteKeyBatch(unsafe.Pointer(&raw[done*size]), uint32(len(keys)-done))
+
+		switch {
+		case err == nil && deleted > 0:
+			// A batch stops at the first key which is gone already.
+			done += int(deleted)
+		case errors.Is(err, syscall.ENOENT):
+			done++
+		case err == nil, errors.Is(err, syscall.EINVAL),
+			errors.Is(err, syscall.EOPNOTSUPP), errors.Is(err, errENOTSUPP):
+			return done, fmt.Errorf("%w: %w", errBatchUnsupported, err)
+		default:
+			return done, fmt.Errorf("delete keys: %w", err)
+		}
+	}
+
+	return done, nil
 }

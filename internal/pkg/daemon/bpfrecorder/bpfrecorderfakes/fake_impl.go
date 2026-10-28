@@ -159,6 +159,17 @@ type FakeImpl struct {
 	deleteMapKeyReturnsOnCall map[int]struct {
 		result1 error
 	}
+	DeleteMapKeysStub        func(*libbpfgo.BPFMap, [][]byte) (int, error)
+	deleteMapKeysMutex       sync.RWMutex
+	deleteMapKeysArgsForCall []FakeImplDeleteMapKeysArgs
+	deleteMapKeysReturns     struct {
+		result1 int
+		result2 error
+	}
+	deleteMapKeysReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	DestroyLinkStub        func(*libbpfgo.BPFLink) error
 	destroyLinkMutex       sync.RWMutex
 	destroyLinkArgsForCall []FakeImplDestroyLinkArgs
@@ -515,6 +526,12 @@ type FakeImplDeleteKey64Args struct {
 type FakeImplDeleteMapKeyArgs struct {
 	Arg1 *libbpfgo.BPFMap
 	Arg2 []byte
+}
+
+// FakeImplDeleteMapKeysArgs holds the arguments of one call to DeleteMapKeys.
+type FakeImplDeleteMapKeysArgs struct {
+	Arg1 *libbpfgo.BPFMap
+	Arg2 [][]byte
 }
 
 // FakeImplDestroyLinkArgs holds the arguments of one call to DestroyLink.
@@ -1510,6 +1527,81 @@ func (fake *FakeImpl) DeleteMapKeyReturnsOnCall(i int, result1 error) {
 	fake.deleteMapKeyReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) DeleteMapKeys(arg1 *libbpfgo.BPFMap, arg2 [][]byte) (int, error) {
+	var arg2Copy [][]byte
+	if arg2 != nil {
+		arg2Copy = make([][]byte, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.deleteMapKeysMutex.Lock()
+	ret, specificReturn := fake.deleteMapKeysReturnsOnCall[len(fake.deleteMapKeysArgsForCall)]
+	fake.deleteMapKeysArgsForCall = append(fake.deleteMapKeysArgsForCall, FakeImplDeleteMapKeysArgs{arg1, arg2Copy})
+	stub := fake.DeleteMapKeysStub
+	fakeReturns := fake.deleteMapKeysReturns
+	fake.recordInvocation("DeleteMapKeys", []interface{}{arg1, arg2Copy})
+	fake.deleteMapKeysMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) DeleteMapKeysCallCount() int {
+	fake.deleteMapKeysMutex.RLock()
+	defer fake.deleteMapKeysMutex.RUnlock()
+	return len(fake.deleteMapKeysArgsForCall)
+}
+
+func (fake *FakeImpl) DeleteMapKeysCalls(stub func(*libbpfgo.BPFMap, [][]byte) (int, error)) {
+	fake.deleteMapKeysMutex.Lock()
+	defer fake.deleteMapKeysMutex.Unlock()
+	fake.DeleteMapKeysStub = stub
+}
+
+func (fake *FakeImpl) DeleteMapKeysArgsForCall(i int) (*libbpfgo.BPFMap, [][]byte) {
+	fake.deleteMapKeysMutex.RLock()
+	defer fake.deleteMapKeysMutex.RUnlock()
+	argsForCall := fake.deleteMapKeysArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) DeleteMapKeysArgs() []FakeImplDeleteMapKeysArgs {
+	fake.deleteMapKeysMutex.RLock()
+	defer fake.deleteMapKeysMutex.RUnlock()
+	args := make([]FakeImplDeleteMapKeysArgs, len(fake.deleteMapKeysArgsForCall))
+	copy(args, fake.deleteMapKeysArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) DeleteMapKeysReturns(result1 int, result2 error) {
+	fake.deleteMapKeysMutex.Lock()
+	defer fake.deleteMapKeysMutex.Unlock()
+	fake.DeleteMapKeysStub = nil
+	fake.deleteMapKeysReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) DeleteMapKeysReturnsOnCall(i int, result1 int, result2 error) {
+	fake.deleteMapKeysMutex.Lock()
+	defer fake.deleteMapKeysMutex.Unlock()
+	fake.DeleteMapKeysStub = nil
+	if fake.deleteMapKeysReturnsOnCall == nil {
+		fake.deleteMapKeysReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.deleteMapKeysReturnsOnCall[i] = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) DestroyLink(arg1 *libbpfgo.BPFLink) error {

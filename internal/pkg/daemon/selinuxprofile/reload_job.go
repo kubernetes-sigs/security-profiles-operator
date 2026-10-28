@@ -88,6 +88,27 @@ func jobFailed(job *batchv1.Job) bool {
 	return hasJobCondition(job, batchv1.JobFailed)
 }
 
+// failedJobReason returns why the job failed, like that it exceeded its
+// backoff limit or deadline.
+func failedJobReason(job *batchv1.Job) string {
+	for _, c := range job.Status.Conditions {
+		if c.Type != batchv1.JobFailed || c.Status != corev1.ConditionTrue {
+			continue
+		}
+
+		switch {
+		case c.Reason != "" && c.Message != "":
+			return c.Reason + ": " + c.Message
+		case c.Reason != "":
+			return c.Reason
+		case c.Message != "":
+			return c.Message
+		}
+	}
+
+	return "the job failed"
+}
+
 // hasJobCondition returns true if the condition of the job is true.
 func hasJobCondition(job *batchv1.Job, condition batchv1.JobConditionType) bool {
 	for _, c := range job.Status.Conditions {
@@ -160,10 +181,11 @@ const (
 // name, and which starts at the same generation again, from matching a job of
 // the old profile. The job of an installation carries the hash of the policy
 // as well, see reloadPolicy. A reload reloads the whole module store, so a job
-// of any policy which got created after neededSince, when the reload became
-// necessary, and completed, did the reload already. No job is created while
-// another one is still running on the node, which the caller has to retry,
-// so that the profiles of a node do not reload it at the same time.
+// of any policy which got created more than reloadJobClockSkew after
+// neededSince, when the reload became necessary, and completed, did the
+// reload already. No job is created while another one is still running on
+// the node, which the caller has to retry, so that the profiles of a node do
+// not reload it at the same time.
 func (r *ReconcileSelinux) createPolicyReloadJob(
 	ctx context.Context,
 	policyName string,
@@ -173,10 +195,10 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	hash string,
 	neededSince time.Time,
 	l logr.Logger,
-) (reloadJobState, error) {
+) (state reloadJobState, failure string, err error) {
 	nodeName := r.nodeName
 	if nodeName == "" {
-		return reloadJobBusy, nodestatus.ErrNoNodeName
+		return reloadJobBusy, "", nodestatus.ErrNoNodeName
 	}
 
 	namespace := r.namespace
@@ -187,7 +209,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	reloadJobMu.Lock()
 	defer reloadJobMu.Unlock()
 
-	state, err := r.existingReloadJob(
+	state, failure, err = r.existingReloadJob(
 		ctx,
 		namespace,
 		nodeName,
@@ -200,7 +222,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		l,
 	)
 	if err != nil || state != reloadJobCreated {
-		return state, err
+		return state, failure, err
 	}
 
 	// The job runs the selinuxd image of the current pod, which the operator
@@ -208,7 +230,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	// is read uncached, so only when a job has to be created.
 	pod, selinuxd, err := r.getSelinuxdPod(ctx, namespace)
 	if err != nil {
-		return reloadJobBusy, fmt.Errorf("getting selinuxd container: %w", err)
+		return reloadJobBusy, "", fmt.Errorf("getting selinuxd container: %w", err)
 	}
 
 	job := newReloadJob(
@@ -232,22 +254,22 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	)
 
 	if err := r.client.Create(ctx, job); err != nil {
-		return reloadJobBusy, fmt.Errorf("creating reload job: %w", err)
+		return reloadJobBusy, "", fmt.Errorf("creating reload job: %w", err)
 	}
 
 	l.Info("Successfully created SELinux policy reload job", "jobName", job.GetName())
 
-	return reloadJobCreated, nil
+	return reloadJobCreated, "", nil
 }
 
 // existingReloadJob looks for the reload jobs on the node. If one of them is
 // the one of the policy for the generation and the policy hash of the profile
 // with the UID, it returns the state of that job, see reloadJobOfGeneration.
-// Otherwise it returns reloadJobDone if a job created after neededSince
-// completed, reloadJobBusy if another job is still running and
-// reloadJobCreated if a job has to be created. A job which finished before
-// the reload became necessary is no reason to skip: it reloaded an older
-// state of the module store.
+// Otherwise it returns reloadJobDone if a job created more than
+// reloadJobClockSkew after neededSince completed, reloadJobBusy if another
+// job is still running and reloadJobCreated if a job has to be created. A job
+// which finished before the reload became necessary is no reason to skip: it
+// reloaded an older state of the module store.
 //
 // The jobs are read through the uncached API reader: r.client is backed by a
 // cluster-scoped cache, so listing through it would start a cluster-wide Job
@@ -262,7 +284,7 @@ func (r *ReconcileSelinux) existingReloadJob(
 	hash string,
 	neededSince time.Time,
 	l logr.Logger,
-) (reloadJobState, error) {
+) (state reloadJobState, failure string, err error) {
 	existingJobs := &batchv1.JobList{}
 	if err := r.clientReader.List(ctx, existingJobs,
 		client.InNamespace(namespace),
@@ -270,7 +292,7 @@ func (r *ReconcileSelinux) existingReloadJob(
 			reloadJobLabelApp:  reloadJobApp,
 			reloadJobLabelNode: asLabelValue(nodeName),
 		}); err != nil {
-		return reloadJobBusy, fmt.Errorf("listing existing reload jobs: %w", err)
+		return reloadJobBusy, "", fmt.Errorf("listing existing reload jobs: %w", err)
 	}
 
 	wantGeneration := strconv.FormatInt(generation, 10)
@@ -295,10 +317,12 @@ func (r *ReconcileSelinux) existingReloadJob(
 		case !jobFinished(job) && (sameAction || !samePolicy):
 			running = job
 		case jobCompleted(job) && !neededSince.IsZero() &&
-			job.CreationTimestamp.After(neededSince):
-			// The creation time is truncated to seconds, so a job which got
-			// created shortly after the reload became necessary may not
-			// count, but one created before it never does.
+			job.CreationTimestamp.After(neededSince.Add(reloadJobClockSkew)):
+			// The creation time is set by the API server and truncated to
+			// seconds, while neededSince is the time of the node. A job
+			// which got created shortly after the reload became necessary
+			// may not count, which costs one more reload, but one created
+			// before it never does, even if the clock of the node is behind.
 			covering = job
 		}
 	}
@@ -307,7 +331,7 @@ func (r *ReconcileSelinux) existingReloadJob(
 	case covering != nil:
 		l.Info("Reload job of the node reloaded the policy already", "existingJob", covering.Name)
 
-		return reloadJobDone, nil
+		return reloadJobDone, "", nil
 	case running != nil:
 		l.Info(
 			"Reload job already running for this node, retrying later",
@@ -315,11 +339,15 @@ func (r *ReconcileSelinux) existingReloadJob(
 			running.Name,
 		)
 
-		return reloadJobBusy, nil
+		return reloadJobBusy, "", nil
 	default:
-		return reloadJobCreated, nil
+		return reloadJobCreated, "", nil
 	}
 }
+
+// reloadJobClockSkew is how much the clock of the node may be behind the one
+// of the API server, which sets the creation time of the reload jobs.
+const reloadJobClockSkew = 30 * time.Second
 
 // reloadNeed records since when the reload of a generation and policy hash of
 // a profile is necessary, see reloadNeededSince.
@@ -382,30 +410,30 @@ func (r *ReconcileSelinux) reloadJobOfGeneration(
 	job *batchv1.Job,
 	kind reloadKind,
 	l logr.Logger,
-) (reloadJobState, error) {
+) (state reloadJobState, failure string, err error) {
 	switch {
 	case jobCompleted(job):
 		l.Info("Reload job for this generation completed", "existingJob", job.Name)
 
-		return reloadJobDone, nil
+		return reloadJobDone, "", nil
 	case jobFailed(job) && !kind.waitForCompletion:
 		l.Info("Reload job for this generation failed, not retrying it", "existingJob", job.Name)
 
-		return reloadJobDone, nil
+		return reloadJobDone, "", nil
 	case jobFailed(job):
 		l.Info("Reload job for this generation failed, deleting it", "existingJob", job.Name)
 
 		if err := r.client.Delete(
 			ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground),
 		); err != nil && !kerrors.IsNotFound(err) {
-			return reloadJobBusy, fmt.Errorf("deleting failed reload job %s: %w", job.Name, err)
+			return reloadJobBusy, "", fmt.Errorf("deleting failed reload job %s: %w", job.Name, err)
 		}
 
-		return reloadJobFailed, nil
+		return reloadJobFailed, failedJobReason(job), nil
 	default:
 		l.Info("Reload job for this generation is still running", "existingJob", job.Name)
 
-		return reloadJobRunning, nil
+		return reloadJobRunning, "", nil
 	}
 }
 
@@ -418,6 +446,8 @@ type reloadFailures struct {
 	count      int
 	// retryAt is when the next job may be created.
 	retryAt time.Time
+	// reason tells why the last job failed.
+	reason string
 }
 
 // of returns true if the failures are the ones of the generation of the
@@ -455,11 +485,32 @@ func (r *ReconcileSelinux) reloadRetryDelay(
 	return max(failures.retryAt.Sub(now), 0)
 }
 
+// reloadFailure returns why the reload jobs of the generation and the policy
+// hash of the profile failed, or an empty string if none did.
+func (r *ReconcileSelinux) reloadFailure(
+	sp selinuxprofileapi.SelinuxProfileObject, hash string,
+) string {
+	r.reloadFailuresMu.Lock()
+	defer r.reloadFailuresMu.Unlock()
+
+	failures, ok := r.reloadFailures[client.ObjectKeyFromObject(sp)]
+	if !ok || !failures.of(sp, hash) {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"Failed to reload the kernel policy on %s (failed reload jobs: %d), retrying: %s",
+		r.nodeName,
+		failures.count,
+		failures.reason,
+	)
+}
+
 // recordReloadFailure counts a failed reload job of the generation of the
 // profile. It returns the number of failed jobs of the generation and the
 // delay until the next one may be created.
 func (r *ReconcileSelinux) recordReloadFailure(
-	sp selinuxprofileapi.SelinuxProfileObject, hash string, now time.Time,
+	sp selinuxprofileapi.SelinuxProfileObject, hash, reason string, now time.Time,
 ) (int, time.Duration) {
 	r.reloadFailuresMu.Lock()
 	defer r.reloadFailuresMu.Unlock()
@@ -474,6 +525,7 @@ func (r *ReconcileSelinux) recordReloadFailure(
 	failures.count++
 	delay := reloadRetryInterval(failures.count)
 	failures.retryAt = now.Add(delay)
+	failures.reason = reason
 
 	if r.reloadFailures == nil {
 		r.reloadFailures = map[types.NamespacedName]reloadFailures{}

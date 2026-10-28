@@ -772,8 +772,9 @@ func TestStaleStopAfterAbandonedRecording(t *testing.T) {
 	require.True(t, isRecording(mock))
 }
 
-// TestClearBpfMap asserts that the keys are deleted, and that a failure to
-// list them is reported instead of leaving them in place silently.
+// TestClearBpfMap asserts that the keys are deleted, in a batch if the kernel
+// supports it, and that a failure to list them is reported instead of leaving
+// them in place silently.
 func TestClearBpfMap(t *testing.T) {
 	t.Parallel()
 
@@ -781,17 +782,40 @@ func TestClearBpfMap(t *testing.T) {
 	bpfMap := &libbpfgo.BPFMap{}
 
 	mock.MapKeysReturns([][]byte{{1}, {2}}, nil)
+	mock.DeleteMapKeysReturns(2, nil)
+	require.NoError(t, clearBpfMap(sut, bpfMap))
+	require.Equal(t, 1, mock.DeleteMapKeysCallCount())
+	require.Zero(t, mock.DeleteMapKeyCallCount())
+
+	// Without batch operations, the keys which are left get deleted one by
+	// one.
+	mock.MapKeysReturns([][]byte{{1}, {2}, {3}}, nil)
+	mock.DeleteMapKeysReturns(1, errBatchUnsupported)
 	mock.DeleteMapKeyReturnsOnCall(0, syscall.ENOENT)
 	require.NoError(t, clearBpfMap(sut, bpfMap))
 	require.Equal(t, 2, mock.DeleteMapKeyCallCount())
+	require.Equal(t, []byte{2}, argKey(mock, 0))
+	require.Equal(t, []byte{3}, argKey(mock, 1))
 
 	mock.MapKeysReturns(nil, errTest)
 	require.ErrorIs(t, clearBpfMap(sut, bpfMap), errTest)
 	require.Equal(t, 2, mock.DeleteMapKeyCallCount())
 
 	mock.MapKeysReturns([][]byte{{1}}, nil)
+	mock.DeleteMapKeysReturns(0, errBatchUnsupported)
 	mock.DeleteMapKeyReturns(errTest)
 	require.ErrorIs(t, clearBpfMap(sut, bpfMap), errTest)
+
+	mock.DeleteMapKeysReturns(0, errTest)
+	require.ErrorIs(t, clearBpfMap(sut, bpfMap), errTest)
+	require.Equal(t, 3, mock.DeleteMapKeyCallCount(), "other errors are not retried key by key")
+}
+
+// argKey returns the key of the call of DeleteMapKey.
+func argKey(mock *bpfrecorderfakes.FakeImpl, call int) []byte {
+	_, key := mock.DeleteMapKeyArgsForCall(call)
+
+	return key
 }
 
 func TestSyscallsForProfile(t *testing.T) {
@@ -1364,6 +1388,31 @@ func TestStopRecordingReleasesLookupTables(t *testing.T) {
 	// annotations to a container that is already running, and an entry kept
 	// from the previous session would suppress the lookup for its whole TTL.
 	require.Equal(t, 0, sut.containersWithoutProfile.Len())
+}
+
+// TestFailedStopRecordingReleasesLookupTables asserts that a failed step of
+// stopping the recording does not keep the others from running, so that
+// nothing of the stopped session is left to the next one.
+func TestFailedStopRecordingReleasesLookupTables(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.UpdateValueReturns(errTest)
+	mock.MapKeysReturns([][]byte{{1}}, nil)
+	sut.impl = mock
+	sut.activePidsBpfMap = &libbpfgo.BPFMap{}
+
+	sut.containerKeys.Insert(0x1010, "container-id")
+	sut.containerIDToProfileMap.Insert("container-id", "profile")
+
+	generation := sut.recordingGeneration.Load()
+
+	require.ErrorIs(t, sut.StopRecording(), errTest)
+	require.Equal(t, 1, mock.DeleteMapKeysCallCount(), "the process maps get cleared")
+	require.Equal(t, generation+1, sut.recordingGeneration.Load())
+	require.Equal(t, 0, sut.containerKeys.Size())
+	require.Equal(t, 0, sut.containerIDToProfileMap.Size())
 }
 
 // TestHandlerFromFinishedRecordingIsDiscarded asserts that a handler still in
@@ -2124,6 +2173,50 @@ func TestNewPidEventForEveryKey(t *testing.T) {
 	require.Equal(t, []uint64{1, 2}, sut.containerKeys.Keys(containerID))
 }
 
+// TestNewPidEventOfMappedKey asserts that a key which is mapped to a
+// container already needs no lookup of its container, also while the pod of
+// the container is not recorded yet.
+func TestNewPidEventOfMappedKey(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+	sut.clientset = &kubernetes.Clientset{}
+
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	const key = 1
+
+	sut.containerKeys.Insert(key, containerID)
+
+	// The recording runs for another pod only.
+	sut.recordedPods.Store(&map[string]map[string]struct{}{"other-pod": {}})
+
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 1, key: key, generation: sut.recordingGeneration.Load()},
+	)
+
+	_, recorded := sut.profileOfKey(key)
+	require.False(t, recorded)
+
+	// Once the pod is recorded, the profile is found for the key.
+	sut.recordedPods.Store(&map[string]map[string]struct{}{})
+
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 43, mntns: 1, key: key, generation: sut.recordingGeneration.Load()},
+	)
+
+	got, recorded := sut.profileOfKey(key)
+	require.True(t, recorded)
+	require.Equal(t, profile, got)
+
+	require.Zero(t, mock.ContainerIDForPIDCallCount())
+	require.Zero(t, mock.CgroupPathForIDCallCount())
+}
+
 // TestNewPidEventExcludesUnrecordedContainers asserts that the data of
 // workloads which are not recorded is dropped and no longer recorded, so that
 // it does not fill up the maps.
@@ -2243,38 +2336,23 @@ func TestExcludeKeyAfterSessionEnded(t *testing.T) {
 	require.Equal(t, 1, mock.UpdateValue64CallCount())
 }
 
-// TestHandleExitEventLogLevel asserts that the exits of the recorded processes
-// are only logged at the default level by spoc, which waits for them.
-func TestHandleExitEventLogLevel(t *testing.T) {
+// TestHandleExitEvent asserts that the exits of the recorded processes are
+// logged at the default level for spoc, which waits for them.
+func TestHandleExitEvent(t *testing.T) {
 	t.Parallel()
 
-	for _, inCluster := range []bool{false, true} {
-		t.Run(fmt.Sprintf("in cluster %v", inCluster), func(t *testing.T) {
-			t.Parallel()
+	var logs []string
 
-			var logs []string
+	logger := funcr.New(func(_, args string) {
+		logs = append(logs, args)
+	}, funcr.Options{})
 
-			logger := funcr.New(func(_, args string) {
-				logs = append(logs, args)
-			}, funcr.Options{})
+	sut := New("", logger, false, false)
+	sut.handleExitEvent(&bpfEvent{Pid: 42, Type: eventTypeExit})
 
-			sut := New("", logger, false, false)
-			if inCluster {
-				sut.clientset = &kubernetes.Clientset{}
-			}
-
-			sut.handleExitEvent(&bpfEvent{Pid: 42, Type: eventTypeExit})
-
-			if inCluster {
-				require.Empty(t, logs)
-			} else {
-				require.Len(t, logs, 1)
-				require.Contains(t, logs[0], "Record pid exit")
-			}
-
-			require.Equal(t, 1, sut.recentExits.Len())
-		})
-	}
+	require.Len(t, logs, 1)
+	require.Contains(t, logs[0], "Record pid exit")
+	require.Equal(t, 1, sut.recentExits.Len())
 }
 
 // waiting returns the number of callers waiting for the exit of pid.

@@ -132,15 +132,15 @@ Pull the profile of IMAGE, verifying its signature by default. Profile CRD artif
 
 >spoc pull [command options] IMAGE
 
-**--allowed-identity-regexp, -i**="": regexp for allowed identities in signature verification (default: .*)
+**--allowed-identity-regexp, -i**="": regexp for allowed identities in signature verification; $ALLOWED_IDENTITIES_REGEXP is deprecated and still used with a warning (default: .*)
 
-**--allowed-oidc-issuer-regexp**="": regexp for allowed OIDC issuers in signature verification (default: .*)
+**--allowed-oidc-issuer-regexp**="": regexp for allowed OIDC issuers in signature verification; $ALLOWED_OIDC_ISSUER_REGEXP is deprecated and still used with a warning (default: .*)
 
 **--certificate-identity**="": exact identity the signature certificate has to carry, takes precedence over the identity regexp
 
 **--certificate-oidc-issuer**="": exact OIDC issuer of the signature certificate, takes precedence over the issuer regexp
 
-**--disable-signature-verification, -s**: disable signature verification
+**--disable-signature-verification, -s**: disable signature verification; $DISABLE_SIGNATURE_VERIFICATION is deprecated and still used with a warning
 
 **--key, -k**="": verify the signature with the public key instead of a keyless certificate: the path of a PEM encoded public key, cannot be combined with the identity and issuer flags
 

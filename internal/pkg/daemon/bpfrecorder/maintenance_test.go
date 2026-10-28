@@ -879,6 +879,55 @@ func TestSweepStaleKeysKeepsExistingCgroups(t *testing.T) {
 	require.Equal(t, []uint64{3}, sut.AppArmor.GetKnownKeys())
 }
 
+// TestForgetGoneContainers asserts that the collected profiles and the
+// containers warned about are forgotten once their containers left the node,
+// while the ones of containers on the node are kept.
+func TestForgetGoneContainers(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	const goneID = "gone-container"
+
+	sut.collectedProfiles.Store("kept", []string{containerID})
+	sut.collectedProfiles.Store("gone", []string{goneID})
+	sut.keyLimitWarned.Store(containerID, struct{}{})
+	sut.keyLimitWarned.Store(goneID, struct{}{})
+
+	// Nothing is forgotten before the pods are known.
+	sut.forgetGoneContainers()
+
+	idx, err := podindex.New(podindextest.New())
+	require.NoError(t, err)
+
+	sut.pods = idx
+	sut.forgetGoneContainers()
+
+	for _, id := range []string{containerID, goneID} {
+		_, warned := sut.keyLimitWarned.Load(id)
+		require.True(t, warned, id)
+	}
+
+	_, collected := sut.collectedProfiles.Load("gone")
+	require.True(t, collected, "nothing is forgotten before the pods are known")
+
+	watchPods(t, sut, podWithContainer(nil))
+	sut.forgetGoneContainers()
+
+	_, kept := sut.collectedProfiles.Load("kept")
+	require.True(t, kept)
+
+	_, gone := sut.collectedProfiles.Load("gone")
+	require.False(t, gone)
+
+	_, warned := sut.keyLimitWarned.Load(containerID)
+	require.True(t, warned)
+
+	_, warned = sut.keyLimitWarned.Load(goneID)
+	require.False(t, warned, "the warning is given again for a new container with the ID")
+}
+
 // TestReleaseAbandonedRecording asserts that a recording nobody stopped is
 // stopped once no pod on the node is recorded any more for a while.
 func TestReleaseAbandonedRecording(t *testing.T) {

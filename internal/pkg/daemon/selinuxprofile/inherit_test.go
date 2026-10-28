@@ -190,11 +190,24 @@ func TestInheritedProfilesInstalledReportsUnusableAncestors(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {
-		mutate       func(*selinuxprofileapi.SelinuxProfile)
-		state        secprofnodestatusapi.ProfileState
+		mutate func(*selinuxprofileapi.SelinuxProfile)
+		state  secprofnodestatusapi.ProfileState
+		// installed is the generation selinuxd installed, see
+		// policyInstalledAnnotation.
+		installed    string
 		wantUnusable bool
 		wantReady    bool
 	}{
+		// The module is in the store while the reload is pending or fails.
+		"error of the reload": {
+			state: secprofnodestatusapi.ProfileStateError, installed: "1", wantReady: true,
+		},
+		"reload in progress": {
+			state: secprofnodestatusapi.ProfileStateInProgress, installed: "1", wantReady: true,
+		},
+		"error of a later generation": {
+			state: secprofnodestatusapi.ProfileStateError, installed: "0", wantUnusable: true,
+		},
 		"installed":   {state: secprofnodestatusapi.ProfileStateInstalled, wantReady: true},
 		"in progress": {state: secprofnodestatusapi.ProfileStateInProgress},
 		"no status":   {},
@@ -234,6 +247,12 @@ func TestInheritedProfilesInstalledReportsUnusableAncestors(t *testing.T) {
 				_, err = ns.Create(t.Context())
 				require.NoError(t, err)
 				require.NoError(t, ns.SetNodeStatus(t.Context(), tc.state))
+
+				if tc.installed != "" {
+					require.NoError(t, ns.SetAnnotation(
+						t.Context(), policyInstalledAnnotation, tc.installed,
+					))
+				}
 			}
 
 			r := &ReconcileSelinux{client: cli, nodeName: testReconcileNode}
@@ -328,12 +347,7 @@ func TestReconcileSystemModuleConflictCheck(t *testing.T) {
 	// Once the system module is gone, the policy gets installed.
 	require.NoError(t, os.RemoveAll(moduleDir))
 
-	for range 2 {
-		_, err = f.r.Reconcile(context.Background(), f.request)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	f.installPolicy(t)
 
 	// selinuxd installs the module. A new SPOd pod starts with an empty
 	// policy directory, but the module is still ours.

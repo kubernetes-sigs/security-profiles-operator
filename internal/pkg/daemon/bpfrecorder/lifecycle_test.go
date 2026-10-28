@@ -513,8 +513,9 @@ func TestAppArmorKeysAreBoundedForAllEvents(t *testing.T) {
 }
 
 // TestUntrackedKeysAreReportedAgain asserts that the capabilities and sockets
-// of a key which cannot be tracked yet are not marked as reported in the
-// kernel, so that they are recorded once the key can be tracked.
+// of a key which cannot be tracked yet stay reported in the kernel until a
+// slot frees up, and are reported again then, so that they are recorded once
+// the key can be tracked.
 func TestUntrackedKeysAreReportedAgain(t *testing.T) {
 	t.Parallel()
 
@@ -532,22 +533,35 @@ func TestUntrackedKeysAreReportedAgain(t *testing.T) {
 
 	const next = uint64(maxTrackedKeys)
 
+	// The kernel keeps the events of the untracked key reported until a
+	// slot frees up, so that they do not crowd out the others.
 	sut.handleCapabilityEvent(&bpfEvent{Key: next, Flags: 1})
 	require.NotContains(t, sut.recordedCapabilities, recordingKey(next))
-	require.Equal(t, 2, mock.DeleteKey64CallCount())
 
 	sut.handleSocketEvent(&bpfEvent{Key: next, Flags: socketFlags(afInet, sockStream)})
 	require.NotContains(t, sut.recordedSocketsUse, recordingKey(next))
-	require.Equal(t, 4, mock.DeleteKey64CallCount())
+	require.Zero(t, mock.DeleteKey64CallCount())
+
+	// Clearing a key which is not tracked frees no slot.
+	sut.Clear([]uint64{next + 1})
+	require.Equal(t, 2, mock.DeleteKey64CallCount())
+
+	// A free slot makes the kernel report the events of the untracked key
+	// again, which get recorded then.
+	sut.Clear([]uint64{0})
+	require.Equal(t, 6, mock.DeleteKey64CallCount())
+
+	reported := map[uint64]int{}
 
 	for i := range mock.DeleteKey64CallCount() {
 		bpfMap, key := mock.DeleteKey64ArgsForCall(i)
 		require.Contains(t, []*libbpfgo.BPFMap{sut.recordedCaps, sut.recordedSockets}, bpfMap)
-		require.Equal(t, next, key)
+
+		reported[key]++
 	}
 
-	// The events reported again once a slot is free get recorded.
-	sut.Clear([]uint64{0})
+	require.Equal(t, map[uint64]int{next + 1: 2, 0: 2, next: 2}, reported)
+
 	sut.handleCapabilityEvent(&bpfEvent{Key: next, Flags: 1})
 	sut.handleSocketEvent(&bpfEvent{Key: next, Flags: socketFlags(afInet, sockStream)})
 	require.Contains(t, sut.recordedCapabilities, recordingKey(next))
@@ -754,6 +768,9 @@ func TestInitGlobalsKeyMode(t *testing.T) {
 				require.Equal(t, keyGlobal == tc.wantGlobal, slices.Contains(globals, keyGlobal),
 					keyGlobal)
 			}
+
+			// Only spoc waits for the exits of the recorded processes.
+			require.Equal(t, !tc.cluster, slices.Contains(globals, globalReportExits))
 		})
 	}
 }
@@ -777,6 +794,40 @@ func TestStatNeedsNoRule(t *testing.T) {
 	require.Equal(t, []string{"/data/config"}, processed.ReadOnlyPaths)
 	require.Equal(t, []string{"/data/written"}, processed.WriteOnlyPaths)
 	require.Equal(t, []string{"/data/log"}, processed.ReadWritePaths)
+}
+
+// TestLoadFailsIfModuleCannotBeCreated asserts that a module which could not
+// be created is not closed, also when the retry without the AppArmor programs
+// fails to create it.
+func TestLoadFailsIfModuleCannotBeCreated(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(nil, errTest)
+	sut.impl = mock
+
+	require.ErrorIs(t, sut.Load(), errTest)
+	require.Zero(t, mock.CloseModuleCallCount())
+	require.Nil(t, sut.module)
+
+	sut = New("", logr.Discard(), true, true)
+	mock = &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturnsOnCall(0, &libbpfgo.Module{}, nil)
+	mock.NewModuleFromBufferArgsReturnsOnCall(1, nil, errTest)
+	mock.BPFLSMEnabledReturns(true)
+	mock.BPFLoadObjectReturnsOnCall(0, errTest)
+	sut.impl = mock
+
+	fakePrograms(mock)
+
+	require.ErrorIs(t, sut.Load(), errTest)
+	require.Equal(t, 2, mock.NewModuleFromBufferArgsCallCount())
+	require.Equal(t, 1, mock.CloseModuleCallCount(), "only the rejected object is released")
+
+	for i := range mock.CloseModuleCallCount() {
+		require.NotNil(t, mock.CloseModuleArgsForCall(i))
+	}
 }
 
 // TestLoadRetriesWithoutAppArmor asserts that a kernel which rejects the
@@ -814,4 +865,32 @@ func TestLoadRetriesWithoutAppArmor(t *testing.T) {
 	require.ErrorIs(t, sut.Load(), errTest)
 	require.Equal(t, 1, mock.NewModuleFromBufferArgsCallCount())
 	require.Zero(t, mock.BPFLoadObjectCallCount())
+}
+
+// TestUntrackedKeysOverflow asserts that a key which finds every slot taken
+// and too many keys waiting for one already is reported again right away.
+func TestUntrackedKeysOverflow(t *testing.T) {
+	t.Parallel()
+
+	sut := newTestAppArmorRecorder()
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.bpf = mock
+	sut.recordedCaps = &libbpfgo.BPFMap{}
+	sut.recordedSockets = &libbpfgo.BPFMap{}
+
+	for key := range uint64(maxTrackedKeys) {
+		sut.handleFileEvent(fileEvent(key, flagRead, "/f"))
+		sut.untrackedKeys[recordingKey(maxTrackedKeys+key)] = struct{}{}
+	}
+
+	const next = uint64(3 * maxTrackedKeys)
+
+	sut.handleCapabilityEvent(&bpfEvent{Key: next, Flags: 1})
+	require.NotContains(t, sut.untrackedKeys, recordingKey(next))
+	require.Equal(t, 2, mock.DeleteKey64CallCount())
+
+	for i := range mock.DeleteKey64CallCount() {
+		_, key := mock.DeleteKey64ArgsForCall(i)
+		require.Equal(t, next, key)
+	}
 }

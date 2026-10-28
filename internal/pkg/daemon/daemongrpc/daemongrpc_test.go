@@ -18,10 +18,12 @@ package daemongrpc
 
 import (
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -68,4 +70,19 @@ func TestDialReceivesLargeMessages(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, largeSyscalls, resp.GetSyscalls())
+}
+
+// Serve tells the error of the server, but not that it got stopped.
+func TestServe(t *testing.T) {
+	t.Parallel()
+
+	errServe := errors.New("serve failed")
+
+	require.ErrorIs(t, <-Serve(func() error { return errServe }), errServe)
+
+	select {
+	case err := <-Serve(func() error { return grpc.ErrServerStopped }):
+		t.Fatalf("unexpected error %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
 }

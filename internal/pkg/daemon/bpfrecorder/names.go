@@ -41,6 +41,7 @@ const (
 	globalUseCgroupID      = "use_cgroup_id"
 	globalUseMntnsSeq      = "use_mntns_seq"
 	globalCaptureExecArgs  = "capture_exec_args"
+	globalReportExits      = "report_exits"
 	globalInitComms        = "init_comms"
 	globalInitExePrefix    = "init_exe_prefix"
 	progSysEnterExecve     = "sys_enter_execve"
@@ -80,7 +81,7 @@ var (
 
 	bpfGlobalNames = []string{
 		globalFilterName, globalUseCgroupID, globalUseMntnsSeq, globalCaptureExecArgs,
-		globalInitComms, globalInitExePrefix,
+		globalReportExits, globalInitComms, globalInitExePrefix,
 	}
 
 	// baseHooks are attached by the recorder in any case.

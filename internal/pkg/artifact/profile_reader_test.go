@@ -104,3 +104,25 @@ func TestReadProfile(t *testing.T) {
 		require.ErrorContains(t, err, "unexpected YAML kind")
 	})
 }
+
+// A field the profile does not know is only warned about, a newer version may
+// have written it.
+func TestUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	content := []byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n" +
+		"kind: SeccompProfile\nmetadata:\n  name: test\n" +
+		"spec:\n  defaultAction: SCMP_ACT_ALLOW\n  sycalls: []\n")
+
+	profile, err := ReadSingleProfile(content)
+	require.NoError(t, err)
+	require.ErrorContains(t, unknownFields(content, profile), "sycalls")
+
+	known := []byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n" +
+		"kind: SeccompProfile\nmetadata:\n  name: test\n" +
+		"spec:\n  defaultAction: SCMP_ACT_ALLOW\n")
+
+	profile, err = ReadSingleProfile(known)
+	require.NoError(t, err)
+	require.NoError(t, unknownFields(known, profile))
+}

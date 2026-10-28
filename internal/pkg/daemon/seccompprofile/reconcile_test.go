@@ -269,6 +269,47 @@ func TestReconcileSeccompProfileInstall(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
 }
 
+// The annotation only shows the merged syscalls, so a profile whose
+// annotation cannot be written still gets installed.
+func TestReconcileSeccompProfileAnnotationError(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+
+	base, ok := env.cli.(client.WithWatch)
+	require.True(t, ok)
+
+	errPatch := errors.New("annotation too large")
+	env.rec.client = interceptor.NewClient(base, interceptor.Funcs{
+		Patch: func(
+			ctx context.Context, c client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			data, err := patch.Data(obj)
+			if err != nil {
+				return err
+			}
+
+			if _, isProfile := obj.(*seccompprofileapi.SeccompProfile); isProfile &&
+				strings.Contains(string(data), syscallsAnnotation) {
+				return errPatch
+			}
+
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Len(t, env.saved, 1)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+
+	sp := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	require.NotContains(t, sp.GetAnnotations(), syscallsAnnotation)
+}
+
 func TestReconcileSeccompProfileDisabled(t *testing.T) {
 	t.Parallel()
 

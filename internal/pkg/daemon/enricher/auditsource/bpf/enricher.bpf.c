@@ -93,6 +93,8 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
         return 0;
     }
 
+    // When the denial happened, which the userspace may read much later.
+    u64 boot_ns = bpf_ktime_get_boot_ns();
     u32 mntns = get_mntns();
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     u32 request = BPF_CORE_READ(ad, request);
@@ -121,7 +123,7 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
         read_kernel_str(strs->profile, sizeof(strs->profile), profile_ptr);
 
     struct bpf_dynptr event;
-    u32 size = 4 + 4 + 4 + 1 + op_len + comm_len + name_len + profile_len;
+    u32 size = 4 + 4 + 4 + 1 + 8 + op_len + comm_len + name_len + profile_len;
     if (bpf_ringbuf_reserve_dynptr(&audit_log, size, 0, &event) != 0) {
         // The dynptr has to be released even if nothing got reserved.
         bpf_ringbuf_discard_dynptr(&event, 0);
@@ -135,7 +137,8 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
     bpf_dynptr_write(&event, 4, &pid, 4, 0);
     bpf_dynptr_write(&event, 8, &request, 4, 0);
     bpf_dynptr_write(&event, 12, &complain, 1, 0);
-    u32 offset = 13;
+    bpf_dynptr_write(&event, 13, &boot_ns, 8, 0);
+    u32 offset = 21;
     bpf_dynptr_write(&event, offset, &op, op_len, 0);
     offset += op_len;
     bpf_dynptr_write(&event, offset, &comm, comm_len, 0);

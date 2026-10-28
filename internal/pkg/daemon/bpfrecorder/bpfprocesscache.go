@@ -31,6 +31,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/libbpflog"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -144,6 +145,7 @@ func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
 func (b *BpfProcessCache) Load() (err error) {
 	var module *bpf.Module
 
+	libbpflog.Route(b.logger)
 	b.logger.Info("Loading bpf module...")
 
 	bpfObject, err := bpfObjectForArch(runtime.GOARCH)
@@ -296,8 +298,8 @@ func (b *BpfProcessCache) processEvents(events chan []byte) {
 }
 
 func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
-	// The exec hook also reports the start of containers, which carries no
-	// process information.
+	// The process cache only attaches the exec hooks, which only report
+	// execs. Other events of the object must not be read as exec events.
 	if len(eventBytes) >= bpfEventHeaderSize && eventBytes[16] != eventTypeExecveEnter {
 		return
 	}
