@@ -24,11 +24,11 @@ import (
 	"reflect"
 	"sync/atomic"
 
-	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	pkitypes "github.com/sigstore/rekor/pkg/pki/pkitypes"
+	"github.com/sigstore/rekor/pkg/util/jcs"
 )
 
 // EntryImpl specifies the behavior of a versioned type
@@ -149,10 +149,10 @@ func UnmarshalEntry(pe models.ProposedEntry) (EntryImpl, error) {
 // while doing so, it detects the case where we need to convert from string to []byte and does
 // the base64 decoding required to make that happen.
 // This also detects converting from string to strfmt.DateTime
-func DecodeEntry(input, output interface{}) error {
+func DecodeEntry(input, output any) error {
 	cfg := mapstructure.DecoderConfig{
-		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
-			if f.Kind() != reflect.String || t.Kind() != reflect.Slice && t != reflect.TypeOf(strfmt.DateTime{}) {
+		DecodeHook: func(f reflect.Type, t reflect.Type, data any) (any, error) {
+			if f.Kind() != reflect.String || t.Kind() != reflect.Slice && t != reflect.TypeFor[strfmt.DateTime]() {
 				return data, nil
 			}
 
@@ -160,7 +160,7 @@ func DecodeEntry(input, output interface{}) error {
 				return nil, errors.New("attempted to decode nil data")
 			}
 
-			if t == reflect.TypeOf(strfmt.DateTime{}) {
+			if t == reflect.TypeFor[strfmt.DateTime]() {
 				return strfmt.ParseDateTime(data.(string))
 			}
 
@@ -189,7 +189,7 @@ func CanonicalizeEntry(ctx context.Context, entry EntryImpl) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return jsoncanonicalizer.Transform(canonicalEntry)
+	return jcs.Canonicalize(canonicalEntry)
 }
 
 // ArtifactProperties provide a consistent struct for passing values from

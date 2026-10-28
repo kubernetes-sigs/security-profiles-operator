@@ -182,10 +182,10 @@ func (v *V001Entry) Canonicalize(_ context.Context) ([]byte, error) {
 		return nil, &types.InputValidationError{Err: err}
 	}
 
-	canonicalEntry := models.HashedrekordV001Schema{}
+	canonicalEntry := models.HashedrekordV001Schema{
 
-	// need to canonicalize signature & key content
-	canonicalEntry.Signature = &models.HashedrekordV001SchemaSignature{}
+		// need to canonicalize signature & key content
+		Signature: &models.HashedrekordV001SchemaSignature{}}
 	canonicalEntry.Signature.Content, err = sigObj.CanonicalValue()
 	if err != nil {
 		return nil, err
@@ -204,9 +204,9 @@ func (v *V001Entry) Canonicalize(_ context.Context) ([]byte, error) {
 
 	v.HashedRekordObj = canonicalEntry
 	// wrap in valid object with kind and apiVersion set
-	rekordObj := models.Hashedrekord{}
-	rekordObj.APIVersion = conv.Pointer(APIVERSION)
-	rekordObj.Spec = &canonicalEntry
+	rekordObj := models.Hashedrekord{
+		APIVersion: new(APIVERSION),
+		Spec:       &canonicalEntry}
 
 	return json.Marshal(&rekordObj)
 }
@@ -331,15 +331,15 @@ func (v V001Entry) CreateFromArtifactProperties(_ context.Context, props types.A
 	hashAlgorithm, hashValue := util.UnprefixSHA(props.ArtifactHash)
 	re.HashedRekordObj.Signature.PublicKey.Content = strfmt.Base64(publicKeyBytes[0])
 	re.HashedRekordObj.Data.Hash = &models.HashedrekordV001SchemaDataHash{
-		Algorithm: conv.Pointer(getDataHashAlgorithm(hashAlgorithm)),
-		Value:     conv.Pointer(hashValue),
+		Algorithm: new(getDataHashAlgorithm(hashAlgorithm)),
+		Value:     new(hashValue),
 	}
 
 	if _, _, err := re.validate(); err != nil {
 		return nil, err
 	}
 
-	returnVal.APIVersion = conv.Pointer(re.APIVersion())
+	returnVal.APIVersion = new(re.APIVersion())
 	returnVal.Spec = re.HashedRekordObj
 
 	return &returnVal, nil
