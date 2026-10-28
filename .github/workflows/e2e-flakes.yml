@@ -41,7 +41,10 @@ jobs:
         env:
           XDG_RUNTIME_DIR: ''
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # The e2e jobs wait for the step by its name, see the wait-for-artifact
+      # action.
+      - name: Upload the image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image
           path: image.tar
@@ -182,6 +185,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
+      actions: read  # required for waiting for the image, see the e2e-vm action
       contents: read  # required for the checkout
     env:
       RUN: ./hack/ci/run-fedora.sh

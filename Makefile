@@ -109,6 +109,10 @@ ifneq ($(TIMEOUT_CMD),)
 VAGRANT_UP_LIMIT := $(TIMEOUT_CMD) -k 1m $(VAGRANT_UP_TIMEOUT)
 VAGRANT_DESTROY_LIMIT := $(TIMEOUT_CMD) -k 30s 5m
 endif
+# VAGRANT_BUILD_IMAGE=false boots the test VMs without building image.tar
+# first when it is missing. CI loads the image of its image job into the
+# running VM instead, see hack/ci/load-vm-image.sh.
+VAGRANT_BUILD_IMAGE ?= true
 
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
@@ -476,7 +480,7 @@ update-proto: $(PROTOC) $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-gr
 	done
 
 define vagrant-up
-	if [ ! -f image.tar ] && [ $(2) = build ]; then \
+	if [ ! -f image.tar ] && [ $(2) = build ] && [ $(VAGRANT_BUILD_IMAGE) = true ]; then \
 		$(MAKE) image IMAGE=$(IMAGE) && \
 		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
 	fi
@@ -847,8 +851,10 @@ test-fuzz: ## Run every fuzz target for FUZZ_TIME, one target per go test run
 
 # E2E_TEST_BINARY is a prebuilt e2e test binary (go test -c -tags e2e ./test) to run
 # instead of building the tests. CI builds it outside of the test VMs, where
-# compiling the tests takes more than 10 minutes. The binary runs in ./test,
-# like go test runs it, and ARGS are test binary flags then (-test.run=...).
+# compiling the tests takes more than 10 minutes, and runs it in the kind and
+# Ubuntu shards as well, instead of compiling the tests in each. The binary
+# runs in ./test, like go test runs it, and ARGS are test binary flags then
+# (-test.run=...).
 E2E_TEST_BINARY ?=
 E2E_TEST_PACKAGE := $(GO_PROJECT)/test
 # E2E_TEST_SKIP is a regular expression of the e2e tests to skip, see -skip in

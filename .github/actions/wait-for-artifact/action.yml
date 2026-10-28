@@ -1,0 +1,36 @@
+name: Wait for an artifact
+description: >-
+  Wait until a job of the workflow run uploaded an artifact and download it,
+  so that the job needs no needs: on that job, which for a matrix job also
+  waits for its other jobs, like the image job for the arm64 image. The job
+  needs the actions: read permission, see hack/ci/wait-for-artifact.sh.
+inputs:
+  name:
+    description: The name of the artifact
+    required: true
+  job:
+    description: The name of the job which uploads it
+    required: true
+  step:
+    description: >-
+      The name of the step of the job which uploads it, without one it waits
+      for the job to complete
+    default: ''
+  path:
+    description: The directory to download it to
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Wait for the artifact
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NAME: ${{ inputs.name }}
+        JOB: ${{ inputs.job }}
+        STEP: ${{ inputs.step }}
+      run: hack/ci/wait-for-artifact.sh "$NAME" "$JOB" "$STEP"
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}

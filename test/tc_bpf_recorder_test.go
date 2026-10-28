@@ -91,10 +91,27 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	e.logf("Creating bpf recording for kubectl run test")
 	e.createRecording(exampleRecordingBpfPath, "sp", recordingName)
 
-	e.logf("Creating test pod")
-	e.kubectlRun("--labels=app=alpine", "fedora", "--", "sh", "-c", "sleep 20; mkdir /test")
+	const podName = "fedora"
 
-	resourceName := recordingName + "-fedora"
+	// The pod only runs the command to record once the recorder tracks its
+	// container, instead of after a fixed delay.
+	e.logf("Creating test pod")
+
+	since := time.Now()
+
+	e.kubectl(
+		"run", "--restart=Never", "--image="+throwawayImage, "--image-pull-policy=IfNotPresent",
+		"--labels=app=alpine", podName, "--", "sh", "-c",
+		"until [ -e /tmp/record ]; do sleep 0.1; done; mkdir /test",
+	)
+	e.kubectlCleanup("pod", podName)
+	e.waitFor("condition=ready", "pod", podName)
+	e.waitForBpfRecorderLogs(since, podName)
+	e.kubectl("exec", podName, "--", "touch", "/tmp/record")
+	e.waitFor("jsonpath={.status.phase}=Succeeded", "pod", podName)
+	e.kubectl("delete", "pod", podName)
+
+	resourceName := recordingName + "-" + podName
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "mkdir")
 }

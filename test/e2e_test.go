@@ -424,18 +424,42 @@ const (
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
-	e.runTestCases(false)
+	e.runTestCases()
 }
 
 // quarantinedTestName is the name of the suite method which runs the
 // quarantined test cases.
 const quarantinedTestName = "TestSecurityProfilesOperator_Flaky"
 
+// runsQuarantinedTests reports whether the current suite method runs the
+// quarantined test cases.
+func (e *e2e) runsQuarantinedTests() bool {
+	return strings.HasSuffix(e.T().Name(), "/"+quarantinedTestName)
+}
+
 // skipsQuarantinedTests reports whether the current suite method runs the
 // quarantined test cases, which E2E_SKIP_FLAKY_TESTS skips. SetupTest uses it
 // to not prepare a cluster for nothing.
 func (e *e2e) skipsQuarantinedTests() bool {
-	return e.skipFlakyTests && strings.HasSuffix(e.T().Name(), "/"+quarantinedTestName)
+	return e.skipFlakyTests && e.runsQuarantinedTests()
+}
+
+// shardDescription describes the test cases the suite runs, for messages.
+func (e *e2e) shardDescription() string {
+	if e.shard.total == 0 {
+		return "to run"
+	}
+
+	return "in shard " + e.shard.String()
+}
+
+// shardIsEmpty reports whether the shard of the suite has no test cases of the
+// current suite method. SetupTest uses it to not prepare a cluster for
+// nothing.
+func (e *e2e) shardIsEmpty() bool {
+	clusterWide, namespaced := e.shardTestCases()
+
+	return len(clusterWide) == 0 && len(namespaced) == 0
 }
 
 func (e *e2e) TestSecurityProfilesOperator_Flaky() {
@@ -445,38 +469,56 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 		return
 	}
 
+	// kind starts no cluster for an empty shard, so it gets skipped before
+	// the context is reset.
+	if e.shardIsEmpty() {
+		e.T().Skip("No quarantined test cases " + e.shardDescription())
+
+		return
+	}
+
 	// If we ran the non-flaky tests before, we would have ran them with the
 	// context set to the test-ns namespace. Reset the context.
 	e.kubectl("config", "set-context", "--current", "--namespace", config.OperatorName)
 
-	e.runTestCases(true)
+	e.runTestCases()
 }
 
-// runTestCases runs the quarantined or the other test cases against the
-// cluster wide and then the namespaced operator.
-func (e *e2e) runTestCases(quarantined bool) {
-	testCases := slices.DeleteFunc(e.testCases(), func(tc testCase) bool {
-		return tc.flaky != quarantined
-	})
+// runTestCases runs the test cases of the current suite method and shard, see
+// shardTestCases, against the cluster wide and then the namespaced operator.
+func (e *e2e) runTestCases() {
+	clusterWide, namespaced := e.shardTestCases()
+	if len(clusterWide) == 0 && len(namespaced) == 0 {
+		e.T().Skip("No test cases " + e.shardDescription())
+
+		return
+	}
+
+	if e.shard.total != 0 {
+		e.logf("Running %d cluster wide and %d namespaced test cases of shard %s",
+			len(clusterWide), len(namespaced), e.shard)
+	}
 
 	e.waitForReadyPods()
 
 	// Deploy prerequisites
 	e.deployCertManager()
 
-	// Deploy the operator
-	undeploy := e.deployOperatorWithCleanup(e.operatorManifest)
-
 	// Retrieve the inputs for the test cases
 	nodes := e.getNodes()
 
-	e.logf("testing cluster-wide operator")
-	e.runTestCasesWithPrefix("cluster-wide", testCases, nodes)
+	if len(clusterWide) > 0 {
+		// Deploy the operator
+		undeploy := e.deployOperatorWithCleanup(e.operatorManifest)
 
-	// Clean up cluster-wide deployment to prepare for namespace deployment
-	undeploy()
+		e.logf("testing cluster-wide operator")
+		e.runTestCasesWithPrefix("cluster-wide", clusterWide, nodes)
 
-	e.testNamespacedOperator(namespaceManifest, testNamespace, testCases, nodes)
+		// Clean up cluster-wide deployment to prepare for namespace deployment
+		undeploy()
+	}
+
+	e.testNamespacedOperator(namespaceManifest, testNamespace, namespaced, nodes)
 }
 
 // runTestCasesWithPrefix runs each test case as sub test, named after its
@@ -493,17 +535,9 @@ func (e *e2e) runTestCasesWithPrefix(prefix string, testCases []testCase, nodes 
 	}
 }
 
-func (e *e2e) testNamespacedOperator(
-	manifest, namespace string,
-	testCases []testCase,
-	nodes []string,
-) {
-	if e.skipNamespacedTests {
-		return
-	}
-
-	e.logf("testing namespace operator")
-
+// namespacedTestCases returns the test cases which also run against the
+// namespaced operator.
+func (e *e2e) namespacedTestCases(testCases []testCase) []testCase {
 	namespacedTestCases := make([]testCase, 0, len(testCases))
 
 	for _, tc := range testCases {
@@ -519,9 +553,21 @@ func (e *e2e) testNamespacedOperator(
 		namespacedTestCases = append(namespacedTestCases, tc)
 	}
 
+	return namespacedTestCases
+}
+
+// testNamespacedOperator runs the test cases, see namespacedTestCases, against
+// the namespaced operator.
+func (e *e2e) testNamespacedOperator(
+	manifest, namespace string,
+	namespacedTestCases []testCase,
+	nodes []string,
+) {
 	if len(namespacedTestCases) == 0 {
 		return
 	}
+
+	e.logf("testing namespace operator")
 
 	// Deploy the namespace operator. The namespace also gets deleted if the
 	// test fails before, which would otherwise fail the next run of the

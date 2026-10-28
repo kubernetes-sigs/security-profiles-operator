@@ -75,6 +75,10 @@ var (
 	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	// E2E_SPO_IMAGE is the operator image to test.
 	envTestImage = os.Getenv("E2E_SPO_IMAGE")
+	// E2E_SPO_IMAGE_ARCHIVE is an archive of the operator image which kind
+	// loads instead of building the image, E2E_SPO_IMAGE names the image in
+	// it.
+	envTestImageArchive = os.Getenv("E2E_SPO_IMAGE_ARCHIVE")
 	// E2E_SELINUXD_IMAGE is the selinuxd image to deploy for all node
 	// operating systems. kind and vanilla default to the
 	// RELATED_IMAGE_SELINUXD image of the operator manifest, OpenShift to
@@ -111,6 +115,9 @@ var (
 	// E2E_TEST_METRICS_HTTP enables the metrics HTTP version test case,
 	// defaults to true.
 	envMetricsHTTPTestsEnabled = os.Getenv("E2E_TEST_METRICS_HTTP")
+	// E2E_SHARD is the shard of the test cases to run, INDEX/TOTAL with the
+	// index starting at 1, see shardTestCases. All test cases run when unset.
+	envShard = os.Getenv("E2E_SHARD")
 	// E2E_ARTIFACTS_DIR is the directory the diagnostics of failed tests are
 	// written to, one directory per test. They are logged when unset.
 	envArtifactsDir = os.Getenv("E2E_ARTIFACTS_DIR")
@@ -164,6 +171,7 @@ type e2e struct {
 	bpfEnricherEnabled  bool
 	skipNamespacedTests bool
 	skipFlakyTests      bool
+	shard               testShard
 	testWebhookConfig   bool
 	testWebhookHTTP     bool
 	testMetricsHTTP     bool
@@ -209,6 +217,9 @@ type kinde2e struct {
 	e2e
 	kindPath    string
 	clusterName string
+	// imageArchive is the archive of the operator image to load, which
+	// SetupTest builds otherwise.
+	imageArchive string
 }
 
 type openShifte2e struct {
@@ -293,6 +304,11 @@ func TestSuite(t *testing.T) {
 		operatorManifest = defaultManifest
 	}
 
+	shard, err := parseTestShard(envShard)
+	if err != nil {
+		t.Fatalf("Invalid E2E_SHARD: %v", err)
+	}
+
 	selinuxdImage := envSelinuxdTestImage
 
 	switch {
@@ -322,9 +338,10 @@ func TestSuite(t *testing.T) {
 				testWebhookHTTP:     testWebhookHTTP,
 				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
+				shard:               shard,
 				artifactsDir:        envArtifactsDir,
 			},
-			"", "",
+			"", "", envTestImageArchive,
 		})
 	case strings.EqualFold(clusterType, clusterTypeOpenShift):
 		skipBuildImages, err := strconv.ParseBool(envSkipBuildImages)
@@ -358,6 +375,7 @@ func TestSuite(t *testing.T) {
 				testWebhookHTTP:     testWebhookHTTP,
 				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
+				shard:               shard,
 				artifactsDir:        envArtifactsDir,
 			},
 			skipBuildImages,
@@ -389,6 +407,7 @@ func TestSuite(t *testing.T) {
 				testWebhookHTTP:     testWebhookHTTP,
 				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
+				shard:               shard,
 				artifactsDir:        envArtifactsDir,
 			},
 		})
@@ -453,7 +472,7 @@ func hasTag(image string) bool {
 // SetupTest starts a fresh kind cluster for each test, unless the test gets
 // skipped anyway.
 func (e *kinde2e) SetupTest() {
-	if e.skipsQuarantinedTests() {
+	if e.skipsQuarantinedTests() || e.shardIsEmpty() {
 		return
 	}
 
@@ -478,13 +497,20 @@ func (e *kinde2e) SetupTest() {
 	e.logf("Waiting for cluster to be ready")
 	e.waitFor("condition=ready", "nodes", "--all")
 
-	// Build and load the test image
-	e.logf("Building operator container image")
-	e.run("make", "image", "IMAGE="+e.testImage)
-	e.logf("Loading container images into nodes")
-	e.run(
-		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
-	)
+	if e.imageArchive != "" {
+		e.logf("Loading the operator image archive %s into nodes", e.imageArchive)
+		e.run(
+			e.kindPath, "load", "image-archive", "--name="+e.clusterName, e.imageArchive,
+		)
+	} else {
+		// Build and load the test image
+		e.logf("Building operator container image")
+		e.run("make", "image", "IMAGE="+e.testImage)
+		e.logf("Loading container images into nodes")
+		e.run(
+			e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
+		)
+	}
 
 	// The pull policy of the operator applies to selinuxd too, so it has to
 	// be on the nodes. Only the SELinux test cases deploy it.
@@ -972,27 +998,10 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 	)
 }
 
-func (e *e2e) kubectlRun(args ...string) string {
-	return e.kubectl(kubectlRunArgs(args...)...)
-}
-
 // throwawayImage is the image of the pods which run a command for the suite.
 // It gets pulled once per node, every pod of a retried command would pull
 // a latest tag again, since the pull policy of such a tag is Always.
 const throwawayImage = "registry.fedoraproject.org/fedora-minimal:44"
-
-// kubectlRunArgs returns the kubectl arguments to run a command in a new pod.
-func kubectlRunArgs(args ...string) []string {
-	return append([]string{
-		"run",
-		"--pod-running-timeout=5m",
-		"--rm",
-		"-i",
-		"--restart=Never",
-		"--image=" + throwawayImage,
-		"--image-pull-policy=IfNotPresent",
-	}, args...)
-}
 
 const (
 	curlBaseCMD    = "curl -ksL --connect-timeout 10 --retry 5 --retry-delay 3 --show-error "
@@ -1090,8 +1099,7 @@ func (e *e2e) runPodCMD(cmd string, kubectlRunFlags ...string) (string, error) {
 
 	var phase string
 
-	// The first pod on a node may still pull the image, like with the pod
-	// running timeout of kubectlRunArgs.
+	// The first pod on a node may still pull the image.
 	if err := poll(5*time.Minute, time.Second, func() error {
 		var err error
 

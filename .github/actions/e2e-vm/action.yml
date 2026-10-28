@@ -1,55 +1,36 @@
 name: Set up an e2e VM
 description: >-
-  Boot the Vagrant VM of an e2e job with the operator image of the image job
-  and prepare its test environment. The job runs the tests with
-  hack/ci/run-<vm>.sh afterwards and collects the results with the
-  e2e-vm-artifacts action. Artifacts the VM needs besides the image have to be
-  downloaded before, the VM gets the repository synced in when it boots.
+  Boot the Vagrant VM of an e2e job and prepare its test environment, then
+  load the operator image of the image job into it, unless the job does that
+  later with the e2e-vm-image action. The VM boots while the image job may
+  still build the image, so the job needs no needs: on it, but the
+  actions: read permission. The job runs the tests with hack/ci/run-<vm>.sh
+  afterwards and collects the results with the e2e-vm-artifacts action. Other
+  artifacts the VM needs have to be downloaded before, the VM gets the
+  repository synced in when it boots.
 inputs:
   vm:
     description: The VM to boot, "fedora", "debian" or "flatcar"
     required: true
+  image:
+    description: Whether to load the operator image right after the boot
+    default: 'true'
 runs:
   using: composite
   steps:
     - uses: ./.github/actions/setup-vagrant
-    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-      with:
-        name: image
-        path: .
     - name: Boot Virtual Machine
       shell: bash
       env:
         VM: ${{ inputs.vm }}
+        VAGRANT_BUILD_IMAGE: 'false'
       run: make "vagrant-up-$VM"
-    # Flatcar runs the tests in a container with the root of the VM at
-    # /hostfs and configures git there, see hack/ci/e2e-flatcar.sh.
     - name: Set up the test environment
       shell: bash
       env:
         VM: ${{ inputs.vm }}
-      run: |
-        case "$VM" in
-        fedora | debian)
-          env_file=env.sh
-          artifacts_dir=/vagrant/build/e2e-artifacts
-          node_timeout=60s
-          ;;
-        flatcar)
-          env_file=env-flatcar.sh
-          artifacts_dir=/hostfs/vagrant/build/e2e-artifacts
-          node_timeout=600s
-          ;;
-        *)
-          echo "Unknown VM $VM" >&2
-          exit 1
-          ;;
-        esac
-        run="./hack/ci/run-$VM.sh"
-
-        "$run" kubectl wait --for=condition=ready --timeout="$node_timeout" nodes --all
-        "$run" kubectl get nodes -o wide
-        if [[ "$VM" != flatcar ]]; then
-          "$run" git config --global --add safe.directory /vagrant
-        fi
-        "$run" "echo \"export E2E_ARTIFACTS_DIR=$artifacts_dir\" >> /vagrant/hack/ci/$env_file"
+      run: hack/ci/setup-vm-env.sh "$VM"
+    - uses: ./.github/actions/e2e-vm-image
+      if: inputs.image == 'true'
+      with:
+        vm: ${{ inputs.vm }}
