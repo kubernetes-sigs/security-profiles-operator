@@ -24,11 +24,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/client/tlog"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/rekor/pkg/util"
+	"github.com/sigstore/rekor/pkg/util/jcs"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/options"
 	"github.com/transparency-dev/merkle/proof"
@@ -188,8 +188,8 @@ func VerifySignedEntryTimestamp(ctx context.Context, e *models.LogEntryAnon, ver
 	}
 
 	type bundle struct {
-		Body           interface{} `json:"body"`
-		IntegratedTime int64       `json:"integratedTime"`
+		Body           any   `json:"body"`
+		IntegratedTime int64 `json:"integratedTime"`
 		// Note that this is the virtual index.
 		LogIndex int64  `json:"logIndex"`
 		LogID    string `json:"logID"`
@@ -204,7 +204,7 @@ func VerifySignedEntryTimestamp(ctx context.Context, e *models.LogEntryAnon, ver
 	if err != nil {
 		return fmt.Errorf("marshaling bundle: %w", err)
 	}
-	canonicalized, err := jsoncanonicalizer.Transform(contents)
+	canonicalized, err := jcs.Canonicalize(contents)
 	if err != nil {
 		return fmt.Errorf("canonicalizing bundle: %w", err)
 	}
