@@ -550,6 +550,25 @@ func (f *reconcileFixture) reloadJobs(t *testing.T) []batchv1.Job {
 	return jobs.Items
 }
 
+// installPolicy reconciles the profile until its policy is installed, which
+// includes the completed reload of the kernel policy.
+func (f *reconcileFixture) installPolicy(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	for range 2 {
+		_, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	f.finishReloadJobs(t, batchv1.JobComplete)
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+}
+
 // finishReloadJobs marks the reload jobs as completed, or as failed with a
 // true condition.
 func (f *reconcileFixture) finishReloadJobs(t *testing.T, condition batchv1.JobConditionType) {
@@ -584,15 +603,15 @@ func TestReconcileInstallsPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "(blockinherit container)", string(content))
 
-	// Then the installation is reported and the kernel policy reloaded.
+	// Then selinuxd installed the module and the kernel policy gets
+	// reloaded. The new policy is not active before the reload completed.
 	res, err = f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{RequeueAfter: reloadJobRetryInterval}, res)
-	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInProgress, f.nodeStatus(t).Status.Status)
 	require.Len(t, f.reloadJobs(t), 1)
 	require.Equal(t, "install", f.reloadJobs(t)[0].Labels["action"])
-	require.Contains(t, f.events(), "Normal "+reasonInstalledPolicy+
-		" Successfully saved profile to disk on "+testReconcileNode)
+	require.Empty(t, f.events())
 
 	// The reload is recorded once the job completed.
 	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
@@ -601,14 +620,19 @@ func TestReconcileInstallsPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{RequeueAfter: reloadJobRetryInterval}, res)
 	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Equal(t, secprofnodestatusapi.ProfileStateInProgress, f.nodeStatus(t).Status.Status)
 
 	f.finishReloadJobs(t, batchv1.JobComplete)
 
+	// Then the installation is reported.
 	res, err = f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, "1", f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
-	require.Empty(t, f.events())
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, []string{
+		"Normal " + reasonInstalledPolicy + " Successfully saved profile to disk on " + testReconcileNode,
+	}, f.events())
 
 	// The reload is done once per generation.
 	_, err = f.r.Reconcile(ctx, f.request)
@@ -644,8 +668,14 @@ func TestReconcileRetriesFailedReloadJob(t *testing.T) {
 	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
 	require.Equal(t, []string{
 		"Warning " + reasonCannotReloadPolicy + " Policy reload job failed on " +
-			testReconcileNode + ", retrying",
+			testReconcileNode + ", retrying: the job failed",
 	}, f.events())
+
+	// The policy is not active while its reload fails.
+	status := f.nodeStatus(t).Status
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status)
+	require.Equal(t, "Failed to reload the kernel policy on "+testReconcileNode+
+		" (failed reload jobs: 1), retrying: the job failed", status.Message)
 
 	// A resync before the retry is due does not create a job.
 	res, err = f.r.Reconcile(ctx, f.request)
@@ -654,6 +684,7 @@ func TestReconcileRetriesFailedReloadJob(t *testing.T) {
 	require.LessOrEqual(t, res.RequeueAfter, reloadJobRetryInterval)
 	require.Empty(t, f.reloadJobs(t))
 	require.Empty(t, f.events())
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
 
 	// The retry creates a new job. Its failure doubles the delay and is not
 	// reported again.
@@ -671,6 +702,7 @@ func TestReconcileRetriesFailedReloadJob(t *testing.T) {
 	require.Equal(t, reconcile.Result{RequeueAfter: 2 * reloadJobRetryInterval}, res)
 	require.Empty(t, f.reloadJobs(t))
 	require.Empty(t, f.events())
+	require.Contains(t, f.nodeStatus(t).Status.Message, " (failed reload jobs: 2), retrying")
 
 	// The next job completes, which is recorded.
 	f.expireReloadBackoff(t)
@@ -686,7 +718,10 @@ func TestReconcileRetriesFailedReloadJob(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, "1", f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
-	require.Empty(t, f.events())
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, []string{
+		"Normal " + reasonInstalledPolicy + " Successfully saved profile to disk on " + testReconcileNode,
+	}, f.events())
 	require.Empty(t, f.r.reloadFailures)
 }
 
@@ -1116,13 +1151,12 @@ func TestReconcileRetriesReloadAfterRunningJob(t *testing.T) {
 	res, err := f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{RequeueAfter: reloadJobRetryInterval}, res)
-	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInProgress, f.nodeStatus(t).Status.Status)
 	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
 	require.Len(t, f.reloadJobs(t), 1)
-	require.Len(t, f.events(), 1)
+	require.Empty(t, f.events())
 
-	// Once the running job finished, the reload happens, without reporting
-	// the installation again.
+	// Once the running job finished, the reload of this policy happens.
 	running.Status.Succeeded = 1
 	require.NoError(t, f.client.Status().Update(ctx, running))
 
@@ -1137,8 +1171,9 @@ func TestReconcileRetriesReloadAfterRunningJob(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, "1", f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
 	require.Len(t, f.reloadJobs(t), 2)
-	require.Empty(t, f.events())
+	require.Len(t, f.events(), 1)
 
 	// A new generation is reloaded again, although the last job is recent.
 	sp := f.profile(t)
@@ -1159,6 +1194,157 @@ func TestReconcileRetriesReloadAfterRunningJob(t *testing.T) {
 	require.Len(t, f.reloadJobs(t), 3)
 }
 
+// A reload job which exceeded its deadline, for example because its pod
+// cannot start, tells so in the status of the profile.
+func TestReconcileReloadJobDeadlineExceeded(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	for range 2 {
+		_, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	jobs := f.reloadJobs(t)
+	require.Len(t, jobs, 1)
+
+	job := &jobs[0]
+	job.Status.Conditions = []batchv1.JobCondition{{
+		Type:    batchv1.JobFailed,
+		Status:  corev1.ConditionTrue,
+		Reason:  batchv1.JobReasonDeadlineExceeded,
+		Message: "Job was active longer than specified deadline",
+	}}
+	require.NoError(t, f.client.Status().Update(ctx, job))
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+
+	status := f.nodeStatus(t).Status
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status)
+	require.Contains(t, status.Message,
+		"DeadlineExceeded: Job was active longer than specified deadline")
+}
+
+// A reload job which the API server rejects, like by an admission policy,
+// keeps the profile in error until the job can be created and completed. A
+// transient failure keeps it in progress.
+func TestReconcileReloadJobCreationRejected(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		err       error
+		wantState secprofnodestatusapi.ProfileState
+	}{
+		"forbidden": {
+			err: kerrors.NewForbidden(
+				batchv1.Resource("jobs"), "job", errors.New("violates PodSecurity"),
+			),
+			wantState: secprofnodestatusapi.ProfileStateError,
+		},
+		// A webhook which denies without a code.
+		"bad request": {
+			err:       kerrors.NewBadRequest("denied by the webhook"),
+			wantState: secprofnodestatusapi.ProfileStateError,
+		},
+		"service unavailable": {
+			err:       kerrors.NewServiceUnavailable("try again"),
+			wantState: secprofnodestatusapi.ProfileStateInProgress,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newReconcileFixture(t, testProfile(), nil,
+				selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+			ctx := context.Background()
+
+			_, err := f.r.Reconcile(ctx, f.request)
+			require.NoError(t, err)
+
+			base, ok := f.client.(client.WithWatch)
+			require.True(t, ok)
+
+			f.r.client = interceptor.NewClient(base, interceptor.Funcs{
+				Create: func(
+					ctx context.Context, c client.WithWatch, obj client.Object,
+					opts ...client.CreateOption,
+				) error {
+					if _, isJob := obj.(*batchv1.Job); isJob {
+						return tc.err
+					}
+
+					return c.Create(ctx, obj, opts...)
+				},
+			})
+
+			_, err = f.r.Reconcile(ctx, f.request)
+			require.ErrorContains(t, err, "creating policy reload job")
+
+			status := f.nodeStatus(t).Status
+			require.Equal(t, tc.wantState, status.Status)
+
+			if tc.wantState == secprofnodestatusapi.ProfileStateError {
+				require.Contains(t, status.Message,
+					"Cannot create the reload job of the kernel policy on "+testReconcileNode)
+				require.Contains(t, status.Message, tc.err.Error())
+			}
+
+			// Once the job can be created and completed, the profile is
+			// installed.
+			f.r.client = base
+
+			_, err = f.r.Reconcile(ctx, f.request)
+			require.NoError(t, err)
+			require.Equal(t, secprofnodestatusapi.ProfileStateInProgress,
+				f.nodeStatus(t).Status.Status)
+
+			f.finishReloadJobs(t, batchv1.JobComplete)
+
+			_, err = f.r.Reconcile(ctx, f.request)
+			require.NoError(t, err)
+			require.Equal(t, secprofnodestatusapi.ProfileStateInstalled,
+				f.nodeStatus(t).Status.Status)
+		})
+	}
+}
+
+// A policy whose reload fails is installed by selinuxd already, so its
+// module is no system module once a restarted SPOd pod lost its file.
+func TestReconcileFailedReloadIsNoSystemModuleConflict(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	for range 2 {
+		_, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	f.finishReloadJobs(t, batchv1.JobFailed)
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
+
+	policyFile := filepath.Join(f.r.policyDir, testReconcileProfile+".cil")
+	require.NoError(t, os.Remove(policyFile))
+	require.NoError(t, os.MkdirAll(filepath.Join(
+		f.r.moduleStorePath, "targeted", "active", "modules", "100", testReconcileProfile,
+	), 0o755))
+
+	_, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.FileExists(t, policyFile)
+	require.NotContains(t, f.nodeStatus(t).Status.Message, "system")
+	require.NotContains(t, strings.Join(f.events(), "\n"), reasonPolicyNameConflict)
+}
+
 func TestReconcileRetriesFailedReloadJobCreation(t *testing.T) {
 	t.Parallel()
 
@@ -1174,7 +1360,7 @@ func TestReconcileRetriesFailedReloadJobCreation(t *testing.T) {
 
 	_, err = f.r.Reconcile(ctx, f.request)
 	require.ErrorContains(t, err, "creating policy reload job")
-	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
 	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
 	require.Contains(t, strings.Join(f.events(), "\n"), "Warning "+reasonCannotReloadPolicy)
 }
@@ -1211,12 +1397,7 @@ func TestReconcileEnabledToDisabled(t *testing.T) {
 		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
 	ctx := context.Background()
 
-	for range 2 {
-		_, err := f.r.Reconcile(ctx, f.request)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	f.installPolicy(t)
 
 	policyFile := filepath.Join(f.r.policyDir, testReconcileProfile+".cil")
 	require.FileExists(t, policyFile)
@@ -1602,7 +1783,6 @@ func TestCountRemovalOncePerInstallation(t *testing.T) {
 
 	f := newReconcileFixture(t, testProfile(), nil,
 		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
-	ctx := context.Background()
 
 	sp := f.profile(t)
 
@@ -1611,12 +1791,7 @@ func TestCountRemovalOncePerInstallation(t *testing.T) {
 	require.InDelta(t, 1, f.removals(t), 0)
 
 	// The installation of the policy forgets the counted removal.
-	for range 2 {
-		_, err := f.r.Reconcile(ctx, f.request)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	f.installPolicy(t)
 
 	require.True(t, f.r.countRemoval(sp))
 	require.False(t, f.r.countRemoval(sp))

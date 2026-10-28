@@ -719,3 +719,30 @@ func TestProfileInstalled(t *testing.T) {
 func namedProfile() *apparmorprofileapi.AppArmorProfile {
 	return &apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{Name: "test-profile"}}
 }
+
+// TestPolicyListed asserts that a policy is only found by its whole name in
+// the list of the loaded policies.
+func TestPolicyListed(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "profiles")
+	require.NoError(t, os.WriteFile(path, []byte(
+		"crio-default (enforce)\n"+
+			"test-profile (complain)\n"+
+			"test-profile-other (enforce)\n",
+	), 0o600))
+
+	for name, want := range map[string]bool{
+		"test-profile":       true,
+		"test-profile-other": true,
+		"test":               false,
+		"crio":               false,
+	} {
+		listed, err := policyListed(path, name)
+		require.NoError(t, err)
+		require.Equal(t, want, listed, name)
+	}
+
+	_, err := policyListed(filepath.Join(t.TempDir(), "missing"), "test-profile")
+	require.ErrorIs(t, err, os.ErrNotExist)
+}

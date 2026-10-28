@@ -50,7 +50,7 @@ func FuzzDecodeRuntimeSpecSeccompProfile(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, content []byte) {
-		profile, err := decodeRuntimeSpecSeccompProfile(content)
+		profile, err := DecodeRuntimeSpecSeccompProfile(content)
 		if err != nil {
 			require.Nil(t, profile)
 
@@ -63,7 +63,7 @@ func FuzzDecodeRuntimeSpecSeccompProfile(f *testing.F) {
 		encoded, err := json.Marshal(profile)
 		require.NoError(t, err)
 
-		decoded, err := decodeRuntimeSpecSeccompProfile(encoded)
+		decoded, err := DecodeRuntimeSpecSeccompProfile(encoded)
 		require.NoError(t, err)
 
 		again, err := json.Marshal(decoded)

@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -56,6 +57,11 @@ const (
 	// ones, and a recording misses every syscall which is only issued after
 	// the backlog got full.
 	auditBacklogDistinctMax = 4 * 1024
+	// auditBacklogTotalMax is the number of lines kept across the backlogs
+	// of all containers, which bounds the memory of the backlogs, as each one
+	// of up to maxCacheItems containers could keep auditBacklogDistinctMax
+	// lines otherwise.
+	auditBacklogTotalMax = 64 * 1024
 
 	// backlogTimeout is how long audit lines wait for the pod status to list
 	// their container. The status is updated within seconds, so this only
@@ -304,6 +310,13 @@ type Enricher struct {
 	// warned holds the per audit line warnings which got logged already,
 	// which would otherwise be logged for every syscall.
 	warned onceWarner
+	// backlogLines counts the lines of the backlogs in auditLineCache.
+	backlogLines atomic.Int64
+	// budgetDropped counts the lines dropped because the backlogs of all
+	// containers hold auditBacklogTotalMax lines.
+	budgetDropped atomic.Uint64
+	// serveErr gets the error of the GRPC server if it fails.
+	serveErr <-chan error
 }
 
 // warnOnce logs msg at the default level the first time it is called with
@@ -333,7 +346,18 @@ func (w *onceWarner) warn(logger logr.Logger, key, msg string, kv ...any) {
 // unknown. The syscall IDs of the audit lines are arbitrary numbers, so the
 // warning is logged once per architecture only.
 func unknownSyscallKey(arch string) string {
-	return "syscall/" + arch
+	return "syscall/" + archKey(arch)
+}
+
+// archKey returns the architecture as part of the key of a warning. The audit
+// lines can carry any value, which must not grow the keys without bound, so
+// the architectures which are not known share one key.
+func archKey(arch string) string {
+	if arch == "" || isKnownArch(arch) {
+		return arch
+	}
+
+	return "unknown"
 }
 
 // New returns a new Enricher instance.
@@ -423,6 +447,8 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 func (e *Enricher) logDroppedBacklog(
 	_ context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, *auditBacklog],
 ) {
+	item.Value().release()
+
 	var why string
 
 	switch reason {
@@ -531,6 +557,8 @@ func (e *Enricher) Run(ctx context.Context) error {
 			e.logger.Info("Stopping log-enricher", "reason", ctx.Err().Error())
 
 			return nil
+		case err := <-e.serveErr:
+			return fmt.Errorf("run GRPC server: %w", err)
 		case auditLine, ok := <-log:
 			if !ok {
 				err := e.TailErr(e.source)
@@ -677,11 +705,7 @@ func (e *Enricher) startGrpcServer(ctx context.Context) error {
 	e.grpcServer = grpc.NewServer(daemongrpc.ServerOptions()...)
 	apienricher.RegisterEnricherServer(e.grpcServer, e)
 
-	go func() {
-		if err := e.Serve(e.grpcServer, listener); err != nil {
-			e.logger.Error(err, "unable to run GRPC server")
-		}
-	}()
+	e.serveErr = daemongrpc.Serve(func() error { return e.Serve(e.grpcServer, listener) })
 
 	return nil
 }
@@ -700,6 +724,29 @@ type auditBacklog struct {
 	seen map[types.AuditLine]struct{}
 	// dropped counts the lines which did not fit.
 	dropped uint64
+	// total counts the lines kept by all backlogs, see auditBacklogTotalMax.
+	total *atomic.Int64
+	// released is set once the backlog left the cache, see release.
+	released bool
+}
+
+// newAuditBacklog returns an empty backlog whose lines count towards total.
+func newAuditBacklog(total *atomic.Int64) *auditBacklog {
+	return &auditBacklog{seen: map[types.AuditLine]struct{}{}, total: total}
+}
+
+// release takes the lines of the backlog out of the total, once it left the
+// cache. Lines added afterwards are dropped, nobody would dispatch them.
+func (b *auditBacklog) release() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.released {
+		return
+	}
+
+	b.released = true
+	b.total.Add(-int64(len(b.lines)))
 }
 
 // size returns the number of kept and dropped lines.
@@ -717,8 +764,9 @@ func (b *auditBacklog) size() (kept int, dropped uint64) {
 // add keeps the line, unless the backlog is full. Once auditBacklogMax is
 // reached, only lines which differ from the kept ones by more than their
 // timestamp and process are kept, so that forking workloads do not fill it
-// up with the same syscalls. It returns the number of dropped lines.
-func (b *auditBacklog) add(line *types.AuditLine) (kept bool, dropped uint64) {
+// up with the same syscalls. It returns the number of dropped lines, and
+// whether the line got dropped because all backlogs together are full.
+func (b *auditBacklog) add(line *types.AuditLine) (kept bool, dropped uint64, overBudget bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -733,14 +781,50 @@ func (b *auditBacklog) add(line *types.AuditLine) (kept bool, dropped uint64) {
 		if _, ok := b.seen[key]; ok || len(b.lines) >= auditBacklogDistinctMax {
 			b.dropped++
 
-			return false, b.dropped
+			return false, b.dropped, false
 		}
 	}
 
-	b.lines = append(b.lines, line)
-	b.seen[key] = struct{}{}
+	if b.released {
+		b.dropped++
 
-	return true, b.dropped
+		return false, b.dropped, false
+	}
+
+	if b.total.Load() >= auditBacklogTotalMax {
+		b.dropped++
+
+		return false, b.dropped, true
+	}
+
+	b.total.Add(1)
+
+	// The strings of the line may point into the whole record it got parsed
+	// from, which must not be kept alive with the line.
+	b.lines = append(b.lines, cloneAuditLine(line))
+	b.seen[*cloneAuditLine(&key)] = struct{}{}
+
+	return true, b.dropped, false
+}
+
+// cloneAuditLine returns a copy of the line with its own strings.
+func cloneAuditLine(line *types.AuditLine) *types.AuditLine {
+	c := *line
+	c.AuditType = strings.Clone(c.AuditType)
+	c.TimestampID = strings.Clone(c.TimestampID)
+	c.Executable = strings.Clone(c.Executable)
+	c.Arch = strings.Clone(c.Arch)
+	c.Scontext = strings.Clone(c.Scontext)
+	c.Tcontext = strings.Clone(c.Tcontext)
+	c.Tclass = strings.Clone(c.Tclass)
+	c.Perm = strings.Clone(c.Perm)
+	c.Apparmor = strings.Clone(c.Apparmor)
+	c.Operation = strings.Clone(c.Operation)
+	c.Profile = strings.Clone(c.Profile)
+	c.Name = strings.Clone(c.Name)
+	c.ExtraInfo = strings.Clone(c.ExtraInfo)
+
+	return &c
 }
 
 // snapshot returns the kept lines and the number of dropped ones.
@@ -770,14 +854,27 @@ func (e *Enricher) addToBacklog(containerID string, line *types.AuditLine) error
 		// ones logs that their lines got dropped, see logDroppedBacklog.
 		e.auditLineCache.DeleteExpired()
 
-		backlog = &auditBacklog{seen: map[types.AuditLine]struct{}{}}
+		backlog = newAuditBacklog(&e.backlogLines)
 	}
 
 	// If the backlog is full, we just stop adding new lines. The backlog gets
 	// flushed into the recording once the container shows up, or dropped with
 	// a log line once its TTL expires.
-	kept, dropped := backlog.add(line)
+	kept, dropped, overBudget := backlog.add(line)
 	if !kept {
+		// A backlog which did not fit is not cached, so its count would
+		// start over with every line.
+		if overBudget {
+			if total := e.budgetDropped.Add(1); total%auditBacklogMax == 1 {
+				e.logger.Info(
+					"Audit backlogs of all containers are full, dropping lines",
+					"limit", auditBacklogTotalMax, "droppedLines", total,
+				)
+			}
+
+			return nil
+		}
+
 		if dropped%auditBacklogMax == 1 {
 			e.logger.Info(
 				"Audit backlog of container is full, dropping lines",
@@ -805,6 +902,10 @@ func (e *Enricher) dispatchBacklog(nodeName string, info *types.ContainerInfo) {
 	if !found || item == nil {
 		return
 	}
+
+	// The eviction callback releases the backlog as well, but only later
+	// on, which would drop the lines right after a flush.
+	item.Value().release()
 
 	lines, _ := item.Value().snapshot()
 
@@ -993,7 +1094,7 @@ func (e *Enricher) dispatchSeccompLine(
 		// Keyed by the architecture only, the keys of the profiles would
 		// grow without bound on a long running node.
 		e.warnOnce(
-			"arch/"+auditLine.Arch,
+			"arch/"+archKey(auditLine.Arch),
 			"Not recording syscalls of a non-native architecture",
 			"profile", info.SeccompRecordProfile,
 			"syscallName", syscallName,

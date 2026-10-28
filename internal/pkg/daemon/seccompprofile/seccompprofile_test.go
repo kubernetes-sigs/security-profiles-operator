@@ -17,6 +17,7 @@ limitations under the License.
 package seccompprofile
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -583,12 +584,25 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			sut.metrics = metrics.New()
 			sut.record = events.NewFakeRecorder(10)
 
-			syscalls, _, err := sut.resolveSyscallsForProfile(
-				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-			)
+			syscalls, _, err := resolveWithSPOD(t.Context(), sut, sp)
 			assert(t, syscalls, err)
 		})
 	}
+}
+
+// resolveWithSPOD resolves the syscalls of the profile with the SPOD of the
+// daemon cache, like buildProfileContent does.
+func resolveWithSPOD(
+	ctx context.Context,
+	sut *Reconciler,
+	sp *seccompprofileapi.SeccompProfile,
+) ([]seccompprofileapi.Syscall, bool, error) {
+	spod, err := sut.GetSPOD(ctx, sut.client, sut.namespace)
+	if err != nil {
+		return nil, false, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+	}
+
+	return sut.resolveSyscallsForProfile(ctx, sp, spod, sp.Spec.Syscalls, logr.Discard(), 0)
 }
 
 // TestResolveSyscallsForProfileBaseProfileCache verifies that a remote base
@@ -626,9 +640,7 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	}
 
 	for range 3 {
-		syscalls, archSpecific, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-		)
+		syscalls, archSpecific, err := resolveWithSPOD(t.Context(), sut, sp)
 		require.NoError(t, err)
 		require.True(t, archSpecific, "an OCI base profile is pulled for the node")
 		require.Len(t, syscalls, 1)
@@ -659,66 +671,7 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 		}},
 	}, nil)
 
-	_, _, err := sut.resolveSyscallsForProfile(t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0)
+	_, _, err := resolveWithSPOD(t.Context(), sut, sp)
 	require.NoError(t, err)
 	require.Equal(t, 2, mock.PullCallCount())
-}
-
-// A base profile pulled before is used if the SPOD with the pull settings
-// cannot be read. Without one, the resolution fails and gets retried.
-func TestResolveSyscallsForProfileCachedBaseProfileWithoutSPOD(t *testing.T) {
-	t.Parallel()
-
-	mock := &seccompprofilefakes.FakeImpl{}
-	mock.GetSPODReturns(nil, errors.New("no spod"))
-	mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
-	mock.PullResultSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
-		Spec: seccompprofileapi.SeccompProfileSpec{
-			Syscalls: []seccompprofileapi.Syscall{
-				{Names: []string{"second"}, Action: seccompprofileapi.ActAllow},
-			},
-		},
-	})
-
-	sut, ok := NewController().(*Reconciler)
-	require.True(t, ok)
-
-	sut.impl = mock
-	sut.metrics = metrics.New()
-	sut.record = events.NewFakeRecorder(10)
-
-	sp := &seccompprofileapi.SeccompProfile{
-		Spec: seccompprofileapi.SeccompProfileSpec{
-			BaseProfileName: config.OCIProfilePrefix + "registry/base:v1",
-			Syscalls: []seccompprofileapi.Syscall{
-				{Names: []string{"first"}, Action: seccompprofileapi.ActAllow},
-			},
-		},
-	}
-
-	resolve := func() ([]seccompprofileapi.Syscall, error) {
-		syscalls, _, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-		)
-
-		return syscalls, err
-	}
-
-	_, err := resolve()
-	require.ErrorContains(t, err, "retrieving the SPOD configuration: no spod")
-	require.Zero(t, mock.PullCallCount())
-
-	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
-
-	_, err = resolve()
-	require.NoError(t, err)
-	require.Equal(t, 1, mock.PullCallCount())
-
-	mock.GetSPODReturns(nil, errors.New("no spod"))
-
-	syscalls, err := resolve()
-	require.NoError(t, err)
-	require.Len(t, syscalls, 1)
-	require.Equal(t, []string{"first", "second"}, syscalls[0].Names)
-	require.Equal(t, 1, mock.PullCallCount(), "the cached base profile is used")
 }

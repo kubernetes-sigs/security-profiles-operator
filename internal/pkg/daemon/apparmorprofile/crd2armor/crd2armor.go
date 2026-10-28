@@ -484,6 +484,144 @@ func TraversalPaths(abstract *apparmorprofileapi.AppArmorAbstract) []string {
 	return paths
 }
 
+// OverlappingDenyMessage is the warning for a profile for which
+// OverlappingDenyRules reports rules.
+const OverlappingDenyMessage = "spec.abstract.filesystem paths overlap: in enforce mode, " +
+	"the deny rule of a readOnlyPaths or writeOnlyPaths entry wins over every rule " +
+	"which allows the same files, use paths which do not overlap"
+
+// OverlappingDenyRules returns the paths whose deny rule overlaps with a rule
+// which allows the same files, as far as globMatches tells, for example a
+// readOnlyPaths entry of /etc/** and a readWritePaths entry of /etc/app/state,
+// which cannot be written then. Only enforce mode has the deny rules. Each
+// entry tells the denying path and the allowing one. The deprecated ptrace
+// rules in the lists are no paths, see splitPtraceRules.
+func OverlappingDenyRules(
+	mode apparmorprofileapi.AppArmorMode,
+	abstract *apparmorprofileapi.AppArmorAbstract,
+) []string {
+	if mode == apparmorprofileapi.AppArmorModeComplain ||
+		abstract == nil || abstract.Filesystem == nil {
+		return nil
+	}
+
+	readOnly, _ := splitPtraceRules(abstract.Filesystem.ReadOnlyPaths)
+	writeOnly, _ := splitPtraceRules(abstract.Filesystem.WriteOnlyPaths)
+	readWrite, _ := splitPtraceRules(abstract.Filesystem.ReadWritePaths)
+
+	var executables, libraries []string
+	if abstract.Executable != nil {
+		executables, _ = splitPtraceRules(abstract.Executable.AllowedExecutables)
+		libraries, _ = splitPtraceRules(abstract.Executable.AllowedLibraries)
+	}
+
+	type allowRule struct {
+		field string
+		paths []string
+	}
+
+	// Every path is compiled once, it is compared with many others.
+	globs := map[string]*regexp.Regexp{}
+	glob := func(path string) *regexp.Regexp {
+		re, ok := globs[path]
+		if !ok {
+			re = globRegexp(path)
+			globs[path] = re
+		}
+
+		return re
+	}
+
+	var overlaps []string
+
+	// The read only paths deny writes, the write only paths deny reads.
+	for _, deny := range []struct {
+		field   string
+		paths   []string
+		allowed []allowRule
+	}{
+		{
+			field: "readOnlyPaths",
+			paths: readOnly,
+			allowed: []allowRule{
+				{"writeOnlyPaths", writeOnly},
+				{"readWritePaths", readWrite},
+			},
+		},
+		{
+			field: "writeOnlyPaths",
+			paths: writeOnly,
+			allowed: []allowRule{
+				{"readOnlyPaths", readOnly},
+				{"readWritePaths", readWrite},
+				{"allowedExecutables", executables},
+				{"allowedLibraries", libraries},
+			},
+		},
+	} {
+		for _, denied := range deny.paths {
+			for _, rule := range deny.allowed {
+				for _, allowed := range rule.paths {
+					if globMatches(glob(denied), allowed) || globMatches(glob(allowed), denied) {
+						overlaps = append(overlaps, fmt.Sprintf("%s %s denies %s %s",
+							deny.field, denied, rule.field, allowed))
+					}
+				}
+			}
+		}
+	}
+
+	return overlaps
+}
+
+// globMatches reports whether the glob, see globRegexp, matches the path,
+// which may be a glob itself and is then matched as written. Checking two
+// paths both ways catches a path or glob which falls under the other glob,
+// like /etc/app/** under /etc/**. It is best effort: two globs like
+// /etc/*.conf and /etc/app.* can match the same file without either matching
+// the other.
+func globMatches(glob *regexp.Regexp, path string) bool {
+	return glob != nil && glob.MatchString(path)
+}
+
+// globRegexp returns the regular expression of an AppArmor path, or nil if it
+// has none. The validated paths only have the globs * for anything but a /,
+// ** for anything and ? for a character but a /, and variables like @{pid},
+// which are taken to match anything but a /.
+func globRegexp(glob string) *regexp.Regexp {
+	var expr strings.Builder
+
+	expr.WriteString("^")
+
+	for i := 0; i < len(glob); i++ {
+		switch {
+		case strings.HasPrefix(glob[i:], "**"):
+			expr.WriteString(".*")
+
+			i++
+		case glob[i] == '*':
+			expr.WriteString("[^/]*")
+		case glob[i] == '?':
+			expr.WriteString("[^/]")
+		case strings.HasPrefix(glob[i:], "@{") && strings.Contains(glob[i:], "}"):
+			expr.WriteString("[^/]*")
+
+			i += strings.IndexByte(glob[i:], '}')
+		default:
+			expr.WriteString(regexp.QuoteMeta(glob[i : i+1]))
+		}
+	}
+
+	expr.WriteString("$")
+
+	re, err := regexp.Compile(expr.String())
+	if err != nil {
+		return nil
+	}
+
+	return re
+}
+
 // hasTraversal reports whether the path has a ".." element, which the kernel
 // resolves before matching. A name like "..data" is not one.
 func hasTraversal(path string) bool {
@@ -506,25 +644,25 @@ func normalizeCapabilities(capabilities []string) []string {
 	return normalized
 }
 
-func validateCapability(capability string) error {
-	// Contains all standard Linux capabilities supported by AppArmor.
-	// They are matched in lowercase, without the "CAP_" prefix.
-	validCapabilities := map[string]bool{
-		"chown": true, "dac_override": true, "dac_read_search": true,
-		"fowner": true, "fsetid": true, "kill": true, "setgid": true,
-		"setuid": true, "setpcap": true, "linux_immutable": true,
-		"net_bind_service": true, "net_broadcast": true, "net_admin": true,
-		"net_raw": true, "ipc_lock": true, "ipc_owner": true,
-		"sys_module": true, "sys_rawio": true, "sys_chroot": true,
-		"sys_ptrace": true, "sys_pacct": true, "sys_admin": true,
-		"sys_boot": true, "sys_nice": true, "sys_resource": true,
-		"sys_time": true, "sys_tty_config": true, "mknod": true,
-		"lease": true, "audit_write": true, "audit_control": true,
-		"setfcap": true, "mac_override": true, "mac_admin": true,
-		"syslog": true, "wake_alarm": true, "block_suspend": true,
-		"audit_read": true, "perfmon": true, "bpf": true, "checkpoint_restore": true,
-	}
+// validCapabilities contains all standard Linux capabilities supported by
+// AppArmor. They are matched in lowercase, without the "CAP_" prefix.
+var validCapabilities = map[string]bool{
+	"chown": true, "dac_override": true, "dac_read_search": true,
+	"fowner": true, "fsetid": true, "kill": true, "setgid": true,
+	"setuid": true, "setpcap": true, "linux_immutable": true,
+	"net_bind_service": true, "net_broadcast": true, "net_admin": true,
+	"net_raw": true, "ipc_lock": true, "ipc_owner": true,
+	"sys_module": true, "sys_rawio": true, "sys_chroot": true,
+	"sys_ptrace": true, "sys_pacct": true, "sys_admin": true,
+	"sys_boot": true, "sys_nice": true, "sys_resource": true,
+	"sys_time": true, "sys_tty_config": true, "mknod": true,
+	"lease": true, "audit_write": true, "audit_control": true,
+	"setfcap": true, "mac_override": true, "mac_admin": true,
+	"syslog": true, "wake_alarm": true, "block_suspend": true,
+	"audit_read": true, "perfmon": true, "bpf": true, "checkpoint_restore": true,
+}
 
+func validateCapability(capability string) error {
 	normalized := strings.ToLower(strings.TrimSpace(capability))
 	if exists, ok := validCapabilities[normalized]; ok && exists {
 		return nil

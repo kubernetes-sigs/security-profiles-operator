@@ -115,7 +115,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 // toggle this for additional debug output
 #define trace_hook(...)
-// #define trace_hook(...) if(get_mntns()) { bpf_printk(__VA_ARGS__); }
+// #define trace_hook(...) \
+//     { u64 k; if (get_mntns_key(&k)) { bpf_printk(__VA_ARGS__); } }
 
 // are we currently recording?
 // If yes, the only map element is set to true.
@@ -146,7 +147,7 @@ struct {
     __type(value, u8[MAX_SYSCALLS]);  // syscall IDs
 } recorded_syscalls SEC(".maps");
 
-// Keys of workloads which are not recorded, see get_mntns. Only used with
+// Keys of workloads which are not recorded, see get_mntns_key. Only used with
 // keys which are never reused, see unique_keys.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -330,6 +331,10 @@ const volatile bool use_mntns_seq = false;
 // space on them.
 const volatile bool capture_exec_args = false;
 
+// Set by the userspace if it waits for processes to exit, which only spoc
+// does. In-cluster, the exits of the recorded workloads are not reported.
+const volatile bool report_exits = false;
+
 // The names of the processes the container runtimes start a container with,
 // like runc:[2:INIT] or crun, set by the userspace. Their first exec under a
 // key is the start of the container, see is_container_init. They are matched
@@ -413,14 +418,14 @@ static __always_inline bool unique_keys()
 }
 
 /**
- * get_mntns returns the mntns in case the call should be taken into account.
- * 0 is returned when the process should not be processed. The following
- * criteria are used:
+ * get_mntns_key returns the mntns in case the call should be taken into
+ * account, and sets key to the key of the process, see get_key. 0 is returned
+ * when the process should not be processed. The following criteria are used:
  *   - host processes are excluded (if system mntns is set)
  *   - child processes are included
  *   - program name if filter is active
  */
-static __always_inline u32 get_mntns()
+static __always_inline u32 get_mntns_key(u64 * key)
 {
     // Get the current mntns
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
@@ -435,10 +440,12 @@ static __always_inline u32 get_mntns()
         return 0;
     }
 
-    // Filter out the workloads the userspace found not to be recorded.
+    // Filter out the workloads the userspace found not to be recorded. The
+    // key is the mntns otherwise, see get_key.
+    u64 k = mntns;
     if (unique_keys()) {
-        u64 key = get_key(mntns);
-        if (bpf_map_lookup_elem(&exclude_keys, &key) != NULL) {
+        k = get_key(mntns);
+        if (bpf_map_lookup_elem(&exclude_keys, &k) != NULL) {
             return 0;
         }
     }
@@ -455,6 +462,7 @@ static __always_inline u32 get_mntns()
         }
     }
 
+    *key = k;
     return mntns;
 }
 
@@ -752,7 +760,7 @@ static __always_inline int bpf_d_path_tetragon(struct path * path, char * buf,
 // state last and event.
 static __always_inline void register_fs_event_locked(
     struct path * filename, umode_t i_mode, u64 flags, bool custom_bpf_d_path,
-    u32 mntns, u32 pid, u64 inode_number, u32 dev, bool overlay,
+    u32 mntns, u64 key, u32 pid, u64 inode_number, u32 dev, bool overlay,
     event_data_t * event)
 {
     // Discard repeated calls of the same thread. Inode numbers are only
@@ -762,7 +770,6 @@ static __always_inline void register_fs_event_locked(
     // right away, with the same inode number on another device. Its path is
     // the one within the layer, which the workload never uses, so it is
     // discarded as well.
-    u64 key = get_key(mntns);
     u32 tid = (u32)bpf_get_current_pid_tgid();
     struct file_event_state * last =
         bpf_map_lookup_elem(&last_file_event, &tid);
@@ -862,11 +869,11 @@ static __always_inline bool is_anonymous_pipe(struct path * filename)
 }
 
 // register_fs_event_of sends a file event of a process which records under
-// mntns, see get_mntns.
+// mntns and key, see get_mntns_key.
 static __always_inline int register_fs_event_of(struct path * filename,
                                                 umode_t i_mode, u64 flags,
                                                 bool custom_bpf_d_path,
-                                                u32 mntns)
+                                                u32 mntns, u64 key)
 {
     if (is_anonymous_pipe(filename)) {
         return 0;
@@ -897,26 +904,25 @@ static __always_inline int register_fs_event_of(struct path * filename,
     }
 
     register_fs_event_locked(filename, i_mode, flags, custom_bpf_d_path, mntns,
-                             pid, inode_number, dev, overlay, event);
+                             key, pid, inode_number, dev, overlay, event);
 
     __sync_fetch_and_add(busy, -1);
     return 0;
 }
 
+// register_fs_event filters out the processes which are not recorded first,
+// as the file hooks run for every process of the node.
 static __always_inline int register_fs_event(struct path * filename,
                                              umode_t i_mode, u64 flags,
                                              bool custom_bpf_d_path)
 {
-    if (is_anonymous_pipe(filename)) {
-        return 0;
-    }
-
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
 
     return register_fs_event_of(filename, i_mode, flags, custom_bpf_d_path,
-                                mntns);
+                                mntns, key);
 }
 
 static __always_inline int register_file_event(struct file * file, u64 flags)
@@ -1095,7 +1101,8 @@ int BPF_PROG(path_symlink, struct path * dir, struct dentry * dentry)
 // some of the hooks run very often.
 static __always_inline int register_path_event(struct path * path, u64 flags)
 {
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
 
@@ -1104,7 +1111,7 @@ static __always_inline int register_path_event(struct path * path, u64 flags)
         .dentry = BPF_CORE_READ(path, dentry),
     };
     umode_t mode = BPF_CORE_READ(path, dentry, d_inode, i_mode);
-    return register_fs_event_of(&copy, mode, flags, true, mntns);
+    return register_fs_event_of(&copy, mode, flags, true, mntns, key);
 }
 
 SEC("lsm/path_truncate")
@@ -1193,7 +1200,8 @@ int sys_enter_socket(struct syscall_trace_enter * ctx)
 {
     if (!_is_recording_cached)
         return 0;
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
     trace_hook("sys_enter_socket");
@@ -1224,7 +1232,6 @@ int sys_enter_socket(struct syscall_trace_enter * ctx)
         group = 2;
     }
     u64 bit = 1ULL << (group * 16 + (type & 0xf));
-    u64 key = get_key(mntns);
     if (already_recorded(&recorded_sockets, key, bit)) {
         return 0;
     }
@@ -1260,18 +1267,25 @@ int BPF_PROG(cap_capable, const struct cred * cred,
     if (cap < 0 || cap >= 64)
         return 0;
 
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
     trace_hook("requesting capability: cap=%i cap_opt=%i", cap, cap_opt);
+
+    // Report every capability once per key. Most checks of a recorded
+    // workload are of a capability which got reported already, which needs
+    // none of the checks below.
+    u64 bit = 1ULL << cap;
+    u64 * mask = bpf_map_lookup_elem(&recorded_caps, &key);
+    if (mask && (READ_ONCE(*mask) & bit)) {
+        return 0;
+    }
 
     if (is_container_init())  // there are some SYS_ADMIN privileges exercised
                               // by the runtime after the exec of the container
         return 0;
 
-    // Report every capability once per key.
-    u64 bit = 1ULL << cap;
-    u64 key = get_key(mntns);
     if (already_recorded(&recorded_caps, key, bit)) {
         return 0;
     }
@@ -1286,7 +1300,7 @@ int BPF_PROG(cap_capable, const struct cred * cred,
 static __always_inline void submit_exec_event(const __u8 * filename,
                                               const __u8 * const * argv,
                                               const __u8 * const * envp,
-                                              u32 mntns)
+                                              u32 mntns, u64 key)
 {
     exec_event_data_t * exec_event =
         bpf_ringbuf_reserve(&events, sizeof(exec_event_data_t), 0);
@@ -1301,7 +1315,7 @@ static __always_inline void submit_exec_event(const __u8 * filename,
 
     exec_event->hdr.pid = bpf_get_current_pid_tgid() >> 32;
     exec_event->hdr.mntns = mntns;
-    exec_event->hdr.key = get_key(mntns);
+    exec_event->hdr.key = key;
     exec_event->hdr.type = EVENT_TYPE_EXECVE_ENTER;
     // When the process started, which tells it apart from a later process
     // with the same PID, see submit_new_pid.
@@ -1367,14 +1381,15 @@ int sys_enter_execve(struct syscall_trace_enter * ctx)
         return 0;
     if (!capture_exec_args)
         return 0;
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
     trace_hook("sys_enter_execve");
 
     submit_exec_event((const __u8 *)ctx->args[0],
                       (const __u8 * const *)ctx->args[1],
-                      (const __u8 * const *)ctx->args[2], mntns);
+                      (const __u8 * const *)ctx->args[2], mntns, key);
 
     return 0;
 }
@@ -1388,14 +1403,15 @@ int sys_enter_execveat(struct syscall_trace_enter * ctx)
         return 0;
     if (!capture_exec_args)
         return 0;
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
     trace_hook("sys_enter_execveat");
 
     submit_exec_event((const __u8 *)ctx->args[1],
                       (const __u8 * const *)ctx->args[2],
-                      (const __u8 * const *)ctx->args[3], mntns);
+                      (const __u8 * const *)ctx->args[3], mntns, key);
 
     return 0;
 }
@@ -1438,19 +1454,22 @@ int sched_process_exit(void * ctx)
     if (BPF_CORE_READ(task, signal, live.counter) != 0)
         return 0;
 
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (!mntns)
         return 0;
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct pid_key active = {.pid = pid, .key = get_key(mntns)};
+    struct pid_key active = {.pid = pid, .key = key};
     if (bpf_map_delete_elem(&active_pids, &active) != 0) {
         return 0;  // key not found
     }
     trace_hook("removing child pid: %u", pid);
     bpf_map_delete_elem(&child_pids, &pid);
 
-    submit_event(EVENT_TYPE_EXIT, mntns, get_key(mntns), 0);
+    if (report_exits) {
+        submit_event(EVENT_TYPE_EXIT, mntns, key, 0);
+    }
     return 0;
 }
 
@@ -1490,13 +1509,13 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         return 0;
     }
 
-    u32 mntns = get_mntns();
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
     if (mntns == 0) {
         return 0;
     }
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
-    u64 key = get_key(mntns);
 
     // Notify the userspace when a new process is found. This will allow
     // the userspace to look up the container ID from cgroups of the

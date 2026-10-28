@@ -821,3 +821,66 @@ func TestGenerateProfileNetworkRules(t *testing.T) {
 		})
 	}
 }
+
+func TestOverlappingDenyRules(t *testing.T) {
+	t.Parallel()
+
+	abstract := &apparmorprofileapi.AppArmorAbstract{
+		Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+			AllowedExecutables: []string{"/data/bin/tool"},
+		},
+		Filesystem: &apparmorprofileapi.AppArmorFsRules{
+			ReadOnlyPaths:  []string{"/etc/**", "/usr/share/zoneinfo/*"},
+			WriteOnlyPaths: []string{"/data/**", "/proc/@{pid}/attr"},
+			ReadWritePaths: []string{"/etc/app/state", "/var/log/app/**", "/proc/1/attr"},
+		},
+	}
+
+	require.Equal(t, []string{
+		"readOnlyPaths /etc/** denies readWritePaths /etc/app/state",
+		"writeOnlyPaths /data/** denies allowedExecutables /data/bin/tool",
+		"writeOnlyPaths /proc/@{pid}/attr denies readWritePaths /proc/1/attr",
+	}, OverlappingDenyRules(apparmorprofileapi.AppArmorModeEnforce, abstract))
+
+	require.Empty(t, OverlappingDenyRules(apparmorprofileapi.AppArmorModeComplain, abstract),
+		"complain mode has no deny rules")
+	require.Empty(t, OverlappingDenyRules(apparmorprofileapi.AppArmorModeEnforce, nil))
+
+	// The deprecated ptrace rules in the lists are no paths.
+	require.Empty(t, OverlappingDenyRules(apparmorprofileapi.AppArmorModeEnforce,
+		&apparmorprofileapi.AppArmorAbstract{
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths:  []string{"ptrace (read),"},
+				WriteOnlyPaths: []string{"ptrace (read),"},
+				ReadWritePaths: []string{"ptrace (read),"},
+			},
+		}))
+}
+
+func TestGlobMatches(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		glob, path string
+		want       bool
+	}{
+		{"/etc/**", "/etc/a/b", true},
+		{"/etc/*", "/etc/a", true},
+		{"/etc/*", "/etc/a/b", false},
+		{"/etc/?", "/etc/a", true},
+		{"/etc/?", "/etc/ab", false},
+		{"/etc/**", "/etc/app/**", true},
+		{"/etc/app/**", "/etc/**", false},
+		{"/a+b", "/a+b", true},
+		{"/a+b", "/aab", false},
+	} {
+		require.Equal(
+			t,
+			tc.want,
+			globMatches(globRegexp(tc.glob), tc.path),
+			"%s %s",
+			tc.glob,
+			tc.path,
+		)
+	}
+}

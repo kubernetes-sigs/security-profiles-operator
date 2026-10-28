@@ -20,6 +20,7 @@ limitations under the License.
 package daemongrpc
 
 import (
+	"errors"
 	"fmt"
 
 	"google.golang.org/grpc"
@@ -51,6 +52,21 @@ func DialOptions() []grpc.DialOption {
 			grpc.MaxCallRecvMsgSize(MaxMsgSize),
 		),
 	}
+}
+
+// Serve runs serve, which serves a GRPC server, in the background. The
+// returned channel gets its error, unless the server got stopped, so that the
+// container fails instead of running on with a socket nobody answers on.
+func Serve(serve func() error) <-chan error {
+	errs := make(chan error, 1)
+
+	go func() {
+		if err := serve(); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			errs <- err
+		}
+	}()
+
+	return errs
 }
 
 // Dial creates a client of the server listening on the unix socket.

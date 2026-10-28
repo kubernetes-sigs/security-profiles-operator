@@ -591,7 +591,11 @@ var loggingInitialized bool
 
 func initLogging(ctx *cli.Context) error {
 	logConfig := textlogger.NewConfig()
-	ctrl.SetLogger(textlogger.NewLogger(logConfig))
+	logger := textlogger.NewLogger(logConfig)
+	ctrl.SetLogger(logger)
+	// The libraries, like the Kubernetes client, log through klog, which
+	// writes the same format then.
+	klog.SetLogger(logger)
 
 	loggingInitialized = true
 
@@ -607,7 +611,7 @@ func initLogging(ctx *cli.Context) error {
 		return fmt.Errorf("setting the verbosity flag to level %d: %w", level, err)
 	}
 
-	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
+	ctrl.Log.Info("Set logging verbosity", "verbosity", level)
 
 	return nil
 }
@@ -616,7 +620,7 @@ var profilingServer *http.Server
 
 func initProfiling(ctx *cli.Context) {
 	enabled := ctx.Bool("profiling")
-	ctrl.Log.Info(fmt.Sprintf("Profiling support enabled: %v", enabled))
+	ctrl.Log.Info("Profiling support", "enabled", enabled)
 
 	if enabled {
 		endpoint := profilingEndpoint(ctx.String(profilingAddressFlag), ctx.Uint("profiling-port"))
@@ -1550,6 +1554,19 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	if err := setupEnabledControllers(ctx.Context, enabledControllers, mgr, met); err != nil {
 		return fmt.Errorf("enable controllers: %w", err)
+	}
+
+	// The recorders and enrichers cannot reach the daemon without its GRPC
+	// server, so the daemon fails with it.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		select {
+		case err := <-met.ServeErr():
+			return fmt.Errorf("run metrics grpc server: %w", err)
+		case <-ctx.Done():
+			return nil
+		}
+	})); err != nil {
+		return fmt.Errorf("add metrics grpc server: %w", err)
 	}
 
 	sigHandler := ctrl.SetupSignalHandler()

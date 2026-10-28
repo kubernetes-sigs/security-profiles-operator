@@ -20,7 +20,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type defaultImpl struct{}
+// defaultImpl registers the collectors in the registry the metrics are
+// served from.
+type defaultImpl struct {
+	registry prometheus.Registerer
+}
 
 //go:generate go run -modfile=../../../../hack/tools/go.mod -mod=readonly github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
@@ -29,5 +33,5 @@ type impl interface {
 }
 
 func (d *defaultImpl) Register(c prometheus.Collector) error {
-	return prometheus.Register(c)
+	return d.registry.Register(c)
 }

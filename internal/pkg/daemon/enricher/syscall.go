@@ -21,6 +21,7 @@ package enricher
 import (
 	"fmt"
 	"runtime"
+	"sync"
 	"time"
 
 	seccomp "github.com/seccomp/libseccomp-golang"
@@ -58,12 +59,50 @@ var nativeAuditArches = map[string]string{
 // architecture of the syscall, the syscall numbers differ between them. An
 // empty or unknown arch resolves the ID for the native architecture.
 func syscallName(id int32, arch string) (string, error) {
-	if scmpArch, ok := auditArches[arch]; ok {
-		return seccomp.ScmpSyscall(id).GetNameByArch(scmpArch)
+	scmpArch, known := auditArches[arch]
+	if !known {
+		arch = ""
 	}
 
-	return seccomp.ScmpSyscall(id).GetName()
+	key := syscallKey{id: id, arch: arch}
+	if name, ok := syscallNames.Load(key); ok {
+		if s, isString := name.(string); isString {
+			return s, nil
+		}
+	}
+
+	var (
+		name string
+		err  error
+	)
+
+	if known {
+		name, err = seccomp.ScmpSyscall(id).GetNameByArch(scmpArch)
+	} else {
+		name, err = seccomp.ScmpSyscall(id).GetName()
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	// Only the names which exist are cached, which bounds the cache by the
+	// syscalls of the known architectures.
+	syscallNames.Store(key, name)
+
+	return name, nil
 }
+
+// syscallKey is the key of a syscall in syscallNames. The architecture is
+// empty for the native one.
+type syscallKey struct {
+	id   int32
+	arch string
+}
+
+// syscallNames caches the names syscallName resolved, which is a call into
+// libseccomp for every audit line otherwise.
+var syscallNames sync.Map
 
 // isNativeArch reports whether arch is the audit architecture of the native
 // syscalls. Syscalls of a compat architecture, like 32-bit x86 programs on
@@ -73,6 +112,13 @@ func isNativeArch(arch string) bool {
 	native, ok := nativeAuditArches[runtime.GOARCH]
 
 	return arch == "" || !ok || arch == native
+}
+
+// isKnownArch reports whether arch is one of the audit architectures.
+func isKnownArch(arch string) bool {
+	_, known := auditArches[arch]
+
+	return known
 }
 
 // uptime returns the time since boot, like the start times of processes.

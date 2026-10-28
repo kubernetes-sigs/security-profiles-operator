@@ -64,3 +64,20 @@ func TestSetRepoCredentials(t *testing.T) {
 		credentialOf("user", "pass"),
 	)
 }
+
+func TestLoopbackRegistry(t *testing.T) {
+	t.Parallel()
+
+	for hostport, want := range map[string]bool{
+		"localhost":           true,
+		"localhost:5000":      true,
+		"127.0.0.1:5000":      true,
+		"[::1]:5000":          true,
+		"::1":                 true,
+		"registry.local:5000": false,
+		"10.0.0.1":            false,
+		"localhost.evil.com":  false,
+	} {
+		require.Equal(t, want, loopbackRegistry(hostport), hostport)
+	}
+}

@@ -41,7 +41,7 @@ func (a *Artifact) runtimeSpecSeccompProfile(
 		return nil, false, nil
 	}
 
-	runtimeSpec, err := decodeRuntimeSpecSeccompProfile(content)
+	runtimeSpec, err := DecodeRuntimeSpecSeccompProfile(content)
 	if err != nil {
 		return nil, false, errors.Join(ErrDecodeYAML, profileErr, err)
 	}
@@ -83,11 +83,11 @@ func (a *Artifact) validateRuntimeSpec(
 	return nil
 }
 
-// decodeRuntimeSpecSeccompProfile decodes the content of a KEP-6061 artifact,
+// DecodeRuntimeSpecSeccompProfile decodes the content of a KEP-6061 artifact,
 // a raw OCI runtime-spec seccomp profile. The content has to decode strictly
 // into the runtime-spec type, so unknown fields and trailing data are
 // rejected and defaultAction is required.
-func decodeRuntimeSpecSeccompProfile(content []byte) (*specs.LinuxSeccomp, error) {
+func DecodeRuntimeSpecSeccompProfile(content []byte) (*specs.LinuxSeccomp, error) {
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 
@@ -119,7 +119,7 @@ func decodeRuntimeSpecSeccompProfile(content []byte) (*specs.LinuxSeccomp, error
 func runtimeSpecSeccompProfileSpec(
 	content []byte,
 ) (*seccompprofileapi.SeccompProfileSpec, error) {
-	if _, err := decodeRuntimeSpecSeccompProfile(content); err != nil {
+	if _, err := DecodeRuntimeSpecSeccompProfile(content); err != nil {
 		return nil, err
 	}
 

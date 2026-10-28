@@ -19,6 +19,7 @@ limitations under the License.
 package apparmorprofile
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -242,12 +243,11 @@ func checkProfileExist(logger logr.Logger, profileName string) bool {
 		hostop.WithLogger(logger),
 		hostop.WithAssumeContainer(),
 		hostop.WithAssumeHostPidNamespace())
-	apparmor := aa.NewAppArmor(aa.WithLogger(logger))
 
 	exists := true
 
 	if err := mount.Do(func() error {
-		loaded, err := apparmor.PolicyLoaded(profileName)
+		loaded, err := policyLoaded(profileName)
 		if err != nil {
 			return fmt.Errorf("checking policy status: %w", err)
 		}
@@ -344,7 +344,7 @@ func loadProfile(logger logr.Logger, name, content string, ownedByUs bool) (bool
 			profileFilename(name),
 		)
 
-		updated, err = loadPolicyFile(logger, a, path, name, content, ownedByUs)
+		updated, err = loadPolicyFile(logger, kernelLoader{a}, path, name, content, ownedByUs)
 
 		return err
 	})
@@ -356,6 +356,56 @@ func loadProfile(logger logr.Logger, name, content string, ownedByUs bool) (bool
 type policyLoader interface {
 	LoadPolicy(fileName string) error
 	PolicyLoaded(policyName string) (bool, error)
+}
+
+// kernelLoader loads the policies with go-apparmor, and checks whether they
+// are loaded with policyLoaded.
+type kernelLoader struct {
+	loader interface{ LoadPolicy(fileName string) error }
+}
+
+func (k kernelLoader) LoadPolicy(fileName string) error {
+	return k.loader.LoadPolicy(fileName)
+}
+
+func (kernelLoader) PolicyLoaded(policyName string) (bool, error) {
+	return policyLoaded(policyName)
+}
+
+// profilesPath lists the policies loaded into the kernel.
+const profilesPath = "/sys/kernel/security/apparmor/profiles"
+
+// policyLoaded reports whether the policy is loaded into the kernel. Unlike
+// the PolicyLoaded of go-apparmor, it closes the list of the loaded policies
+// again, which every resync reads for every profile. It must be called inside
+// the host mount namespace.
+func policyLoaded(policyName string) (bool, error) {
+	return policyListed(profilesPath, policyName)
+}
+
+// policyListed reports whether the list of loaded policies at path has the
+// policy, whose lines look like "name (enforce)".
+func policyListed(path, policyName string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("cannot open file %s: %w", path, err)
+	}
+	defer file.Close()
+
+	prefix := policyName + " ("
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		if strings.HasPrefix(scanner.Text(), prefix) {
+			return true, nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	return false, nil
 }
 
 // loadPolicyFile writes the policy with the given content to path and loads
@@ -507,7 +557,7 @@ func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs boo
 			return nil
 		}
 
-		loaded, err := a.PolicyLoaded(profileName)
+		loaded, err := policyLoaded(profileName)
 		if err != nil {
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}

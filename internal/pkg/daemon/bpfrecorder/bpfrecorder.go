@@ -51,6 +51,7 @@ import (
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/daemongrpc"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/libbpflog"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -341,8 +342,9 @@ type BpfRecorder struct {
 
 	// recentExits bounds how many exited PIDs are remembered so that
 	// WaitForPidExit can observe an exit that happened just before it started
-	// waiting. In-cluster nobody waits for those PIDs, so an unbounded map
-	// would leak an entry per recorded process exit.
+	// waiting. spoc gets every exit of the recorded processes, but waits for
+	// one of them only, so an unbounded map would grow with every exit of a
+	// workload which starts many processes.
 	recentExits *ttlcache.Cache[uint32, struct{}]
 
 	// exitWaiters holds the callers currently inside WaitForPidExit. They
@@ -1222,6 +1224,11 @@ func (b *BpfRecorder) initGlobals(module *bpf.Module) error {
 	switch {
 	case b.clientset == nil:
 		b.logger.Info("Recording per mount namespace")
+
+		// spoc waits for the exit of the recorded process.
+		if err := b.InitGlobalVariable(module, globalReportExits, true); err != nil {
+			return fmt.Errorf("init global variable: %w", err)
+		}
 	case b.IsCgroupV2():
 		if err := b.InitGlobalVariable(module, globalUseCgroupID, true); err != nil {
 			return fmt.Errorf("init global variable: %w", err)
@@ -1324,6 +1331,7 @@ var errLoadObject = errors.New("load bpf object")
 func (b *BpfRecorder) Load() (err error) {
 	var module *bpf.Module
 
+	libbpflog.Route(b.logger)
 	b.logger.Info("Loading bpf module...")
 
 	if err := b.findBtfPath(); err != nil {
@@ -1521,8 +1529,11 @@ func (b *BpfRecorder) releaseModule() {
 	}
 
 	// Closing the ring buffer closes the events channel, which ends the event
-	// processing.
-	b.CloseModule(b.module)
+	// processing. The module is nil if creating it failed, and libbpfgo
+	// cannot close a nil module.
+	if b.module != nil {
+		b.CloseModule(b.module)
+	}
 
 	b.module = nil
 	b.isRecordingBpfMap = nil
@@ -1743,26 +1754,31 @@ func (b *BpfRecorder) StopRecording() error {
 
 	b.logger.Info("Stop BPF recording: Detaching all programs...")
 
+	// Every step runs even if an earlier one failed, so that a failed stop
+	// does not leave the state of this session to the next one. The next
+	// Start retries what failed, see stopFailed.
+	var errs []error
+
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{0}); err != nil {
-		return fmt.Errorf("failed to update `is_recording`: %w", err)
+		errs = append(errs, fmt.Errorf("failed to update `is_recording`: %w", err))
 	}
 
 	syscall.Getgid() // Notify BPF program that is_recording has changed.
 
 	if b.Seccomp != nil {
 		if err := b.Seccomp.StopRecording(b); err != nil {
-			return fmt.Errorf("stopping seccomp recording: %w", err)
+			errs = append(errs, fmt.Errorf("stopping seccomp recording: %w", err))
 		}
 	}
 
 	if b.AppArmor != nil {
 		if err := b.AppArmor.StopRecording(b); err != nil {
-			return fmt.Errorf("stopping apparmor recording: %w", err)
+			errs = append(errs, fmt.Errorf("stopping apparmor recording: %w", err))
 		}
 	}
 
 	if err := b.clearPidMaps(); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	b.checkLostEvents()
@@ -1786,6 +1802,10 @@ func (b *BpfRecorder) StopRecording() error {
 	b.containersWithoutProfile.DeleteAll()
 	b.containersNotFound.DeleteAll()
 
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+
 	b.logger.Info("Recording stopped.")
 
 	return nil
@@ -1796,16 +1816,18 @@ func (b *BpfRecorder) StopRecording() error {
 // PID would never be reported. The last file of a thread would not be reported
 // in the next session either.
 func (b *BpfRecorder) clearPidMaps() error {
+	var errs []error
+
 	for _, bpfMap := range []*bpf.BPFMap{
 		b.activePidsBpfMap, b.childPidsBpfMap, b.excludeKeysBpfMap,
 		b.seccompInitBpfMap, b.apparmorInitBpfMap, b.lastFileEventBpfMap,
 	} {
 		if err := clearBpfMap(b, bpfMap); err != nil {
-			return fmt.Errorf("clear process tracking map: %w", err)
+			errs = append(errs, fmt.Errorf("clear process tracking map: %w", err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // clearBpfMap deletes all keys of bpfMap. The keys are collected first, as
@@ -1821,7 +1843,19 @@ func clearBpfMap(b *BpfRecorder, bpfMap *bpf.BPFMap) error {
 		return fmt.Errorf("list keys: %w", err)
 	}
 
-	for _, key := range keys {
+	// Deleting the keys in batches keeps the lock held by StopRecording
+	// short for large maps. Kernels without batch operations delete them
+	// one by one.
+	deleted, err := b.DeleteMapKeys(bpfMap, keys)
+	if err == nil {
+		return nil
+	}
+
+	if !errors.Is(err, errBatchUnsupported) {
+		return err
+	}
+
+	for _, key := range keys[deleted:] {
 		if err := b.DeleteMapKey(bpfMap, key); err != nil &&
 			!errors.Is(err, syscall.ENOENT) {
 			return fmt.Errorf("delete key: %w", err)
@@ -2011,26 +2045,33 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 	}
 
 	// The keys are never reused in-cluster, so a key which got mapped to a
-	// recorded container already needs no lookup for its other processes.
-	if profile, ok := b.profileOfKey(key); ok {
-		b.trackProfileMetric(mntns, profile)
+	// recorded container already needs no lookup for its other processes,
+	// and one mapped to a container whose profile is not known yet needs no
+	// lookup of its container.
+	containerID, mapped := b.containerKeys.Get(key)
+	if mapped {
+		if profile, ok := b.containerIDToProfileMap.Get(containerID); ok {
+			b.trackProfileMetric(mntns, profile)
 
-		return
-	}
-
-	containerID, err := b.containerIDForKey(&event)
-	if err != nil {
-		b.logger.V(config.VerboseLevel).Info(
-			"No container ID found for PID",
-			"pid", pid, "mntns", mntns, "key", key, "error", err.Error(),
-		)
-
-		// The workload runs outside of any container.
-		if errors.Is(err, util.ErrContainerIDNotFound) {
-			b.excludeKey(key, generation)
+			return
 		}
+	} else {
+		var err error
 
-		return
+		containerID, err = b.containerIDForKey(&event)
+		if err != nil {
+			b.logger.V(config.VerboseLevel).Info(
+				"No container ID found for PID",
+				"pid", pid, "mntns", mntns, "key", key, "error", err.Error(),
+			)
+
+			// The workload runs outside of any container.
+			if errors.Is(err, util.ErrContainerIDNotFound) {
+				b.excludeKey(key, generation)
+			}
+
+			return
+		}
 	}
 
 	inserted, current := b.insertKey(key, containerID, generation)
@@ -2350,18 +2391,13 @@ func (b *BpfRecorder) excludeKey(key, generation uint64) {
 }
 
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
-	// Logged at the default level by spoc, unlike the other per-process
-	// events: an exit only reaches userspace for a pid the recorder actually
-	// tracks, and spoc --no-proc-start has no other way to tell that the
-	// recording caught up with an externally started process before it is
-	// stopped. In-cluster, every exit of a recorded workload gets here, which
-	// would flood the log of a workload starting many processes.
-	logger := b.logger
-	if b.clientset != nil {
-		logger = logger.V(config.VerboseLevel)
-	}
-
-	logger.Info("Record pid exit", "pid", exitEvent.Pid)
+	// Logged at the default level, unlike the other per-process events: an
+	// exit only reaches userspace for a pid the recorder actually tracks, and
+	// spoc --no-proc-start has no other way to tell that the recording caught
+	// up with an externally started process before it is stopped. Only spoc
+	// gets the exits reported, see globalReportExits, they would flood the
+	// log of a workload starting many processes in-cluster.
+	b.logger.Info("Record pid exit", "pid", exitEvent.Pid)
 
 	// Remember the exit first, so that a WaitForPidExit which registers right
 	// after this still observes it.

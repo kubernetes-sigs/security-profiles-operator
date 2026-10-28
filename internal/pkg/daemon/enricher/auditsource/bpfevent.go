@@ -27,16 +27,20 @@ import (
 )
 
 // bpfAuditHeaderSize is the size of the fixed fields of an event of
-// enricher.bpf.c: the mount namespace, the PID, the request and the complain
-// flag. The operation, the command, the name and the profile follow as strings
-// which are each terminated by a null byte.
-const bpfAuditHeaderSize = 4 + 4 + 4 + 1
+// enricher.bpf.c: the mount namespace, the PID, the request, the complain
+// flag and the time of the denial in nanoseconds since boot. The operation,
+// the command, the name and the profile follow as strings which are each
+// terminated by a null byte.
+const bpfAuditHeaderSize = 4 + 4 + 4 + 1 + 8
 
 var errInvalidBpfAuditEvent = errors.New("invalid audit event")
 
 // parseBpfAuditEvent decodes an event of enricher.bpf.c which was received at
-// now. It returns the audit line and the mount namespace of the process.
-func parseBpfAuditEvent(raw []byte, now time.Time) (*types.AuditLine, uint32, error) {
+// now, which is sinceBoot after the boot. It returns the audit line and the
+// mount namespace of the process.
+func parseBpfAuditEvent(
+	raw []byte, now time.Time, sinceBoot time.Duration,
+) (*types.AuditLine, uint32, error) {
 	if len(raw) <= bpfAuditHeaderSize {
 		return nil, 0, fmt.Errorf("%w: %d bytes", errInvalidBpfAuditEvent, len(raw))
 	}
@@ -45,6 +49,8 @@ func parseBpfAuditEvent(raw []byte, now time.Time) (*types.AuditLine, uint32, er
 	pid := int(binary.LittleEndian.Uint32(raw[4:8]))
 	request := binary.LittleEndian.Uint32(raw[8:12])
 	complain := raw[12]
+	//nolint:gosec // The time since boot fits into a time.Duration.
+	happened := time.Duration(binary.LittleEndian.Uint64(raw[13:21]))
 
 	// Every string is terminated, so the last part is empty.
 	strs := bytes.Split(raw[bpfAuditHeaderSize:], []byte{0})
@@ -58,7 +64,15 @@ func parseBpfAuditEvent(raw []byte, now time.Time) (*types.AuditLine, uint32, er
 		apparmor = "ALLOWED"
 	}
 
-	ts := now.UnixMilli()
+	// The line is timestamped with when the denial happened, which tells
+	// whether the process with the PID now is the one of the line. Events can
+	// queue up for a while in a burst.
+	logged := now
+	if happened > 0 && happened <= sinceBoot {
+		logged = now.Add(happened - sinceBoot)
+	}
+
+	ts := logged.UnixMilli()
 
 	return &types.AuditLine{
 		AuditType:   types.AuditTypeApparmor,

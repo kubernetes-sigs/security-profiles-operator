@@ -19,10 +19,13 @@ limitations under the License.
 package runner
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +77,50 @@ func TestRun(t *testing.T) {
 			profile: "profile.json",
 			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+			},
+		},
+		{
+			// A misspelled field is only warned about.
+			name:    "success with unknown field of JSON profile",
+			profile: "profile.json",
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO",`+
+					`"sycalls":[{"names":["mkdir"],"action":"SCMP_ACT_ALLOW"}]}`), nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+			},
+		},
+		{
+			// The seccomp.json of docker and podman has fields of its own.
+			name:    "success with docker profile",
+			profile: "seccomp.json",
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO",`+
+					`"archMap":[{"architecture":"SCMP_ARCH_X86_64","subArchitectures":["SCMP_ARCH_X86"]}],`+
+					`"syscalls":[{"names":["read"],"action":"SCMP_ACT_ALLOW","comment":"",`+
+					`"includes":{},"excludes":{}}]}`), nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+			},
+		},
+		{
+			// kubectl puts the state of the spec into the exported CRD.
+			name: "success with exported CRD",
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n"+
+					"kind: SeccompProfile\nmetadata:\n  name: test\n"+
+					"spec:\n  state: Enabled\n  defaultAction: SCMP_ACT_ERRNO\n"), nil)
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
@@ -547,4 +594,51 @@ func TestProcessInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.Getppid(), parent)
 	require.NotZero(t, startTime)
+}
+
+// The test replaces the output of the global logger.
+//
+//nolint:paralleltest // see above
+func TestRunWarnsAboutUnknownFields(t *testing.T) {
+	logs := &bytes.Buffer{}
+	log.SetOutput(logs)
+
+	defer log.SetOutput(os.Stderr)
+
+	const warning = "WARNING: Ignoring what the profile has beyond the runtime-spec fields"
+
+	for _, tc := range []struct {
+		profile, content string
+		warns            bool
+	}{
+		{
+			profile: "profile.json",
+			content: `{"defaultAction":"SCMP_ACT_ERRNO","sycalls":[]}`,
+			warns:   true,
+		},
+		{
+			profile: "profile.json",
+			content: `{"defaultAction":"SCMP_ACT_ERRNO"}`,
+		},
+		{
+			// The state of the spec is no runtime-spec field.
+			profile: "profile.yaml",
+			content: seccompProfileYAML + "  state: Enabled\n",
+		},
+	} {
+		logs.Reset()
+
+		mock := &runnerfakes.FakeImpl{}
+		mock.ReadFileReturns([]byte(tc.content), nil)
+
+		options := Default()
+		options.profile = tc.profile
+
+		sut := New(options)
+		sut.impl = mock
+		sut.enricherGracePeriod = 0
+
+		require.NoError(t, sut.Run(), tc.content)
+		require.Equal(t, tc.warns, strings.Contains(logs.String(), warning), tc.content)
+	}
 }

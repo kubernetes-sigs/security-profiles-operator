@@ -28,9 +28,11 @@ import (
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
+	"golang.org/x/sys/unix"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/libbpflog"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -94,6 +96,7 @@ func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
 }
 
 func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
+	libbpflog.Route(b.logger)
 	b.logger.Info("Loading bpf module...")
 
 	module, err := libbpfgo.NewModuleFromBufferArgs(libbpfgo.NewModuleArgs{
@@ -170,7 +173,7 @@ func (b *BpfSource) forward(events <-chan []byte, log chan<- *types.AuditLine) {
 			return
 		}
 
-		line, mntns, err := parseBpfAuditEvent(val, time.Now())
+		line, mntns, err := parseBpfAuditEvent(val, time.Now(), sinceBoot())
 		if err != nil {
 			b.logger.Info("received invalid audit log message", "val", val, "error", err.Error())
 
@@ -249,4 +252,16 @@ func (b *BpfSource) Stop() {
 
 func (b *BpfSource) TailErr() error {
 	return nil
+}
+
+// sinceBoot returns the time since boot on the clock of the timestamps of the
+// events, or zero if it cannot be read, which timestamps the events with when
+// they got read.
+func sinceBoot() time.Duration {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &ts); err != nil {
+		return 0
+	}
+
+	return time.Duration(ts.Nano())
 }

@@ -310,7 +310,7 @@ official profiles. The verification can be disabled with
 `SPOC_DISABLE_SIGNATURE_VERIFICATION`). The former names of these variables
 without the `SPOC_` prefix, `ALLOWED_IDENTITIES_REGEXP`,
 `ALLOWED_OIDC_ISSUER_REGEXP` and `DISABLE_SIGNATURE_VERIFICATION`, still work,
-the prefixed ones take precedence.
+but print a deprecation warning. The prefixed ones take precedence.
 
 The following flags pin the signer more strictly or verify without the public
 Sigstore infrastructure:
@@ -323,7 +323,10 @@ Sigstore infrastructure:
   instead of a keyless certificate. It accepts the path of a PEM encoded public
   key, like the `cosign.pub` of `cosign generate-key-pair`. A key signature
   carries no identity or issuer, so `--key` cannot be combined with the
-  identity and issuer flags or regexps other than the default `.*`.
+  identity and issuer flags or regexps other than the default `.*`. The
+  signature needs a transparency log entry like a keyless one, so signatures
+  made without uploading to the transparency log, like with
+  `cosign sign --tlog-upload=false`, do not verify.
 - `--trusted-root` (or `SPOC_TRUSTED_ROOT`) verifies against a Sigstore trusted
   root JSON file instead of the one distributed through TUF, for private
   Sigstore deployments and air-gapped environments.
@@ -428,7 +431,8 @@ on pull.
 
 `--plain-http` on `spoc push`, `spoc pull` and `spoc sign` reaches the
 registry over HTTP instead of HTTPS, for local registries in tests and other
-registries without TLS.
+registries without TLS. Credentials sent over plain HTTP to a registry other
+than `localhost` or a loopback IP print a warning.
 
 If signing fails after the artifact got pushed, for example because the
 transparency log is not reachable, `spoc push` fails with the pushed reference

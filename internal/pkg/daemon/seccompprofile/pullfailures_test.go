@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -184,9 +183,7 @@ func TestPullBaseProfileBacksOff(t *testing.T) {
 			}
 
 			resolve := func() error {
-				_, _, err := sut.resolveSyscallsForProfile(
-					t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-				)
+				_, _, err := resolveWithSPOD(t.Context(), sut, sp)
 
 				return err
 			}
@@ -251,9 +248,7 @@ func TestPullBaseProfileConfigErrorBacksOff(t *testing.T) {
 	}
 
 	resolve := func() error {
-		_, _, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-		)
+		_, _, err := resolveWithSPOD(t.Context(), sut, sp)
 
 		return err
 	}
@@ -300,9 +295,7 @@ func TestPullBaseProfileReportsBackoffPerProfile(t *testing.T) {
 		sp.Name = name
 		sp.Spec.BaseProfileName = config.OCIProfilePrefix + "registry/base:v1"
 
-		_, _, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-		)
+		_, _, err := resolveWithSPOD(t.Context(), sut, sp)
 
 		return err
 	}
@@ -354,9 +347,7 @@ func TestPullBaseProfileConfigChange(t *testing.T) {
 	}
 
 	resolve := func() error {
-		_, _, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
-		)
+		_, _, err := resolveWithSPOD(t.Context(), sut, sp)
 
 		return err
 	}

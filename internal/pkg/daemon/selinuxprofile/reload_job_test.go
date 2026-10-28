@@ -45,6 +45,13 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 	testImage := "registry.example.com/selinuxd:test"
 	testAction := "install"
 
+	// A job created 20 seconds after the reload became necessary, by the
+	// clock of the API server, which the one of the node may be behind of.
+	skewedJob := createTestJob(
+		testNamespace, "skewed-job", testNodeName, "other-policy", testAction, 1, 0,
+	)
+	skewedJob.CreationTimestamp = metav1.NewTime(time.Now().Add(-20 * time.Second))
+
 	schemeInstance := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(schemeInstance))
 	require.NoError(t, batchv1.AddToScheme(schemeInstance))
@@ -299,7 +306,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			nodeName:    testNodeName,
 			namespace:   testNamespace,
 			policyName:  "test-policy",
-			neededSince: time.Now().Add(-time.Minute),
+			neededSince: time.Now().Add(-2 * time.Minute),
 			existingObjs: []runtime.Object{
 				createTestJobWithCreationTime(
 					testNamespace, "covering-job",
@@ -308,6 +315,18 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				),
 			},
 			wantState: reloadJobDone,
+		},
+		{
+			// The clock of the node may be behind the one of the API server.
+			name:        "creates job when a job of another policy got created within the clock skew",
+			nodeName:    testNodeName,
+			namespace:   testNamespace,
+			policyName:  "test-policy",
+			neededSince: time.Now().Add(-30 * time.Second),
+			existingObjs: []runtime.Object{
+				skewedJob,
+			},
+			wantJobCreated: true,
 		},
 		{
 			name:        "creates job when a job of another policy completed before the reload became necessary",
@@ -386,7 +405,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			}
 
 			logger := logf.Log.WithName("test")
-			state, err := r.createPolicyReloadJob(
+			state, _, err := r.createPolicyReloadJob(
 				context.Background(), tt.policyName, kind, testUID, testGeneration, "",
 				tt.neededSince, logger,
 			)
@@ -644,7 +663,7 @@ func TestCreatePolicyReloadJobNames(t *testing.T) {
 			client: cli, clientReader: cli, nodeName: node, namespace: namespace, podName: podName,
 		}
 
-		state, err := r.createPolicyReloadJob(
+		state, _, err := r.createPolicyReloadJob(
 			context.Background(), "test-policy", installReload, testUID, 1, "", time.Time{},
 			logf.Log,
 		)

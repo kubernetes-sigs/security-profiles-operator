@@ -31,6 +31,7 @@ func bpfAuditEvent(mntns, request uint32, complain byte, strs ...string) []byte 
 	raw = binary.LittleEndian.AppendUint32(raw, testPid)
 	raw = binary.LittleEndian.AppendUint32(raw, request)
 	raw = append(raw, complain)
+	raw = binary.LittleEndian.AppendUint64(raw, uint64(testBootTime))
 
 	for _, s := range strs {
 		raw = append(raw, s...)
@@ -40,7 +41,11 @@ func bpfAuditEvent(mntns, request uint32, complain byte, strs ...string) []byte 
 	return raw
 }
 
-const testPid = 42
+const (
+	testPid = 42
+	// testBootTime is when the test events happened after the boot.
+	testBootTime = time.Hour
+)
 
 func TestParseBpfAuditEvent(t *testing.T) {
 	t.Parallel()
@@ -51,7 +56,17 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		t.Parallel()
 
 		line, mntns, err := parseBpfAuditEvent(
-			bpfAuditEvent(4026531840, 4, 0, "open", "cat", "/etc/shadow", "my-profile"), now,
+			bpfAuditEvent(
+				4026531840,
+				4,
+				0,
+				"open",
+				"cat",
+				"/etc/shadow",
+				"my-profile",
+			),
+			now,
+			testBootTime,
 		)
 		require.NoError(t, err)
 		require.Equal(t, uint32(4026531840), mntns)
@@ -68,11 +83,31 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		}, line)
 	})
 
+	// An event read late gets the time it happened at.
+	t.Run("read later", func(t *testing.T) {
+		t.Parallel()
+
+		line, _, err := parseBpfAuditEvent(
+			bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow", "profile"),
+			now, testBootTime+1500*time.Millisecond,
+		)
+		require.NoError(t, err)
+		require.Equal(t, "1699999998.542", line.TimestampID)
+
+		// A time which cannot be right is not used.
+		line, _, err = parseBpfAuditEvent(
+			bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow", "profile"),
+			now, testBootTime-time.Second,
+		)
+		require.NoError(t, err)
+		require.Equal(t, "1700000000.042", line.TimestampID)
+	})
+
 	t.Run("complain mode allows", func(t *testing.T) {
 		t.Parallel()
 
 		line, _, err := parseBpfAuditEvent(
-			bpfAuditEvent(1, 2, 1, "exec", "sh", "/bin/ls", "profile"), now,
+			bpfAuditEvent(1, 2, 1, "exec", "sh", "/bin/ls", "profile"), now, testBootTime,
 		)
 		require.NoError(t, err)
 		require.Equal(t, "ALLOWED", line.Apparmor)
@@ -81,7 +116,11 @@ func TestParseBpfAuditEvent(t *testing.T) {
 	t.Run("empty strings", func(t *testing.T) {
 		t.Parallel()
 
-		line, _, err := parseBpfAuditEvent(bpfAuditEvent(1, 0, 0, "", "", "", ""), now)
+		line, _, err := parseBpfAuditEvent(
+			bpfAuditEvent(1, 0, 0, "", "", "", ""),
+			now,
+			testBootTime,
+		)
 		require.NoError(t, err)
 		require.Empty(t, line.Operation)
 		require.Empty(t, line.Executable)
@@ -94,7 +133,17 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		t.Parallel()
 
 		line, _, err := parseBpfAuditEvent(
-			bpfAuditEvent(1, 0, 0, "open\xff", "c\xfeat", "/etc/\xc0\xaf", "p\xff"), now,
+			bpfAuditEvent(
+				1,
+				0,
+				0,
+				"open\xff",
+				"c\xfeat",
+				"/etc/\xc0\xaf",
+				"p\xff",
+			),
+			now,
+			testBootTime,
 		)
 		require.NoError(t, err)
 		require.Equal(t, "open\uFFFD", line.Operation)
@@ -108,12 +157,12 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		"header only":     bpfAuditEvent(1, 0, 0),
 		"missing strings": bpfAuditEvent(1, 0, 0, "open"),
 		"missing profile": bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow"),
-		"unterminated":    bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow")[:28],
+		"unterminated":    bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow")[:36],
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := parseBpfAuditEvent(raw, now)
+			_, _, err := parseBpfAuditEvent(raw, now, testBootTime)
 			require.ErrorIs(t, err, errInvalidBpfAuditEvent)
 		})
 	}

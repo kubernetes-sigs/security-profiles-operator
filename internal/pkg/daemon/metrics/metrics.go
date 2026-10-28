@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -88,6 +89,7 @@ type Metrics struct {
 	impl                        impl
 	log                         logr.Logger
 	grpcServer                  *grpc.Server
+	registry                    *prometheus.Registry
 	metricSeccompProfile        *prometheus.CounterVec
 	metricSeccompProfileAudit   *prometheus.CounterVec
 	metricSeccompProfileBpf     *prometheus.CounterVec
@@ -104,13 +106,24 @@ type Metrics struct {
 	series     *seriesTracker
 	stopSeries chan struct{}
 	stopOnce   sync.Once
+	// serveErr gets the error of the GRPC server if it fails, see ServeErr.
+	serveErr <-chan error
 }
 
 // New returns a new Metrics instance.
 func New() *Metrics {
+	// The metrics are served from their own registry, which has the Go and
+	// process metrics of the default one.
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
 	return &Metrics{
-		impl:       &defaultImpl{},
+		impl:       &defaultImpl{registry: registry},
 		log:        ctrl.Log.WithName("metrics"),
+		registry:   registry,
 		series:     newSeriesTracker(),
 		stopSeries: make(chan struct{}),
 		metricSeccompProfile: prometheus.NewCounterVec(
@@ -300,7 +313,9 @@ func (m *Metrics) Collectors() map[string]prometheus.Collector {
 // Handler creates an HTTP handler for the metrics.
 func (m *Metrics) Handler() http.Handler {
 	handler := &http.ServeMux{}
-	handler.Handle(HandlerPath, promhttp.Handler())
+	handler.Handle(HandlerPath, promhttp.InstrumentMetricHandler(
+		m.registry, promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{}),
+	))
 
 	return handler
 }

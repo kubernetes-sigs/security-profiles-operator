@@ -19,7 +19,10 @@ package puller
 import (
 	"errors"
 	"fmt"
+	"log"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -78,26 +81,32 @@ func Flags() []ucli.Flag {
 		&ucli.BoolFlag{
 			Name:    FlagDisableSignatureVerification,
 			Aliases: []string{"s"},
-			// The unprefixed variable is the former name, kept working.
+			// The unprefixed variable is the former name, which warns, see
+			// warnDeprecatedEnv.
 			EnvVars: []string{
 				"SPOC_DISABLE_SIGNATURE_VERIFICATION",
 				"DISABLE_SIGNATURE_VERIFICATION",
 			},
-			Usage: "disable signature verification",
+			Usage: "disable signature verification; " +
+				"$DISABLE_SIGNATURE_VERIFICATION is deprecated and still used with a warning",
 		},
 		&ucli.StringFlag{
 			Name:    FlagAllowedIdentityRegexp,
 			Aliases: []string{"i"},
-			// The unprefixed variable is the former name, kept working.
-			EnvVars:     []string{"SPOC_ALLOWED_IDENTITY_REGEXP", "ALLOWED_IDENTITIES_REGEXP"},
-			Usage:       "regexp for allowed identities in signature verification",
+			// The unprefixed variable is the former name, which warns, see
+			// warnDeprecatedEnv.
+			EnvVars: []string{"SPOC_ALLOWED_IDENTITY_REGEXP", "ALLOWED_IDENTITIES_REGEXP"},
+			Usage: "regexp for allowed identities in signature verification; " +
+				"$ALLOWED_IDENTITIES_REGEXP is deprecated and still used with a warning",
 			DefaultText: artifact.AllowAllRegexp,
 		},
 		&ucli.StringFlag{
 			Name: FlagAllowedOidcIssuerRegexp,
-			// The unprefixed variable is the former name, kept working.
-			EnvVars:     []string{"SPOC_ALLOWED_OIDC_ISSUER_REGEXP", "ALLOWED_OIDC_ISSUER_REGEXP"},
-			Usage:       "regexp for allowed OIDC issuers in signature verification",
+			// The unprefixed variable is the former name, which warns, see
+			// warnDeprecatedEnv.
+			EnvVars: []string{"SPOC_ALLOWED_OIDC_ISSUER_REGEXP", "ALLOWED_OIDC_ISSUER_REGEXP"},
+			Usage: "regexp for allowed OIDC issuers in signature verification; " +
+				"$ALLOWED_OIDC_ISSUER_REGEXP is deprecated and still used with a warning",
 			DefaultText: artifact.AllowAllRegexp,
 		},
 		&ucli.StringFlag{
@@ -172,6 +181,32 @@ func (o *Options) checkSigner() error {
 	)
 }
 
+// deprecatedEnv maps the former names of the environment variables of the
+// signature verification to their current ones.
+var deprecatedEnv = map[string]string{
+	"DISABLE_SIGNATURE_VERIFICATION": "SPOC_DISABLE_SIGNATURE_VERIFICATION",
+	"ALLOWED_IDENTITIES_REGEXP":      "SPOC_ALLOWED_IDENTITY_REGEXP",
+	"ALLOWED_OIDC_ISSUER_REGEXP":     "SPOC_ALLOWED_OIDC_ISSUER_REGEXP",
+}
+
+// warnDeprecatedEnv warns about the former names of the environment variables
+// which are used, as their generic names may be set for another tool, like a
+// DISABLE_SIGNATURE_VERIFICATION which turns off the verification.
+func warnDeprecatedEnv() {
+	for _, former := range slices.Sorted(maps.Keys(deprecatedEnv)) {
+		current := deprecatedEnv[former]
+		if _, set := os.LookupEnv(former); !set {
+			continue
+		}
+
+		if _, set := os.LookupEnv(current); set {
+			continue
+		}
+
+		log.Printf("WARNING: $%s is deprecated, use $%s instead", former, current)
+	}
+}
+
 // FromContext can be used to create Options from an CLI context.
 func FromContext(ctx *ucli.Context) (*Options, error) {
 	options := Default()
@@ -192,6 +227,8 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if options.outputFile == "" {
 		return nil, errors.New("no filename provided")
 	}
+
+	warnDeprecatedEnv()
 
 	if ctx.IsSet(FlagDisableSignatureVerification) {
 		options.disableSignatureVerification = ctx.Bool(FlagDisableSignatureVerification)

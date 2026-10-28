@@ -21,6 +21,7 @@ package bpfrecorder
 import (
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -290,27 +291,31 @@ func TestExcludeDuringEvent(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name   string
-		lock   func(*AppArmorRecorder) *sync.Mutex
-		handle func(*AppArmorRecorder)
+		name    string
+		handler string
+		lock    func(*AppArmorRecorder) *sync.Mutex
+		handle  func(*AppArmorRecorder)
 	}{
 		{
-			name: "file",
-			lock: func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedFiles },
+			name:    "file",
+			handler: "handleFileEvent",
+			lock:    func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedFiles },
 			handle: func(b *AppArmorRecorder) {
 				b.handleFileEvent(fileEvent(testKey, flagRead, "/etc/passwd"))
 			},
 		},
 		{
-			name: "socket",
-			lock: func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedSocketsUse },
+			name:    "socket",
+			handler: "handleSocketEvent",
+			lock:    func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedSocketsUse },
 			handle: func(b *AppArmorRecorder) {
 				b.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockStream)})
 			},
 		},
 		{
-			name: "capability",
-			lock: func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedCapabilities },
+			name:    "capability",
+			handler: "handleCapabilityEvent",
+			lock:    func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedCapabilities },
 			handle: func(b *AppArmorRecorder) {
 				b.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 1})
 			},
@@ -332,9 +337,10 @@ func TestExcludeDuringEvent(t *testing.T) {
 				tc.handle(sut)
 			}()
 
-			// Give the handler the time to get to the lock. If it does
-			// not, it finds the key excluded right away.
-			time.Sleep(50 * time.Millisecond)
+			// The handler has to wait for the lock, after it found the key
+			// not to be excluded yet. Otherwise it would find the key
+			// excluded right away.
+			waitForLockWaiter(t, tc.handler)
 
 			// What Exclude does: it marks the key and clears its data. There
 			// is no data yet, but the handler may have tracked the key.
@@ -359,6 +365,29 @@ func TestExcludeDuringEvent(t *testing.T) {
 			require.Empty(t, sut.trackedKeys)
 		})
 	}
+}
+
+// waitForLockWaiter waits until a goroutine running the method of the
+// AppArmorRecorder waits for a sync.Mutex.
+func waitForLockWaiter(t *testing.T, method string) {
+	t.Helper()
+
+	waiting := regexp.MustCompile(
+		`(?m)^goroutine \d+ \[sync\.Mutex\.Lock[^\n]*\n(?:.*\n)*?.*\.\(\*AppArmorRecorder\)\.` +
+			regexp.QuoteMeta(method) + `\(`,
+	)
+
+	require.Eventually(t, func() bool {
+		buf := make([]byte, 1<<20)
+
+		for goroutine := range strings.SplitSeq(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
+			if waiting.MatchString(goroutine + "\n") {
+				return true
+			}
+		}
+
+		return false
+	}, 10*time.Second, time.Millisecond)
 }
 
 // GetAppArmorProcessed turns the recorded events into the profile contents. It

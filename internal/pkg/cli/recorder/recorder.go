@@ -308,6 +308,14 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	}
 
 	if !foundMntns {
+		// Without a mount namespace, every recorded one is taken, see
+		// --no-proc-start.
+		if mntns == 0 {
+			return fmt.Errorf(
+				"%w: %s", errNothingRecorded, filepath.Base(r.options.commandOptions.Command()),
+			)
+		}
+
 		return fmt.Errorf("find mntns %d in bpf data map", mntns)
 	}
 

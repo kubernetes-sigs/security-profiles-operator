@@ -36,6 +36,11 @@ func isNativeArch(string) bool {
 	return true
 }
 
+// isKnownArch reports whether arch is one of the audit architectures.
+func isKnownArch(string) bool {
+	return false
+}
+
 // uptime returns the time since boot.
 func uptime() (time.Duration, error) {
 	return 0, errUnsupportedPlatform

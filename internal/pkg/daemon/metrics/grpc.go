@@ -70,15 +70,17 @@ func (m *Metrics) ServeGRPC(ctx context.Context) error {
 
 	go m.series.run(m.stopSeries)
 
-	go func() {
-		m.log.Info("Starting GRPC server API")
+	m.log.Info("Starting GRPC server API")
 
-		if err := m.grpcServer.Serve(listener); err != nil {
-			m.log.Error(err, "unable to run GRPC server")
-		}
-	}()
+	m.serveErr = daemongrpc.Serve(func() error { return m.grpcServer.Serve(listener) })
 
 	return nil
+}
+
+// ServeErr returns the channel which gets the error of the GRPC server if it
+// fails after ServeGRPC started it.
+func (m *Metrics) ServeErr() <-chan error {
+	return m.serveErr
 }
 
 // GracefulStop gracefully stops the GRPC server, and stops it forcefully if
