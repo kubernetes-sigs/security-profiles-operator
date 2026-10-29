@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Fails a pull request during a release before the slow package installation,
+# see doc/release.md. make verify runs it as well.
+./hack/verify-release-freeze.sh
+
 ./hack/install-packages
 
 # unzip and xz unpack the protoc and shellcheck release archives.

@@ -584,7 +584,7 @@ internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FI
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities verify-shellcheck verify-dockerfiles verify-manifests verify-security-model verify-docs ## Run the verification targets of the verify CI job, see the other verify-* targets for the ones of their own jobs
+verify: verify-release-freeze verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities verify-shellcheck verify-dockerfiles verify-manifests verify-security-model verify-docs ## Run the verification targets of the verify CI job, see the other verify-* targets for the ones of their own jobs
 
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
@@ -598,6 +598,13 @@ verify-in-a-container: ## Run all verification targets in a container
 		-w $$WORKDIR \
 		$(CI_IMAGE) \
 		hack/pull-security-profiles-operator-verify
+
+# Fails pull requests from the merge of a version bump until the back-to-dev
+# PR, compared with the base commit PULL_BASE_SHA of Prow presubmits, see
+# doc/release.md. It is the first target of verify.
+.PHONY: verify-release-freeze
+verify-release-freeze: ## Verify that no release is in progress on the base branch
+	hack/verify-release-freeze.sh
 
 .PHONY: verify-boilerplate
 # The skipped files are generated, by substring of their path.

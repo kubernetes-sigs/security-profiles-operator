@@ -40,6 +40,12 @@ REPOSITORY_URL="${SPO_REPOSITORY_URL:-$UPSTREAM_REPOSITORY_URL}"
 STAGING_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
 PRODUCTION_REGISTRY=registry.k8s.io/security-profiles-operator
 
+# The architectures of the operator images, each in a repository of its own
+# next to the manifest list, see hack/image-cross.sh.
+# TODO: reenable s390x when the nix toolchain is fixed
+IMAGE_ARCHES=(amd64 arm64 ppc64le)
+#IMAGE_ARCHES=(amd64 arm64 ppc64le s390x)
+
 SLSA_PROVENANCE=https://slsa.dev/provenance/v1
 # The isolated workflow that signs the SLSA Build L3 provenance of the GitHub
 # workflows, and the issuer of its certificates.
