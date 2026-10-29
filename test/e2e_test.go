@@ -789,7 +789,7 @@ func (e *e2e) prepareManifest(manifest string) string {
 	// Release commits use IfNotPresent instead of Always.
 	e.updateManifest(manifest, "imagePullPolicy: .*", "imagePullPolicy: "+e.pullPolicy)
 
-	const stagingImage = ".*us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/.*"
+	const stagingImage = ".*registry.k8s.io/.*"
 
 	e.updateManifest(manifest, "image: "+stagingImage, "image: "+e.testImage)
 	e.updateManifest(manifest, "value: "+stagingImage, "value: "+e.testImage)

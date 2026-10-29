@@ -30,7 +30,7 @@ spec:
           image: security-profiles-operator
           args:
           - webhook
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
