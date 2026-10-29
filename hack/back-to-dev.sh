@@ -76,6 +76,17 @@ sed_i "s/$VERSION_RE/$DEV_VERSION/g" \
     deploy/helm/Chart.yaml \
     deploy/helm/README.md
 
+# The upgrade test starts from the release this follows. This runs after the
+# version replacement above, which would turn it into the dev version if it
+# already names this release.
+sed_i '/^  - name: spo-previous-release$/{n;s/version: .*/version: '"$VERSION"'/;}' dependencies.yaml
+sed_i 's/\(fallbackPreviousRelease = "v\)[^"]*"/\1'"$VERSION"'"/' test/tc_upgrade_test.go
+if ! grep -A1 '^  - name: spo-previous-release$' dependencies.yaml | grep -qx "    version: $VERSION" ||
+    ! grep -q "fallbackPreviousRelease = \"v$VERSION\"" test/tc_upgrade_test.go; then
+    echo "Unable to set the previous release of the upgrade test to $VERSION" >&2
+    exit 1
+fi
+
 # Fix shields.io badge URL encoding (-- represents literal -)
 DEV_BADGE="${DEV_VERSION//-/--}"
 if [ "$DEV_BADGE" != "$DEV_VERSION" ]; then

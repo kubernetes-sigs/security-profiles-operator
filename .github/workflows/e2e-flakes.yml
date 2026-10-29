@@ -17,7 +17,7 @@ on:
 
 env:
   # The version of nix the kubernix jobs install, see nix in dependencies.yaml.
-  NIX_VERSION: '2.35.3'
+  NIX_VERSION: '2.35.4'
 
 permissions: {}
 

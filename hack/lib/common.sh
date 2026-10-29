@@ -19,8 +19,8 @@
 # The scripts sourcing this file use some of the variables.
 # shellcheck disable=SC2034
 
-COSIGN_VERSION=v3.1.3
-COSIGN_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+COSIGN_VERSION=v3.1.4
+COSIGN_SHA256=424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
 BOM_VERSION=v0.8.0
 BOM_SHA256=cafd00b75a8df860fec54d19b9e24fb48556c0848d0abf9e40cd2eabb11a8710
 JQ_VERSION=1.8.2

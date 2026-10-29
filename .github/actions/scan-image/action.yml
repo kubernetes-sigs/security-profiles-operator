@@ -26,4 +26,4 @@ runs:
         trivyignores: .trivyignore
         exit-code: "1"
         format: table
-        version: v0.76.0
+        version: v0.76.1

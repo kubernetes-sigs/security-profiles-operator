@@ -31,7 +31,7 @@ import (
 const (
 	// fallbackPreviousRelease is the release the upgrade starts from when
 	// git cannot tell the latest one, for example in a clone without tags.
-	fallbackPreviousRelease = "v1.1.1"
+	fallbackPreviousRelease = "v1.1.2"
 	releasedManifestURL     = "https://raw.githubusercontent.com/kubernetes-sigs/" +
 		"security-profiles-operator/%s/deploy/operator.yaml"
 	upgradeProfileName = "upgrade-profile"
