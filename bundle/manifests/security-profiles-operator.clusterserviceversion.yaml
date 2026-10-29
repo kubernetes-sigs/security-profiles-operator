@@ -250,9 +250,9 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.2
+    containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
     createdAt: "2026-10-29T08:31:37Z"
-    olm.skipRange: '>=1.0.0 <1.1.2'
+    olm.skipRange: '>=1.0.0 <1.1.3-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
     operatorframework.io/suggested-namespace: security-profiles-operator
@@ -260,7 +260,7 @@ metadata:
       Container Platform", "OpenShift Platform Plus"]'
     operators.operatorframework.io/builder: operator-sdk-v1.42.3
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
-  name: security-profiles-operator.v1.1.2
+  name: security-profiles-operator.v1.1.3-dev
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -749,8 +749,8 @@ spec:
                       fieldPath: spec.nodeName
                 - name: KUBELET_DIR
                   value: /var/lib/kubelet
-                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.2
-                imagePullPolicy: IfNotPresent
+                image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
+                imagePullPolicy: Always
                 livenessProbe:
                   failureThreshold: 3
                   httpGet:
@@ -1014,4 +1014,4 @@ spec:
   - image: quay.io/security-profiles-operator/selinuxd-fedora@sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d
     name: selinuxd-fedora
   replaces: security-profiles-operator.v1.1.1
-  version: 1.1.2
+  version: 1.1.3-dev

@@ -1,6 +1,6 @@
 # security-profiles-operator
 
-![Version: 1.1.2](https://img.shields.io/badge/Version-1.1.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.2](https://img.shields.io/badge/AppVersion-1.1.2-informational?style=flat-square)
+![Version: 1.1.3-dev](https://img.shields.io/badge/Version-1.1.3--dev-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.3-dev](https://img.shields.io/badge/AppVersion-1.1.3--dev-informational?style=flat-square)
 
 The Kubernetes Security Profiles Operator.
 
@@ -60,10 +60,10 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | serviceAccount | object | unset | has no effect, the operator always runs with the `security-profiles-operator` service account of the chart |
 | spod.spec | object | `{}` | any field of the SecurityProfilesOperatorDaemon spec, merged over the fields which the dedicated values render; objects get merged field by field, every other value, lists included, replaces the rendered one |
 | spoImage.digest | string | `""` | digest of the spoImage, the tag is only used when it is empty |
-| spoImage.pullPolicy | string | `"IfNotPresent"` | pull policy for spoImage |
-| spoImage.registry | string | `"registry.k8s.io"` | the registry for the spoImage |
-| spoImage.repository | string | `"security-profiles-operator/security-profiles-operator"` | the repository for the spoImage |
-| spoImage.tag | string | `"v1.1.2"` | tag for spoImage |
+| spoImage.pullPolicy | string | `"Always"` | pull policy for spoImage |
+| spoImage.registry | string | `"us-central1-docker.pkg.dev"` | the registry for the spoImage |
+| spoImage.repository | string | `"k8s-staging-images/sp-operator/security-profiles-operator"` | the repository for the spoImage |
+| spoImage.tag | string | `"latest"` | tag for spoImage |
 | tolerations | list | `[]` | additional tolerations of the operator pods, appended to the `NoSchedule` tolerations of `node-role.kubernetes.io/master` and `node-role.kubernetes.io/control-plane` and the `NoExecute` toleration of `node.kubernetes.io/not-ready` |
 | topologySpreadConstraints | list | `ScheduleAnyway` spread with `maxSkew: 1` across `kubernetes.io/hostname` and `topology.kubernetes.io/zone` | topology spread constraints of the operator pods; constraints without `labelSelector` get the selector labels of the operator pods |
 | verbosity | int | `0` | the log level for the spo |
