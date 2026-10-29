@@ -2,13 +2,13 @@
 replicaCount: 3
 
 spoImage:
-  registry: us-central1-docker.pkg.dev
-  repository: k8s-staging-images/sp-operator/security-profiles-operator
-  tag: latest
+  registry: registry.k8s.io
+  repository: security-profiles-operator/security-profiles-operator
+  tag: v1.1.2
   # Pins the operator image by digest (sha256:...), the tag is only used
   # without a digest.
   digest: ""
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 # Secrets for pulling the images from a private registry, for example
 # [{name: my-pull-secret}]. They apply to the operator deployment and, through

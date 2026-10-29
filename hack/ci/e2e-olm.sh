@@ -48,7 +48,7 @@ function build_and_push_packages() {
 
   # Create a manifest with local image
   cp deploy/operator.yaml "${OPERATOR_MANIFEST}"
-  sed -i "s#image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator.*\$#image: ${IMG}#" "${OPERATOR_MANIFEST}"
+  sed -i "s#image: registry.k8s.io/security-profiles-operator.*\$#image: ${IMG}#" "${OPERATOR_MANIFEST}"
   grep "${IMG}" "${OPERATOR_MANIFEST}" || exit 1
 
   # create bundle, bundle image, push bundle using our manifest created earlier
@@ -71,7 +71,7 @@ function deploy_deps() {
   install_cert_manager
 
   # All installation methods run off the same catalog
-  sed -i "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+  sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v1.1.2#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 
