@@ -45,11 +45,11 @@ REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
 TAG=${TAG:-$(git describe --tags --always --dirty)}
 
-# TODO: reenable s390x when the nix toolchain is fixed
-ARCHES=(amd64 arm64 ppc64le)
-#ARCHES=(amd64 arm64 ppc64le s390x)
+ARCHES=("${IMAGE_ARCHES[@]}")
 VERSION=v$(cat VERSION)
-TAGS=("$TAG" "$VERSION" latest)
+# The images get the tag of the commit and latest when they are pushed, and
+# the VERSION tag right before the manifest lists, see below.
+TAGS=("$TAG" latest)
 
 # The OCI image annotations. The creation time is the commit time, so that
 # the same commit gives the same labels. BuildKit uses SOURCE_DATE_EPOCH for
@@ -106,11 +106,14 @@ docker buildx create \
 EXPORT_OPTS=oci-mediatypes=false,compression=gzip,force-compression=true,rewrite-timestamp=true
 
 build_arch() {
-    local arch="$1" layout="build/images/$1" digest manifest config image_arch pushed
+    local arch="$1" layout="build/images/$1" digest manifest config image_arch pushed tag names=''
     local outputs=(--output "type=oci,dest=$layout,tar=false,$EXPORT_OPTS")
 
     if [[ $PUSH == "true" ]]; then
-        outputs+=(--output "type=image,\"name=$IMAGE-$arch:$TAG,$IMAGE-$arch:$VERSION,$IMAGE-$arch:latest\",push=true,$EXPORT_OPTS")
+        for tag in "${TAGS[@]}"; do
+            names+="${names:+,}$IMAGE-$arch:$tag"
+        done
+        outputs+=(--output "type=image,\"name=$names\",push=true,$EXPORT_OPTS")
     fi
 
     rm -rf "$layout"
@@ -281,22 +284,62 @@ push_manifest() {
     local tag="$1" arch
 
     # Build the member list from ARCHES so that re-enabling an architecture
-    # cannot silently produce a manifest that is missing it.
+    # cannot silently produce a manifest that is missing it. The members are
+    # the images of this build by digest, so that a build of another commit,
+    # which moves the tags of the per-arch images at the same time, can't get
+    # into the manifest list.
     local members=()
     for arch in "${ARCHES[@]}"; do
-        members+=("$IMAGE-$arch:$tag")
+        members+=("$IMAGE-$arch@$(cat "build/images/$arch.digest")")
     done
 
     docker manifest create --amend "$IMAGE:$tag" "${members[@]}"
 
     for arch in "${ARCHES[@]}"; do
-        docker manifest annotate --arch "$arch" "$IMAGE:$tag" "$IMAGE-$arch:$tag"
+        docker manifest annotate --arch "$arch" "$IMAGE:$tag" "$IMAGE-$arch@$(cat "build/images/$arch.digest")"
     done
 
     docker manifest push --purge "$IMAGE:$tag"
 }
 
-parallel_each push_manifest "${TAGS[@]}"
+# Once a release is tagged, its vx.y.z staging tags stay on the images of the
+# tagged commit, which the release attests and kpromo pr promotes, see
+# doc/release.md. Builds of other commits with the same VERSION, which only a
+# merge before the back-to-dev PR gives, keep their images without them. Until
+# the tag exists, the newest build moves them, so that a later commit can fix a
+# broken version bump. The lookup runs right before the tags are set, so that
+# a build which started before the tag got pushed doesn't move them either. A
+# failed lookup fails the build instead of moving them. The commit of an
+# annotated tag is its peeled ^{} entry, a lightweight tag only has the entry
+# of the tag itself. imagetools create copies the manifest of a single image
+# unchanged with --prefer-index=false and moves an existing tag, which the
+# account of the staging build may, unlike deleting a tag.
+MANIFEST_TAGS=("${TAGS[@]}")
+TAGGED=
+if [[ "$VERSION" != *-dev ]]; then
+    TAG_REFS=$(git ls-remote --tags "$REPOSITORY_URL" "refs/tags/$VERSION" "refs/tags/$VERSION^{}")
+    TAGGED=$(awk -v ref="refs/tags/$VERSION" '
+        $2 == ref "^{}" { peeled = $1 }
+        $2 == ref { plain = $1 }
+        END { print (peeled != "" ? peeled : plain) }' <<<"$TAG_REFS")
+fi
+if [[ -n "$TAGGED" && "$TAGGED" != "$REVISION" ]]; then
+    echo "$VERSION is tagged on $TAGGED, the images of $REVISION don't get the $VERSION tags"
+else
+    for name in "${ARCHES[@]}" bundle catalog; do
+        digest=$(cat "build/images/$name.digest")
+        docker buildx imagetools create --prefer-index=false \
+            --tag "$IMAGE-$name:$VERSION" "$IMAGE-$name@$digest"
+        tagged=$(resolve_digest "$IMAGE-$name:$VERSION")
+        if [[ ${tagged#*@} != "$digest" ]]; then
+            echo "Tagged $tagged as $VERSION, but the build has $digest"
+            exit 1
+        fi
+    done
+    MANIFEST_TAGS+=("$VERSION")
+fi
+
+parallel_each push_manifest "${MANIFEST_TAGS[@]}"
 
 # The manifest list only carries the signature, hack/verify-attestations.sh
 # checks it together with the digests the later build steps record.

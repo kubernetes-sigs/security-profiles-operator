@@ -19,16 +19,29 @@ Requests (PRs): the version bump, the image promotion in
 PR. Track it in a new `Release vx.y.z` issue from the
 [release template](../.github/ISSUE_TEMPLATE/release.md).
 
-No other PR may get merged between the version bump and the merge of the
-promotion PR. Add the `tide/merge-blocker` label to the release issue as soon
-as the version bump PR is merged, and remove it only after the promotion PR is
-merged, before the back-to-dev PR. Every build of `main` tags its staging
-images with the version of the [`VERSION`](../VERSION) file, so a commit merged
-in between moves the `vx.y.z` tags, which `kpromo pr` promotes, to images of
-another commit. Those either fail the release artifacts job or, if they are
-pushed after it ran, only have the SLSA Build L1 provenance of Cloud Build,
-which fails the policy and blocks the promotion, see
-[per-arch images](#per-arch-images).
+No other PR may get merged between the version bump and the back-to-dev PR.
+Every build of `main` tags its staging images with the version of the
+[`VERSION`](../VERSION) file, so a commit merged in between moves the `vx.y.z`
+tags, which `kpromo pr` promotes, to images of another commit. Those either
+fail the release artifacts job or, if they are pushed after it ran, only have
+the SLSA Build L1 provenance of Cloud Build, which fails the policy and blocks
+the promotion, see [per-arch images](#per-arch-images). Three checks enforce
+it:
+
+- `make verify-release-freeze` of the required
+  `pull-security-profiles-operator-verify` job fails every PR while the
+  `VERSION` file of `main` names a release instead of a `-dev` version, except
+  the ones which change `VERSION`, like the back-to-dev PR. Tide retests a PR
+  whose tests ran before the version bump got merged. A fix that can't wait
+  needs `/override pull-security-profiles-operator-verify`. Tide only retests
+  PRs which can be merged, so the other open PRs keep their results until a
+  retest.
+- Once the release is tagged, [`hack/image-cross.sh`](../hack/image-cross.sh)
+  keeps the `vx.y.z` staging tags on the images of the tagged commit. Builds of
+  other commits with the same `VERSION` push their images without them. It
+  looks the tag up right before it sets the `vx.y.z` tags.
+- [`hack/tag-release.sh`](../hack/tag-release.sh) only tags a commit whose
+  images the `vx.y.z` staging tags point to.
 
 The release takes several hours, most of it waiting for the staging build, the
 release workflows, the release artifacts job and the review of the promotion
@@ -145,29 +158,32 @@ artifacts job later, see [per-arch images](#per-arch-images).
 If the image got built successfully, tag the release. Tags created in the
 GitHub UI are lightweight and unsigned, so check out the merged commit of the
 first PR and run [`hack/tag-release.sh`](../hack/tag-release.sh). If another PR
-got merged after the version bump anyway, tag the newest commit of `main`
-instead, as long as its `VERSION` file still says x.y.z, once its staging
-build and `image-reproducible` run succeeded: the `vx.y.z` staging tags point
-to its images. Staging builds of two commits can run at the same time, and
-the `vx.y.z` tags point to the images of the one that finished last, so check
-before tagging that `crane digest` gives the same digest for the `vx.y.z` tag
-and for the tag of the commit, which ends with `-g<abbreviated commit>`, of
-the manifest list and of every per-arch image:
-
-```console
-> for image in security-profiles-operator{,-amd64,-arm64,-ppc64le}; do
-    repo=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/$image
-    tag=$(crane ls $repo | grep -- "-g$(git rev-parse --short=7 HEAD)" | tail -1)
-    echo "$image $(crane digest $repo:vx.y.z) $(crane digest $repo:$tag)"
-  done
-```
+got merged after the version bump anyway, in a Tide batch with the version
+bump or with an override of the release freeze, tag the newest commit of
+`main` instead, as long as its `VERSION` file still says x.y.z, once its
+staging build and `image-reproducible` run succeeded. That is also how a
+broken version bump gets fixed before the release is tagged: the fix leaves
+`VERSION` alone, so it needs `/override pull-security-profiles-operator-verify`.
 
 The script creates the signed, annotated tag `vx.y.z` for the version in the
 [`VERSION`](../VERSION) file, which needs a git signing key
 (`user.signingkey`, GPG or SSH with `gpg.format=ssh`), and verifies it with
-`git verify-tag`. It refuses to tag a development version, a dirty tree or an
-existing tag, and pushes nothing. Check the signature once more and push the
-tag to `kubernetes-sigs/security-profiles-operator`:
+`git verify-tag`. It installs `crane` with `go install`, so it needs Go, and
+refuses to run with an `SPO_REPOSITORY_URL` of a
+[rehearsal](#rehearsing-the-release-artifacts-job) left in the environment. It refuses to tag a development version, a dirty tree or an
+existing tag, and pushes nothing. It also refuses to tag a commit whose images
+the `vx.y.z` staging tags don't point to: with `crane`, it compares the
+digests of the `vx.y.z` tag and of the tag of the commit, which ends with
+`-g<abbreviated commit>`, of the manifest list, every per-arch image, the
+bundle and the catalog. Staging builds of two commits with the same `VERSION`
+can run at the same time, and until the release is tagged, they move the
+`vx.y.z` tags of the per-arch images, the bundle and the catalog one by one, so
+the tags can end up on the images of both. Then rerun the
+`post-security-profiles-operator-push-image` job of the commit to tag, which
+pushes the same images and sets all its tags again. Check the signature once
+more and push the tag right away to
+`kubernetes-sigs/security-profiles-operator`, while no other staging build of
+the same `VERSION` runs:
 
 ```console
 > git verify-tag vx.y.z
@@ -291,8 +307,8 @@ The release artifacts job checked the `vx.y.z` staging tags when it ran, but
 back-to-dev PR, moves them to images that only have the provenance of Cloud
 Build, at level 1, while the policy requires level 3, so the promotion fails
 and only a new patch release helps, see [per-arch images](#per-arch-images).
-That's why the `tide/merge-blocker` label of the release issue stays until the
-promotion PR is merged.
+That's why the release freeze lasts until the back-to-dev PR, and the staging
+builds keep the `vx.y.z` tags on the images of the tagged commit.
 
 Promote within 90 days. The staging registry deletes images 90 days after
 their push: the container images were pushed by the build of the release
@@ -335,9 +351,6 @@ which checks that the released `spoc.amd64` is bit for bit the `spoc` of the
 promoted image of the release. If the release was published as a full release
 right away, the workflow ran before the promotion and failed, re-run it once
 the promotion PR is merged.
-
-Remove the `tide/merge-blocker` label of the release issue, so that the
-back-to-dev PR can get merged.
 
 After that, run the `./hack/back-to-dev.sh` script, which:
 
