@@ -4860,7 +4860,7 @@ spec:
         - name: KUBELET_DIR
           value: /var/lib/kubelet
         image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
           httpGet:

@@ -847,7 +847,7 @@ dependencies:
       match: "fallbackPreviousRelease = \"v"
 
   - name: spo-current
-    version: 1.1.2
+    version: 1.1.3-dev
     refPaths:
     - path: VERSION
       match: ^.*
