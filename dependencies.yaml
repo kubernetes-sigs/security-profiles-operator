@@ -116,11 +116,15 @@ dependencies:
     - path: deploy/bundle-test-config.yaml
       match: quay.io/operator-framework/scorecard-test
 
+  # opm v2 is a new major release, which needs testing. Its alpha releases
+  # are not marked as pre-releases on GitHub, the -0 of the constraint leaves
+  # them out.
   - name: opm
     version: v1.74.0
     upstream:
       flavour: github
       url: operator-framework/operator-registry
+      constraints: "< 2.0.0-0"
     refPaths:
     - path: Makefile
       match: "^OPM_VERSION"
@@ -167,7 +171,7 @@ dependencies:
       match: "^OLM_VERSION"
 
   - name: cert-manager
-    version: 1.21.2
+    version: 1.21.3
     upstream:
       flavour: github
       url: cert-manager/cert-manager
@@ -180,7 +184,7 @@ dependencies:
   # Must be bumped together with cert-manager above, the checksum of
   # cert-manager.yaml of the release.
   - name: cert-manager-sha256
-    version: e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
+    version: c04a51295adda2b1a775146751f973e787190778c7f35180861d9678876e5c74
     refPaths:
     - path: hack/ci/lib.sh
       match: ^CERT_MANAGER_SHA256=
@@ -191,7 +195,7 @@ dependencies:
   # tags of the repository include date tags like 20260805, which the
   # constraint leaves out.
   - name: alpine
-    version: 3.24.2
+    version: 3.24.3
     upstream:
       flavour: container
       registry: docker.io/library/alpine
@@ -202,7 +206,7 @@ dependencies:
 
   # Must be bumped together with alpine above, the digest of its image index.
   - name: alpine-digest
-    version: sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+    version: sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
     refPaths:
     - path: hack/ci/lib.sh
       match: ^ALPINE_IMAGE=
@@ -470,7 +474,7 @@ dependencies:
       match: "^ARG BUILD_IMAGE="
 
   - name: nix
-    version: 2.35.3
+    version: 2.35.4
     upstream:
       flavour: github
       url: NixOS/nix
@@ -486,7 +490,7 @@ dependencies:
 
   # Must be bumped together with nix above.
   - name: nix-sha256
-    version: 6ce3ce3703fdc241b560cba401c5d338042122fe5b1a81e07bf1a623f259eba0
+    version: ff66236d2f7e2a21f3350e73668e021ac6a8881ef277a38e16e952bfb22718c3
     refPaths:
     - path: Dockerfile.build-image
       match: "^ARG NIX_SHA256"
@@ -507,7 +511,7 @@ dependencies:
   # The BuildKit of the reproducible image builds, on Cloud Build and in the
   # image-reproducible workflow alike.
   - name: buildkit
-    version: v0.34.0
+    version: v0.34.1
     upstream:
       flavour: github
       url: moby/buildkit
@@ -517,7 +521,7 @@ dependencies:
 
   # Must be bumped together with buildkit above.
   - name: buildkit-digest
-    version: sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
+    version: sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
     refPaths:
     - path: hack/image-cross.sh
       match: "^BUILDKIT_DIGEST="
@@ -735,7 +739,7 @@ dependencies:
 
   # The cosign of the staging and of the release signing in the workflows.
   - name: cosign for staging signing
-    version: v3.1.3
+    version: v3.1.4
     upstream:
       flavour: github
       url: sigstore/cosign
@@ -749,7 +753,7 @@ dependencies:
 
   # Must be bumped together with cosign for staging signing above.
   - name: cosign-sha256-linux-amd64
-    version: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+    version: 424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
     refPaths:
     - path: hack/lib/common.sh
       match: "^COSIGN_SHA256="
@@ -838,7 +842,7 @@ dependencies:
 
   # The release the upgrade e2e test starts from when git has no tags.
   - name: spo-previous-release
-    version: 1.1.1
+    version: 1.1.2
     upstream:
       flavour: github
       url: kubernetes-sigs/security-profiles-operator
@@ -948,7 +952,7 @@ dependencies:
   # have no v prefix and include per-architecture tags like 0.71.2-amd64, pin
   # the release version with the v prefix.
   - name: trivy
-    version: v0.76.0
+    version: v0.76.1
     upstream:
       flavour: container
       registry: ghcr.io/aquasecurity/trivy

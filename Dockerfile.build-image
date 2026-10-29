@@ -26,12 +26,12 @@ RUN apt-get update && \
 
 ENV USER=root
 
-ARG NIX_VERSION=2.35.3
+ARG NIX_VERSION=2.35.4
 
 # Checksum of nix-${NIX_VERSION}-x86_64-linux.tar.xz. Every other tool this
 # repo downloads is checksum verified, so nix must not be the one unverified
 # binary input in the build chain.
-ARG NIX_SHA256=6ce3ce3703fdc241b560cba401c5d338042122fe5b1a81e07bf1a623f259eba0
+ARG NIX_SHA256=ff66236d2f7e2a21f3350e73668e021ac6a8881ef277a38e16e952bfb22718c3
 
 # The image only runs on amd64: Dockerfile uses it on the build platform and
 # cross compiles the binaries of the other architectures with nix.

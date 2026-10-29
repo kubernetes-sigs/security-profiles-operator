@@ -39,10 +39,10 @@ import (
 )
 
 const (
-	certmanager = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml"
+	certmanager = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml"
 	// certmanagerSHA256 is the checksum of certmanager, bump it together with
 	// the version, see dependencies.yaml.
-	certmanagerSHA256    = "e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f"
+	certmanagerSHA256    = "c04a51295adda2b1a775146751f973e787190778c7f35180861d9678876e5c74"
 	namespaceManifest    = "deploy/namespace-operator.yaml"
 	testNamespace        = "test-ns"
 	defaultNamespace     = "default"

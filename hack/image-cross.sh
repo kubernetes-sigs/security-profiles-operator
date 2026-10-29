@@ -28,8 +28,8 @@ export DOCKER_BUILDKIT=1
 # with PUSH=false. That needs the same BuildKit everywhere, so the images are
 # built in a container of this pinned BuildKit image instead of by the docker
 # daemon. Bump the version and the digest together.
-BUILDKIT_VERSION=v0.34.0
-BUILDKIT_DIGEST=sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
+BUILDKIT_VERSION=v0.34.1
+BUILDKIT_DIGEST=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
 
 # PUSH=false only builds the per-arch images, the bundle and the catalog into
 # the OCI layouts build/images/<arch|bundle|catalog> and writes their digests
@@ -66,8 +66,6 @@ mkdir -p build
 date -u +%Y-%m-%dT%H:%M:%SZ > build/build-started
 BUILD_IMAGE=$(resolve_digest "$(sed -n 's/^ARG BUILD_IMAGE=//p' Dockerfile)")
 echo "$BUILD_IMAGE" > build/build-image
-# The BuildKit image is part of the provenance of the per-arch images too.
-echo "docker.io/moby/buildkit@$BUILDKIT_DIGEST" > build/buildkit-image
 
 # The build image is the toolchain that compiles the released binaries, so
 # verify it is the one this project published before building against it: the
@@ -94,11 +92,29 @@ BUILDER=spo-image-cross-$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')
 docker buildx version
 LOCAL_REGISTRY_PID=
 trap 'docker buildx rm "$BUILDER" || true; [[ -z "$LOCAL_REGISTRY_PID" ]] || kill "$LOCAL_REGISTRY_PID" || true' EXIT
-docker buildx create \
-    --name "$BUILDER" \
-    --driver docker-container \
-    --driver-opt "image=moby/buildkit:$BUILDKIT_VERSION@$BUILDKIT_DIGEST" \
-    --bootstrap
+# The BuildKit image comes by digest from mirror.gcr.io, the mirror of Docker
+# Hub, whose anonymous pulls fail now and then, so booting the builder is
+# retried. The last attempt pulls from Docker Hub, in case the mirror doesn't
+# have a new BuildKit release yet. The BuildKit image is part of the
+# provenance of the per-arch images too, with the repository it came from.
+BUILDKIT_REPOS=(mirror.gcr.io/moby/buildkit mirror.gcr.io/moby/buildkit docker.io/moby/buildkit)
+for attempt in 1 2 3; do
+    buildkit_repo=${BUILDKIT_REPOS[attempt - 1]}
+    if docker buildx create \
+        --name "$BUILDER" \
+        --driver docker-container \
+        --driver-opt "image=$buildkit_repo:$BUILDKIT_VERSION@$BUILDKIT_DIGEST" \
+        --bootstrap; then
+        echo "$buildkit_repo@$BUILDKIT_DIGEST" > build/buildkit-image
+        break
+    fi
+    docker buildx rm "$BUILDER" || true
+    if [[ $attempt -eq 3 ]]; then
+        echo "Unable to boot the BuildKit builder"
+        exit 1
+    fi
+    sleep 10
+done
 
 # The exporter options of the per-arch images, the same for the OCI layout and
 # the registry: Docker media types like before, gzip compressed by the pinned
