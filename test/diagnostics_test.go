@@ -42,7 +42,24 @@ const (
 	diagnosticsRequestTimeout = "30s"
 	// journalLines bounds the lines of each node journal in the diagnostics.
 	journalLines = "5000"
+	// kubeSystemNamespace holds the cluster DNS, whose restarts break the
+	// tests which resolve services.
+	kubeSystemNamespace = "kube-system"
+	// lostRecords matches the kernel messages about lost or suppressed log
+	// and audit records. Logging every syscall of the recorded containers
+	// floods the audit subsystem, which then drops records of the kernel
+	// audit backlog or the kernel log buffer, or the loggers suppress them.
+	lostRecords = `audit: (backlog limit exceeded|kauditd hold queue overflow|audit_lost=|rate limit exceeded)` +
+		`|callbacks suppressed|buffer overrun|messages lost|messages suppressed`
 )
+
+// journalUnits are the units of the node journals in the diagnostics: the
+// container runtimes and the kubelet, and the loggers the log enricher reads
+// the audit records from, which log when they drop records. A unit which does
+// not exist on a node has no entries.
+var journalUnits = []string{
+	"crio", "containerd", "kubelet", "systemd-journald", "rsyslog", "auditd",
+}
 
 // unsafePathChars are the characters which do not go into the directory name
 // of the diagnostics of a test.
@@ -201,26 +218,10 @@ func (e *e2e) dumpDiagnostics(since time.Time) {
 		"mutatingwebhookconfigurations,validatingwebhookconfigurations", "-o", "yaml",
 	)
 
-	pods, err := e.kubectlCommand(
-		"--request-timeout", diagnosticsRequestTimeout,
-		"-n", config.OperatorName, "get", "pods", "-o", "name",
-	)
-	if err != nil {
-		e.logf("Unable to list the operator pods: %v", err)
-	}
+	d.kubectl("describe-kube-system-pods", "-n", kubeSystemNamespace, "describe", "pods")
 
-	for pod := range strings.FieldsSeq(pods) {
-		name := strings.TrimPrefix(pod, "pod/")
-		d.kubectl(
-			"logs-"+name, "-n", config.OperatorName, "logs", pod, "--all-containers", "--prefix",
-			"--since-time="+since.Format(time.RFC3339),
-		)
-		// Only there if a container restarted.
-		d.kubectl(
-			"logs-previous-"+name,
-			"-n", config.OperatorName, "logs", pod, "--all-containers", "--prefix", "--previous",
-		)
-	}
+	e.dumpPodLogs(d, config.OperatorName, "", since)
+	e.dumpPodLogs(d, kubeSystemNamespace, kubeSystemNamespace+"-", since)
 
 	for _, kind := range profileKinds {
 		d.kubectl(kind, "get", kind, "--all-namespaces", "-o", "yaml")
@@ -229,9 +230,35 @@ func (e *e2e) dumpDiagnostics(since time.Time) {
 	e.dumpNodeJournals(d, since)
 }
 
-// dumpNodeJournals adds the journals of the container runtime and the kubelet
-// of all nodes since the given time. The units which do not exist on a node
-// have no entries.
+// dumpPodLogs adds the logs of the pods of a namespace since the given time,
+// and the ones of their restarted containers, with the prefix in their names.
+func (e *e2e) dumpPodLogs(d *diagnostics, namespace, prefix string, since time.Time) {
+	pods, err := e.kubectlCommand(
+		"--request-timeout", diagnosticsRequestTimeout,
+		"-n", namespace, "get", "pods", "-o", "name",
+	)
+	if err != nil {
+		e.logf("Unable to list the pods of namespace %s: %v", namespace, err)
+	}
+
+	for pod := range strings.FieldsSeq(pods) {
+		name := prefix + strings.TrimPrefix(pod, "pod/")
+		d.kubectl(
+			"logs-"+name, "-n", namespace, "logs", pod, "--all-containers", "--prefix",
+			"--since-time="+since.Format(time.RFC3339),
+		)
+		// Only there if a container restarted.
+		d.kubectl(
+			"logs-previous-"+name,
+			"-n", namespace, "logs", pod, "--all-containers", "--prefix", "--previous",
+		)
+	}
+}
+
+// dumpNodeJournals adds the journals of journalUnits of all nodes since the
+// given time, the kernel messages about lost records, and the status of the
+// kernel audit subsystem with its lost records, if the node has auditctl.
+// journalctl fails with "-- No entries --" if no kernel message matches.
 func (e *e2e) dumpNodeJournals(d *diagnostics, since time.Time) {
 	if e.nodeCommand == nil {
 		return
@@ -247,15 +274,27 @@ func (e *e2e) dumpNodeJournals(d *diagnostics, since time.Time) {
 		return
 	}
 
+	sinceArg := "@" + strconv.FormatInt(since.Unix(), 10)
+
 	for node := range strings.FieldsSeq(nodes) {
-		args := []string{
-			"journalctl", "--no-pager", "--lines", journalLines,
-			"--since", "@" + strconv.FormatInt(since.Unix(), 10),
-			"-u", "crio", "-u", "containerd", "-u", "kubelet",
+		args := []string{"journalctl", "--no-pager", "--lines", journalLines, "--since", sinceArg}
+		for _, unit := range journalUnits {
+			args = append(args, "-u", unit)
 		}
-		output, err := e.nodeCommand(node, args...)
-		d.add("journal-"+node, "node "+node+": "+strings.Join(args, " "), output, err)
+
+		e.addNodeCommand(d, "journal-"+node, node, args...)
+		e.addNodeCommand(d, "lost-records-"+node, node,
+			"journalctl", "--no-pager", "--lines", journalLines, "--since", sinceArg,
+			"--dmesg", "--grep", lostRecords,
+		)
+		e.addNodeCommand(d, "audit-status-"+node, node, "auditctl", "-s")
 	}
+}
+
+// addNodeCommand adds the output of a command on a node.
+func (e *e2e) addNodeCommand(d *diagnostics, name, node string, args ...string) {
+	output, err := e.nodeCommand(node, args...)
+	d.add(name, "node "+node+": "+strings.Join(args, " "), output, err)
 }
 
 // cleanupOperator deletes all profiles and the operator. The per node daemon
