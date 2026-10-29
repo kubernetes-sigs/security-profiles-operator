@@ -109,6 +109,10 @@ start_kubernix() {
     "$KUBERNIX_ROOT/kubeconfig/admin.kubeconfig" "$HOME/.kube/config"
 
   kubectl wait --for=condition=ready --timeout=120s nodes --all
+  # The e2e suite waits for the pods of kube-system, which fails if the
+  # controllers did not create them yet.
+  kubectl wait -n kube-system --for=create --timeout=300s deployment/coredns
+  kubectl wait -n kube-system --for=condition=available --timeout=300s deployment/coredns
   kubectl get nodes -o wide
 }
 
