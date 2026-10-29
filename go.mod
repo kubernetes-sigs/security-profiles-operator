@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0
 	github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.21.2
+	github.com/cert-manager/cert-manager v1.21.3
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logr/logr v1.4.4
