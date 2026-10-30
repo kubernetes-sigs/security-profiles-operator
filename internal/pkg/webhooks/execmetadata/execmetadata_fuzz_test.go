@@ -112,6 +112,8 @@ func TestSetExecRequestUIDRunsWithTheUID(t *testing.T) {
 		"lone dash":            {"env", "-", "sh"},
 		"lone dash after --":   {"env", "--", "-", "HOME=/", "sh"},
 		"split string":         {"env", "-S", key + "=fake sh"},
+		"chdir to assignment":  {"env", "-C", key + "=fake", "id"},
+		"assignment in value":  {"env", "X=a " + key + "=fake", "id"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -127,9 +129,14 @@ func TestSetExecRequestUIDRunsWithTheUID(t *testing.T) {
 // through one, which takes its leading arguments with a "=" for assignments
 // and a leading "-" for -i. An original command with an option the
 // simulation does not know has to get an env command which sets the UID
-// prepended.
+// prepended. The JSON enricher reads the UID back from the patched command
+// with EnvCommandRequestUID.
 func requireExecRequestUID(t *testing.T, original, patched []string) {
 	t.Helper()
+
+	uid, ok := EnvCommandRequestUID(patched)
+	require.True(t, ok, "%q", patched)
+	require.Equal(t, fuzzUID, uid, "%q", patched)
 
 	assignment := config.ExecRequestUIDEnvKey + "=" + fuzzUID
 

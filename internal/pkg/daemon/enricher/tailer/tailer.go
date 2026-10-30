@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -53,6 +54,10 @@ const (
 
 	// readSize is the chunk size of the reads.
 	readSize = 64 * 1024
+
+	// maxRotatedFiles bounds the rotated files which get looked at for the
+	// ones rotated after the followed file, see nextRotated.
+	maxRotatedFiles = 100
 )
 
 // errStopped ends the reading when the tailer got stopped.
@@ -74,8 +79,8 @@ type Config struct {
 // Tailer follows a file and sends its complete lines, without their line
 // break, to Lines. A file which does not exist yet is read from its start once
 // it appears. A file which got replaced (renamed and created again) is read
-// from the start of the new file, and a file which got truncated from its new
-// beginning.
+// from the start of the new file, after the files rotated in between, see
+// nextRotated, and a file which got truncated from its new beginning.
 //
 // The lines are read as soon as the file system notifies about them, since
 // the readers of the audit log look up the processes of the lines, which may
@@ -498,6 +503,11 @@ func (t *Tailer) checkFile() error {
 			return err
 		}
 
+		// So do the files which got rotated while the old one was read.
+		if err := t.readRotated(); err != nil {
+			return err
+		}
+
 		t.closeFile()
 
 		if err := t.open(false); err != nil {
@@ -524,4 +534,67 @@ func (t *Tailer) checkFile() error {
 	}
 
 	return nil
+}
+
+// readRotated reads the files which got rotated after the followed one. While
+// the lines are read slower than they get written, the followed file can get
+// rotated more than once until its end is reached, and opening the path then
+// would skip the files in between.
+func (t *Tailer) readRotated() error {
+	for {
+		file, info := t.nextRotated(t.info)
+		if file == nil {
+			return nil
+		}
+
+		t.closeFile()
+		t.file, t.info, t.offset = file, info, 0
+		t.pending = t.pending[:0]
+		t.discarding = false
+
+		if err := t.read(); err != nil {
+			return err
+		}
+	}
+}
+
+// nextRotated opens the file which got rotated right after the one of info,
+// if the rotation names the files like auditd and logrotate do: the path with
+// the suffix .1 for the latest rotated file, .2 for the one before it and so
+// on. It returns nil if the file of info is the latest rotated one, or none of
+// them, like when it got removed already.
+func (t *Tailer) nextRotated(info os.FileInfo) (newer *os.File, newerInfo os.FileInfo) {
+	// The files get opened while they are looked at, so that a rotation in
+	// between does not mix them up.
+	for i := 1; i <= maxRotatedFiles; i++ {
+		rotated, err := os.Open(filepath.Clean(t.path + "." + strconv.Itoa(i)))
+		if err != nil {
+			break
+		}
+
+		rotatedInfo, err := rotated.Stat()
+		if err != nil {
+			rotated.Close()
+
+			break
+		}
+
+		if os.SameFile(rotatedInfo, info) {
+			rotated.Close()
+
+			return newer, newerInfo
+		}
+
+		if newer != nil {
+			newer.Close()
+		}
+
+		newer, newerInfo = rotated, rotatedInfo
+	}
+
+	if newer != nil {
+		newer.Close()
+	}
+
+	return nil, nil
 }

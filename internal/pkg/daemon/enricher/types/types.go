@@ -101,9 +101,8 @@ type LogBucket struct {
 	TimestampID string
 	// Emitted is set once the bucket got emitted, it takes no more lines.
 	Emitted bool
-	// BpfLookedUp is set once the process got looked up in the BPF process
-	// cache.
-	BpfLookedUp bool
+	// BpfFound is set once the process got found in the BPF process cache.
+	BpfFound bool
 	// NoContainerAt is when the process turned out to run outside of a
 	// container, or exited without a known container. Its further lines do
 	// not look it up again for a while, since every lookup reads /proc. The

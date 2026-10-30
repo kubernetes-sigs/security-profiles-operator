@@ -142,6 +142,12 @@ func (e *e2e) testCases() []testCase {
 			fn:          e.testCaseJsonEnricher,
 		},
 		{
+			description: "JSON Enricher: exec of a command",
+			fn:          e.testCaseJsonEnricherExecCommand,
+			flaky:       true,
+			issue:       jsonEnricherExecIssue,
+		},
+		{
 			description: "Log Enricher with filters",
 			fn:          e.testCaseLogEnricherWithFilters,
 		},
@@ -418,6 +424,10 @@ const (
 	// doc/hacking.md. A quarantined case which fails on retry fails the
 	// flaky test step, so it gets enabled once it passed on a node.
 	bpfEnricherIssue = "needs nodes with AppArmor for its kprobe on aa_audit, not proven in CI yet"
+	// jsonEnricherExecIssue marks the JSON enricher test case of an exec
+	// whose process execs twice, which at times lacks its command line and
+	// request in CI.
+	jsonEnricherExecIssue = "the JSON enricher can miss the command line of a process which execs twice"
 	// newTestCaseIssue marks new test cases, which start quarantined, see
 	// doc/hacking.md.
 	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"

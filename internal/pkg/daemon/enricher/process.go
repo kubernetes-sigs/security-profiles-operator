@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"io/fs"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/execmetadata"
 )
 
 // ErrProcessNotFound is the error returned by CmdlineForPID and
@@ -121,12 +121,9 @@ func processInfo(pid int, impl impl) (*types.ProcessInfo, []error) {
 		Pid: pid,
 	}
 
-	cmdLineFound := false
-
-	cmdLine, err := impl.CmdlineForPID(pid)
+	cmdLine, args, err := impl.CmdlineForPID(pid)
 	if err == nil {
 		procInfo.CmdLine = cmdLine
-		cmdLineFound = true
 	} else {
 		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
@@ -134,54 +131,36 @@ func processInfo(pid int, impl impl) (*types.ProcessInfo, []error) {
 	// Only the processes of kubectl exec carry a request ID, so a missing
 	// one is no error, which would hide the real failures of reading the
 	// details of a process.
-	reqIdEnvFound := false
-
-	reqId, ok, err := impl.ExecRequestIDForPID(pid)
-	if err == nil {
-		if ok {
-			procInfo.ExecRequestId = &reqId
-			reqIdEnvFound = true
+	reqId, ok := execRequestUID(args, func() (string, bool) {
+		reqId, ok, err := impl.ExecRequestIDForPID(pid)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
 		}
-	} else {
-		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
-	}
 
-	// Special case: Extract UID directly from cmdLine if 'env' variable is missing it.
-	// e.g., "env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls"
-	if !reqIdEnvFound && cmdLineFound {
-		if reqId, ok := extractSPORequestUID(cmdLine); ok {
-			procInfo.ExecRequestId = &reqId
-		}
+		return reqId, ok
+	})
+	if ok {
+		procInfo.ExecRequestId = &reqId
 	}
 
 	return &procInfo, errs
 }
 
-func extractSPORequestUID(input string) (string, bool) {
-	prefix := requestIdEnv + "="
-
-	start := strings.Index(input, prefix)
-	if start == -1 {
-		return "", false
+// execRequestUID returns the request of the exec of a process. The exec
+// metadata webhook adds it as an assignment to the env command which runs an
+// exec, whose environment is still the one of the container, which carries the
+// request of a debug session in debug containers. So the request of an env
+// command is the one which the webhook assigned in its arguments, see
+// execmetadata.EnvCommandRequestUID. The request of any other process, like
+// the command which env runs, is the one of its environment, which fromEnv
+// returns. The workload controls both sources anyway, see the exec metadata in
+// doc/audit-logging-guide.md. An empty request is none.
+func execRequestUID(args []string, fromEnv func() (string, bool)) (string, bool) {
+	if reqId, ok := execmetadata.EnvCommandRequestUID(args); ok {
+		return reqId, true
 	}
 
-	dataStart := start + len(prefix)
+	reqId, ok := fromEnv()
 
-	if dataStart >= len(input) {
-		return "", false
-	}
-
-	end := strings.IndexAny(input[dataStart:], " \t\n\r")
-
-	if end == -1 {
-		return input[dataStart:], true
-	}
-
-	absEnd := dataStart + end
-
-	if absEnd == dataStart {
-		return "", false
-	}
-
-	return input[dataStart:absEnd], true
+	return reqId, ok && reqId != ""
 }

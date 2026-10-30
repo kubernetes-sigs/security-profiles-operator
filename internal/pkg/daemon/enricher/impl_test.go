@@ -118,7 +118,7 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		prepare func() *fstest.MapFS
-		assert  func(t *testing.T, cmd string, retErr error)
+		assert  func(t *testing.T, cmd string, args []string, retErr error)
 	}{
 		{
 			name: "the best case",
@@ -127,11 +127,12 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 					"proc/1234/cmdline": {Data: []byte("/sh")},
 				}
 			},
-			assert: func(t *testing.T, cmd string, retErr error) {
+			assert: func(t *testing.T, cmd string, args []string, retErr error) {
 				t.Helper()
 
 				require.NoError(t, retErr)
 				require.Equal(t, "/sh", cmd)
+				require.Equal(t, []string{"/sh"}, args)
 			},
 		},
 		{
@@ -141,11 +142,27 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 					"proc/1234/cmdline": {Data: []byte("sh\x00-c\x00echo a\necho b\x00")},
 				}
 			},
-			assert: func(t *testing.T, cmd string, retErr error) {
+			assert: func(t *testing.T, cmd string, args []string, retErr error) {
 				t.Helper()
 
 				require.NoError(t, retErr)
 				require.Equal(t, "sh -c echo a\necho b ", cmd)
+				require.Equal(t, []string{"sh", "-c", "echo a\necho b"}, args)
+			},
+		},
+		{
+			name: "arguments with spaces",
+			prepare: func() *fstest.MapFS {
+				return &fstest.MapFS{
+					"proc/1234/cmdline": {Data: []byte("env\x00X=a b\x00id\x00")},
+				}
+			},
+			assert: func(t *testing.T, cmd string, args []string, retErr error) {
+				t.Helper()
+
+				require.NoError(t, retErr)
+				require.Equal(t, "env X=a b id ", cmd)
+				require.Equal(t, []string{"env", "X=a b", "id"}, args)
 			},
 		},
 		{
@@ -157,11 +174,12 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 					"proc/1234/cmdline": {Data: []byte("sh\x00" + long)},
 				}
 			},
-			assert: func(t *testing.T, cmd string, retErr error) {
+			assert: func(t *testing.T, cmd string, args []string, retErr error) {
 				t.Helper()
 
 				require.NoError(t, retErr)
 				require.Equal(t, "sh "+strings.Repeat("x", maxCmdlineBytes-len("sh ")), cmd)
+				require.Equal(t, []string{"sh", strings.Repeat("x", maxCmdlineBytes-len("sh "))}, args)
 			},
 		},
 		{
@@ -171,7 +189,7 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 					"proc/unknown/environ": {Data: []byte("/sh")},
 				}
 			},
-			assert: func(t *testing.T, cmd string, retErr error) {
+			assert: func(t *testing.T, cmd string, args []string, retErr error) {
 				t.Helper()
 
 				require.Error(t, retErr)
@@ -184,8 +202,8 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 			testImpl := defaultImpl{
 				fsys: tc.prepare(),
 			}
-			cmd, err := testImpl.CmdlineForPID(1234)
-			tc.assert(t, cmd, err)
+			cmd, args, err := testImpl.CmdlineForPID(1234)
+			tc.assert(t, cmd, args, err)
 		})
 	}
 }

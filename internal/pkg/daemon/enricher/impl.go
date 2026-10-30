@@ -27,6 +27,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -91,7 +92,7 @@ type impl interface {
 	Chown(string, int, int) error
 	Stat(string) (os.FileInfo, error)
 	RemoveAll(string) error
-	CmdlineForPID(pid int) (string, error)
+	CmdlineForPID(pid int) (cmdLine string, args []string, err error)
 	PrintJsonOutput(w io.Writer, output []byte)
 	ExecRequestIDForPID(pid int) (string, bool, error)
 	ProcessStartTime(pid int) (time.Duration, error)
@@ -196,12 +197,13 @@ func (d *defaultImpl) RemoveAll(path string) error {
 	return os.RemoveAll(path)
 }
 
-// CmdlineForPID returns the command line of the process, cut after
-// maxCmdlineBytes: the process controls its length, and it gets cached.
-func (d *defaultImpl) CmdlineForPID(pid int) (string, error) {
+// CmdlineForPID returns the command line of the process, with its arguments
+// separated by spaces, and its arguments, cut after maxCmdlineBytes: the
+// process controls its length, and it gets cached.
+func (d *defaultImpl) CmdlineForPID(pid int) (cmdLine string, args []string, err error) {
 	f, err := d.fsys.Open(filepath.Clean(fmt.Sprintf("proc/%d/cmdline", pid)))
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+		return "", nil, fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
 	defer f.Close()
 
@@ -209,10 +211,14 @@ func (d *defaultImpl) CmdlineForPID(pid int) (string, error) {
 	// a command line can be longer than a line a scanner takes.
 	content, err := io.ReadAll(io.LimitReader(f, maxCmdlineBytes))
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+		return "", nil, fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
 
-	return string(bytes.ReplaceAll(content, []byte{0}, []byte{' '})), nil
+	if len(content) > 0 {
+		args = strings.Split(string(bytes.TrimSuffix(content, []byte{0})), "\x00")
+	}
+
+	return string(bytes.ReplaceAll(content, []byte{0}, []byte{' '})), args, nil
 }
 
 // ExecRequestIDForPID returns the exec request ID in the environment of the

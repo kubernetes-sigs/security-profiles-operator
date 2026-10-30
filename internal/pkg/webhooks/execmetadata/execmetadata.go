@@ -233,6 +233,46 @@ func setExecRequestUID(command []string, uid string) []string {
 	return slices.Insert(command, layers[len(layers)-1].end, assignment)
 }
 
+// EnvCommandRequestUID returns the request UID which setExecRequestUID
+// assigned in the arguments of an env command, and false if the arguments are
+// no env command or have none. The leading env commands get parsed like
+// setExecRequestUID does: every assignment of the variable in them has the
+// request UID, the last one of the innermost env command being the one which
+// env applies last. For an env command with an option which is not known, the
+// request UID is in the env command which setExecRequestUID prepended, which
+// is the first assignment in the arguments of its process. The process of
+// the env command it runs has it in its environment instead, which the caller
+// reads then. Options and their arguments, like the directory of -C, are no
+// assignments.
+func EnvCommandRequestUID(args []string) (string, bool) {
+	if len(args) == 0 || path.Base(args[0]) != "env" {
+		return "", false
+	}
+
+	prefix := config.ExecRequestUIDEnvKey + "="
+
+	layers, ok := parseEnvLayers(args)
+	if !ok {
+		if len(args) > 1 {
+			if uid, found := strings.CutPrefix(args[1], prefix); found {
+				return uid, uid != ""
+			}
+		}
+
+		return "", false
+	}
+
+	for _, layer := range slices.Backward(layers) {
+		for j := layer.end - 1; j >= layer.assignments; j-- {
+			if uid, found := strings.CutPrefix(args[j], prefix); found {
+				return uid, uid != ""
+			}
+		}
+	}
+
+	return "", false
+}
+
 // envLayer is an env command within an exec command. Its assignments start at
 // the index assignments, after its options, and end before the index end,
 // where the command it runs starts.

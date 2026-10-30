@@ -33,84 +33,28 @@ func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
 		`[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]`,
 	)
 
-	const (
-		profileName   = "jsonenricherprofile"
-		podName       = "jsonenricherpod"
-		containerName = "jsonenrichercontainer"
-	)
+	e.createJsonEnricherTestPod()
 
-	e.logf("Creating test profile for JSON Enricher")
+	readLogs := e.jsonEnricherFileLogsReader(jsonLogFileName)
 
-	profile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: SeccompProfile
-metadata:
-  name: %s
-spec:
-  defaultAction: SCMP_ACT_ALLOW
-  syscalls:
-  - action: SCMP_ACT_LOG
-    names:
-    - listen
-    - execve
-    - clone
-    - getpid
-`, profileName)
+	var output string
 
-	e.writeAndCreate(profile, "test-profile-*.yaml")
-	e.kubectlCleanup("sp", profileName)
+	// Wait for the exec record itself, since other records may be flushed
+	// before it.
+	e.execUntilJsonEnricherRecorded(func() error {
+		return poll(jsonEnricherRecordTimeout, 10*time.Second, func() error {
+			e.logf("Waiting for JSON enricher to record syscalls")
 
-	e.logf("Waiting for profile to be reconciled")
-	e.waitForProfile(profileName)
+			logs, err := readLogs()
+			if err != nil {
+				return err
+			}
 
-	// The exec metadata webhook excludes the operator namespace, so run the
-	// test pod in its own namespace.
-	e.logf("Creating test pod")
-	defer e.switchToJsonEnricherNs()()
+			output = logs
 
-	pod := fmt.Sprintf(`
-apiVersion: v1
-kind: Pod
-metadata:
-  name: %s
-spec:
-  containers:
-  - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
-    name: %s
-  securityContext:
-    seccompProfile:
-      type: Localhost
-      localhostProfile: operator/%s.json
-  restartPolicy: Never
-`, podName, containerName, profileName)
-
-	e.writeAndCreate(pod, "test-pod-*.yaml")
-	e.kubectlCleanup("pod", podName)
-
-	e.waitForProfile(profileName)
-
-	e.waitFor("condition=initialized", "pod", podName)
-
-	e.checkExecEnvironment(podName, nil, execEnvironmentTimeout)
-
-	// In 5 seconds the process info will be captured.
-	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
-
-	// The polls below cover the flush interval of 20 seconds. Wait for the
-	// exec record itself, since other records may be flushed before it.
-	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
-		regexp.MustCompile(`(?m)"requestUID"`),
-		regexp.MustCompile(`"sleep"|"/"`))
-
-	e.Contains(output, "\"auditID\"")
-	e.Contains(output, "\"requestUID\"")
-	e.Contains(output, "\"cmdLine\"")
-
-	// Special case in ubuntu: \"cmdLine\":\"\",\"executable\":\"/\".
-	e.True(stringContainsAny(output, "\"sleep\"", "\"/\""))
-
-	e.Contains(output, "\"container\"")
-	e.Contains(output, "\"namespace\"")
+			return unmatchedLogs(logs, []*regexp.Regexp{jsonEnricherExecRecord})
+		})
+	})
 
 	// Every record has the version which the second filter drops, so only the
 	// records of execs, which the first filter keeps, reach the file.
@@ -137,24 +81,140 @@ func (e *e2e) switchToJsonEnricherNs() func() {
 	return restoreNs
 }
 
-func stringContainsAny(fullString string, substrings ...string) bool {
-	for _, sub := range substrings {
-		if strings.Contains(fullString, sub) {
-			return true
-		}
-	}
+// jsonEnricherExecMarker is an assignment of the env command which the JSON
+// enricher test cases exec, which tells its record apart.
+const jsonEnricherExecMarker = "SPO_JSON_ENRICHER_TEST=exec"
 
-	return false
+// jsonEnricherExecCommand is the command which the JSON enricher test cases
+// exec, see execUntilJsonEnricherRecorded. The env command gets the request UID
+// as an assignment, and runs a sleep long enough for the enricher to read the
+// details of the process from /proc.
+var jsonEnricherExecCommand = []string{"env", jsonEnricherExecMarker, "sleep", "7"}
+
+// jsonEnricherExecRecord matches the record of jsonEnricherExecCommand with
+// its request. The process execs twice, env and then sleep, so the record has
+// the command line of env with the sleep if it got read before the second
+// exec, and the one of sleep otherwise. Either has the request.
+var jsonEnricherExecRecord = regexp.MustCompile(
+	`"cmdLine":"(env ` + regexp.QuoteMeta(jsonEnricherExecMarker) +
+		` [^"]* )?sleep 7 ?".*"requestUID":"[^"]+"`,
+)
+
+// jsonEnricherRecordTimeout is how long a record of the JSON enricher is
+// waited for, which covers its flush interval of 20 seconds.
+const jsonEnricherRecordTimeout = time.Minute
+
+// execUntilJsonEnricherRecorded execs jsonEnricherExecCommand in the test
+// container until poll finds its record, at most three times. The JSON
+// enricher does not get the details of every process: once a process is gone
+// from /proc, only the BPF process cache can tell them, which does not know
+// every process on every node.
+func (e *e2e) execUntilJsonEnricherRecorded(poll func() error) {
+	const attempts = 3
+
+	for attempt := 1; ; attempt++ {
+		e.kubectl(append([]string{
+			"exec", "-i", jsonEnricherTestPod, "-c", jsonEnricherTestContainer, "--",
+		}, jsonEnricherExecCommand...)...)
+
+		err := poll()
+		if err == nil {
+			return
+		}
+
+		if attempt == attempts {
+			e.Failf("condition not met", "%v", err)
+
+			return
+		}
+
+		e.logf("Running the exec again: %v", err)
+	}
 }
 
 func (e *e2e) testCaseJsonEnricher([]string) {
 	e.jsonEnricherOnlyTestCase()
 
-	const (
-		profileName   = "jsonenricherprofile"
-		podName       = "jsonenricherpod"
-		containerName = "jsonenrichercontainer"
-	)
+	since := e.createJsonEnricherTestPod()
+
+	// The debug session adds an ephemeral container, whose environment the
+	// exec metadata webhook patches. Its sleep is not asserted below, the
+	// enricher does not reliably attribute it.
+	e.kubectl("debug", "--profile", "general", "-i", jsonEnricherTestPod, "--image",
+		busyboxImage, "--", "sleep", "6")
+
+	// The debug pod of the node stays behind in the test namespace, which
+	// gets deleted with the test.
+	nodeName := e.kubectl("get", "nodes",
+		"-o", "jsonpath='{.items[0].metadata.name}'")
+	nodeDebuggingPodEnvOutput := e.kubectl("debug", "--profile", "general",
+		"node/"+strings.Trim(nodeName, "'"), "--image", busyboxImage, "-it", "--", "env")
+	e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
+	e.logf("The env output has SPO_EXEC_REQUEST_UID")
+
+	// Wait for the exec record itself, with its request, since other records
+	// may be flushed before it. A process which exited before its line got
+	// read does not always get its container, so the container comes from
+	// any record of the pod, like the ones of its entrypoint.
+	conditions := []*regexp.Regexp{jsonEnricherExecRecord, regexp.MustCompile(
+		`"resource":\{"container":"` + regexp.QuoteMeta(jsonEnricherTestContainer) +
+			`","namespace":"` + regexp.QuoteMeta(jsonEnricherTestNamespace) + `"`,
+	)}
+
+	e.execUntilJsonEnricherRecorded(func() error {
+		_, err := e.pollEnricherContainerLogs(
+			jsonEnricherRecordTimeout, "json-enricher", since, conditions...,
+		)
+
+		return err
+	})
+}
+
+// testCaseJsonEnricherExecCommand asserts that the JSON enricher records the
+// command line and the request of an exec of a command other than env, which
+// the exec metadata webhook runs through env: its process execs twice.
+func (e *e2e) testCaseJsonEnricherExecCommand([]string) {
+	e.jsonEnricherOnlyTestCase()
+
+	since := e.createJsonEnricherTestPod()
+
+	e.kubectl("exec", "-i", jsonEnricherTestPod, "-c", jsonEnricherTestContainer,
+		"--", "sleep", "5")
+
+	// The process logs two execs: the one of env, with the executable of
+	// the runtime, and the one of sleep, with the one of env. The sleep
+	// itself logs no syscall of the profile. The process is cached by its
+	// PID and start time, which the second exec keeps, so both records get
+	// the command line of env with the sleep if it got read before the
+	// second exec, and the one of sleep otherwise. Either has the request.
+	// The keys of a record are sorted, so its request comes right before
+	// its resource. The sleep runs long enough to get its container.
+	e.waitForJsonEnricherLogs(since, regexp.MustCompile(
+		`"cmdLine":"(env [^"]* )?sleep 5 ?".*"requestUID":"[^"]+","resource":\{"container":"`+
+			regexp.QuoteMeta(jsonEnricherTestContainer)+`","namespace":"`+
+			regexp.QuoteMeta(jsonEnricherTestNamespace)+`"`,
+	))
+}
+
+const (
+	// jsonEnricherTestPod and jsonEnricherTestContainer run the execs of the
+	// JSON enricher test cases, see createJsonEnricherTestPod.
+	jsonEnricherTestPod       = "jsonenricherpod"
+	jsonEnricherTestContainer = "jsonenrichercontainer"
+)
+
+// jsonEnricherExecSyscalls are the syscalls of the execs, which the JSON
+// enricher test cases log.
+var jsonEnricherExecSyscalls = []string{"execve", "clone", "fork", "execveat"}
+
+// createJsonEnricherTestPod creates a profile which logs the syscalls of the
+// execs, and a pod running with it in the JSON enricher test namespace, and
+// waits until the pod takes execs. The exec metadata webhook excludes the
+// operator namespace. The profile gets created before the test switches to
+// that namespace, which the namespaced operator does not watch. The test
+// switches back once it ends. It returns when the pod got created.
+func (e *e2e) createJsonEnricherTestPod() (since time.Time) {
+	const profileName = "jsonenricherprofile"
 
 	e.logf("Creating test profile for JSON Enricher")
 
@@ -168,11 +228,8 @@ spec:
   syscalls:
   - action: SCMP_ACT_LOG
     names:
-    - execve
-    - clone
-    - fork
-    - execveat
-`, profileName)
+    - %s
+`, profileName, strings.Join(jsonEnricherExecSyscalls, "\n    - "))
 
 	e.writeAndCreate(profile, "test-profile-*.yaml")
 	e.kubectlCleanup("sp", profileName)
@@ -180,10 +237,9 @@ spec:
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
 
-	// The exec metadata webhook excludes the operator namespace, so run the
-	// test pod in its own namespace.
 	e.logf("Creating test pod")
-	defer e.switchToJsonEnricherNs()()
+
+	e.cleanup(e.switchToJsonEnricherNs())
 
 	pod := fmt.Sprintf(`
 apiVersion: v1
@@ -199,56 +255,22 @@ spec:
       type: Localhost
       localhostProfile: operator/%s.json
   restartPolicy: Never
-`, podName, containerName, profileName)
+`, jsonEnricherTestPod, jsonEnricherTestContainer, profileName)
 
-	since := time.Now()
+	since = time.Now()
 
 	e.writeAndCreate(pod, "test-pod-*.yaml")
-	e.kubectlCleanup("pod", podName)
+	e.kubectlCleanup("pod", jsonEnricherTestPod)
 
 	e.waitForProfile(profileName)
 
-	e.waitFor("condition=initialized", "pod", podName)
+	e.waitFor("condition=initialized", "pod", jsonEnricherTestPod)
 
-	e.checkExecEnvironment(podName, nil, execEnvironmentTimeout)
+	e.checkExecEnvironment(jsonEnricherTestPod, nil, execEnvironmentTimeout)
 
-	// The debug session adds an ephemeral container, whose environment the
-	// exec metadata webhook patches. Its sleep is not asserted below, the
-	// enricher does not reliably attribute it.
-	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
-		busyboxImage, "--", "sleep", "6")
-
-	// In 5 seconds the process info will be captured.
-	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
-
-	// The debug pod of the node stays behind in the test namespace, which
-	// gets deleted with the test.
-	nodeName := e.kubectl("get", "nodes",
-		"-o", "jsonpath='{.items[0].metadata.name}'")
-	nodeDebuggingPodEnvOutput := e.kubectl("debug", "--profile", "general",
-		"node/"+strings.Trim(nodeName, "'"), "--image", busyboxImage, "-it", "--", "env")
-	e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
-	e.logf("The env output has SPO_EXEC_REQUEST_UID")
-
-	// The polls below cover the flush interval of 20 seconds. Wait for the
-	// exec record itself, since other records may be flushed before it.
-	// Check the matched output, a later fetch by label selector would only
-	// return the last 10 lines and may miss the exec record.
-	output := e.waitForJsonEnricherLogs(since,
-		regexp.MustCompile(`(?m)"requestUID"`),
-		regexp.MustCompile(`sleep 5`))
-	e.logf("Checking JSON enricher output")
-
-	// then match the rest
-	e.Contains(output, "\"auditID\"")
-	e.Contains(output, "\"requestUID\"")
-	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "sleep 5")
-	e.Contains(output, "\"container\"")
-	e.Contains(output, "\"namespace\"")
+	return since
 }
 
-// Checks exec environment for the pod.
 func (e *e2e) checkExecEnvironment(
 	podName string,
 	namespace *string,

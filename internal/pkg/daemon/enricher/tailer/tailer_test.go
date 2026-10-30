@@ -18,6 +18,7 @@ package tailer
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -268,6 +269,59 @@ func TestFollowRotatedFileKeepsOrder(t *testing.T) {
 
 	require.Equal(t, "old", nextLine(t, sut))
 	require.Equal(t, "new", nextLine(t, sut))
+}
+
+// rotate renames the file at path to path.1 after moving the rotated files
+// one suffix up, like auditd does, and creates the file at path again with the
+// content.
+func rotate(t *testing.T, path string, rotated int, content string) {
+	t.Helper()
+
+	for i := rotated; i > 0; i-- {
+		require.NoError(t, os.Rename(
+			fmt.Sprintf("%s.%d", path, i), fmt.Sprintf("%s.%d", path, i+1),
+		))
+	}
+
+	require.NoError(t, os.Rename(path, path+".1"))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+}
+
+func TestFollowReadsFilesRotatedInBetween(t *testing.T) {
+	t.Parallel()
+
+	sut, file := startFollow(t, testConfig())
+	path := file.Name()
+
+	// The tailer reads the first line and waits until it got received,
+	// while the file gets rotated twice.
+	write(t, file, "first\n")
+	rotate(t, path, 0, "second\n")
+	rotate(t, path, 1, "third\n")
+
+	require.Equal(t, "first", nextLine(t, sut))
+	require.Equal(t, "second", nextLine(t, sut))
+	require.Equal(t, "third", nextLine(t, sut))
+	noLine(t, sut)
+}
+
+func TestFollowRemovedRotatedFile(t *testing.T) {
+	t.Parallel()
+
+	sut, file := startFollow(t, testConfig())
+	path := file.Name()
+
+	// The followed file got removed after its rotation, so the files rotated
+	// after it are not known, and the tailer goes on with the current one.
+	write(t, file, "first\n")
+	rotate(t, path, 0, "second\n")
+	require.NoError(t, os.Remove(path+".1"))
+	require.NoError(t, os.WriteFile(path+".1", []byte("unknown\n"), 0o600))
+	rotate(t, path, 1, "current\n")
+
+	require.Equal(t, "first", nextLine(t, sut))
+	require.Equal(t, "current", nextLine(t, sut))
+	noLine(t, sut)
 }
 
 func TestFollowStartsOverOnTruncation(t *testing.T) {

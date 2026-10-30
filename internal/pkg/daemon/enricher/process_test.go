@@ -28,72 +28,94 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
-func Test_extractSPORequestUID(t *testing.T) {
+// TestExecRequestUID asserts that the request of an env command comes from the
+// assignment in its arguments which the exec metadata webhook adds, and the one
+// of any other process from its environment.
+func TestExecRequestUID(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		input string
-	}
+	const (
+		uid      = "dbbf5fca-c955-4922-99d2-27a50212071c"
+		assigned = requestIdEnv + "=" + uid
+		forged   = requestIdEnv + "=forged"
+	)
 
-	tests := []struct {
-		name      string
-		args      args
-		want      string
-		foundWant bool
+	for name, tc := range map[string]struct {
+		args     []string
+		env      string
+		envFound bool
+		want     string
 	}{
-		{
-			name: "Basic test with cmdline having SPO_EXEC_REQUEST_UID",
-			args: args{
-				input: "env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls",
-			},
-			want:      "dbbf5fca-c955-4922-99d2-27a50212071c",
-			foundWant: true,
+		"env command": {
+			args: []string{"env", assigned, "ls"},
+			want: uid,
 		},
-		{
-			name:      "Test with no value",
-			args:      args{input: "ls"},
-			want:      "",
-			foundWant: false,
+		"arguments before the environment": {
+			args: []string{"env", assigned, "ls"}, env: "debug", envFound: true,
+			want: uid,
 		},
-		{
-			name:      "Test with other env values",
-			args:      args{input: "env INVALID=dbbf5fca-c955-4922-99d2-27a50212071c ls"},
-			want:      "",
-			foundWant: false,
+		"prepended env command": {
+			args: []string{"env", assigned, "env", "-S", forged + " ls"},
+			want: uid,
 		},
-		{
-			name:      "Test with process values",
-			args:      args{input: "nginx: master process nginx -g daemon off;"},
-			want:      "",
-			foundWant: false,
+		"env command after a prepended one": {
+			args: []string{"env", "-S", forged + " ls"}, env: uid, envFound: true,
+			want: uid,
 		},
-		{
-			name:      "Test with no data",
-			args:      args{input: ""},
-			want:      "",
-			foundWant: false,
+		"argument with spaces before": {
+			args: []string{"env", "MSG=hello " + forged, assigned, "sh", "-c", "echo $MSG"},
+			want: uid,
 		},
-		{
-			name:      "Test with blank data",
-			args:      args{input: "env SPO_EXEC_REQUEST_UID= ls"},
-			want:      "",
-			foundWant: false,
+		"value of another assignment": {
+			args: []string{"env", "A=" + forged, assigned, "id"},
+			want: uid,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		"argument of an option": {
+			args: []string{"env", "-C", forged, assigned, "id"},
+			want: uid,
+		},
+		"assignment of a longer name": {
+			args: []string{"env", "FOO_" + forged, "id"},
+		},
+		"argument of the command": {
+			args: []string{"env", assigned, "sh", "-c", forged},
+			want: uid,
+		},
+		"env command by path": {
+			args: []string{"/usr/bin/env", assigned, "ls"},
+			want: uid,
+		},
+		"environment": {
+			args: []string{"ls"}, env: uid, envFound: true,
+			want: uid,
+		},
+		"environment of another command": {
+			args: []string{"sh", "-c", "foo", forged}, env: uid, envFound: true,
+			want: uid,
+		},
+		"assignment of another command": {
+			args: []string{"sh", "-c", "foo", forged},
+		},
+		"empty environment": {
+			args: []string{"ls"}, envFound: true,
+		},
+		"empty assignment": {
+			args: []string{"env", requestIdEnv + "=", "ls"}, env: uid, envFound: true,
+			want: uid,
+		},
+		"no request": {
+			args: []string{"nginx: master process nginx -g daemon off;"},
+		},
+		"no arguments": {},
+	} {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got, got1 := extractSPORequestUID(tt.args.input)
-
-			if got != tt.want {
-				t.Errorf("extractSPORequestUID() got = %v, want %v", got, tt.want)
-			}
-
-			if got1 != tt.foundWant {
-				t.Errorf("extractSPORequestUID() got1 = %v, want %v", got1, tt.foundWant)
-			}
+			got, found := execRequestUID(tc.args, func() (string, bool) {
+				return tc.env, tc.envFound
+			})
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.want != "", found)
 		})
 	}
 }
@@ -111,11 +133,15 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	uid := uint32(1000)
 
 	mock.ProcessStartTimeReturns(time.Second, nil)
-	mock.CmdlineForPIDReturns("first "+requestIdEnv+"=first-request", nil)
+	mock.CmdlineForPIDReturns(
+		"env "+requestIdEnv+"=first-request first",
+		[]string{"env", requestIdEnv + "=first-request", "first"},
+		nil,
+	)
 
 	first, err := GetProcessInfo(pid, "/bin/first", &uid, nil, cache, mock, nil)
 	require.NoError(t, err)
-	require.Equal(t, "first "+requestIdEnv+"=first-request", first.CmdLine)
+	require.Equal(t, "env "+requestIdEnv+"=first-request first", first.CmdLine)
 	require.Equal(t, "first-request", *first.ExecRequestId)
 	require.Equal(t, "/bin/first", first.Executable)
 	require.Equal(t, &uid, first.Uid)
@@ -130,7 +156,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 
 	// Another process with the PID.
 	mock.ProcessStartTimeReturns(time.Minute, nil)
-	mock.CmdlineForPIDReturns("second", nil)
+	mock.CmdlineForPIDReturns("second", []string{"second"}, nil)
 
 	second, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock, nil)
 	require.NoError(t, err, "a process without request ID is no failure")
@@ -139,7 +165,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 
 	// Lines read after it exited are its own.
 	mock.ProcessStartTimeReturns(0, os.ErrNotExist)
-	mock.CmdlineForPIDReturns("", os.ErrNotExist)
+	mock.CmdlineForPIDReturns("", nil, os.ErrNotExist)
 
 	gone, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock, nil)
 	require.NoError(t, err)
@@ -174,7 +200,7 @@ func TestGetProcessInfoStartedLater(t *testing.T) {
 	startedLater := func(started time.Duration) bool { return started > time.Minute }
 
 	mock.ProcessStartTimeReturns(time.Second, nil)
-	mock.CmdlineForPIDReturns("first", nil)
+	mock.CmdlineForPIDReturns("first", []string{"first"}, nil)
 
 	first, err := GetProcessInfo(pid, "/bin/first", nil, nil, cache, mock, startedLater)
 	require.NoError(t, err)
@@ -183,7 +209,7 @@ func TestGetProcessInfoStartedLater(t *testing.T) {
 	// The process exited and another one reused the PID after the line got
 	// logged.
 	mock.ProcessStartTimeReturns(time.Hour, nil)
-	mock.CmdlineForPIDReturns("second", nil)
+	mock.CmdlineForPIDReturns("second", []string{"second"}, nil)
 
 	again, err := GetProcessInfo(pid, "/bin/first", nil, nil, cache, mock, startedLater)
 	require.NoError(t, err)
