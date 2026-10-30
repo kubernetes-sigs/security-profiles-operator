@@ -540,3 +540,31 @@ func TestRecordingProfilesPolicyEphemeralContainers(t *testing.T) {
 		t, policy, escalated, oldPod, "ephemeralcontainers", ns,
 	))
 }
+
+func TestIsAdmissionPolicyName(t *testing.T) {
+	t.Parallel()
+
+	// The operator watches the policies and their bindings by name to restore
+	// them, so every object it applies must match, whatever the selector.
+	for _, selector := range []*metav1.LabelSelector{
+		nil,
+		{MatchLabels: map[string]string{EnableRecordingLabel: "true"}},
+	} {
+		objs := GetAdmissionPolicies(selector).objects
+		require.NotEmpty(t, objs)
+
+		for _, obj := range objs {
+			require.True(t, IsAdmissionPolicyName(obj.GetName()),
+				"%T %s", obj, obj.GetName())
+		}
+	}
+
+	for _, name := range []string{
+		"",
+		RecordingProfilesPolicyName + "-binding",
+		"spo-recording",
+		"spo-recording-profiles-",
+	} {
+		require.False(t, IsAdmissionPolicyName(name), name)
+	}
+}
