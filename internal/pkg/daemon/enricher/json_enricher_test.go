@@ -774,24 +774,24 @@ func TestJsonEnricherLockedLogBucketEmitted(t *testing.T) {
 // fakeBpfProcesses is a BPF process cache which counts its lookups. The first
 // missing lookups do not find the process.
 type fakeBpfProcesses struct {
-	cmdLine string
-	args    []string
-	env     map[string]string
-	err     error
-	missing int
-	hits    int
+	cmdLine    string
+	args       []string
+	requestUID string
+	err        error
+	missing    int
+	hits       int
 }
 
-func (f *fakeBpfProcesses) GetCmdLineAndEnv(
+func (f *fakeBpfProcesses) GetCmdLineAndRequestUID(
 	int,
-) (cmdLine string, args []string, env map[string]string, err error) {
+) (cmdLine string, args []string, requestUID string, err error) {
 	f.hits++
 
 	if f.hits <= f.missing {
-		return "", nil, nil, errTest
+		return "", nil, "", errTest
 	}
 
-	return f.cmdLine, f.args, f.env, f.err
+	return f.cmdLine, f.args, f.requestUID, f.err
 }
 
 // TestProcessEbpf asserts that the BPF process cache fills in what the
@@ -811,15 +811,15 @@ func TestProcessEbpf(t *testing.T) {
 	}{
 		"fills in the command line and the request": {
 			cache: &fakeBpfProcesses{
-				cmdLine: cmdLineJsonTest,
-				env:     map[string]string{requestIdEnv: requestUID},
+				cmdLine:    cmdLineJsonTest,
+				requestUID: requestUID,
 			},
 			wantCmdLine:    cmdLineJsonTest,
 			wantRequestUID: new(requestUID),
 			wantLookups:    1,
 		},
 		"keeps what the process file system told": {
-			cache: &fakeBpfProcesses{cmdLine: "other", env: map[string]string{requestIdEnv: "other"}},
+			cache: &fakeBpfProcesses{cmdLine: "other", requestUID: "other"},
 			info: types.ProcessInfo{
 				CmdLine: cmdLineJsonTest, ExecRequestId: new(requestUID),
 			},
@@ -828,8 +828,8 @@ func TestProcessEbpf(t *testing.T) {
 		},
 		"fills in only the request": {
 			cache: &fakeBpfProcesses{
-				cmdLine: "other",
-				env:     map[string]string{requestIdEnv: requestUID},
+				cmdLine:    "other",
+				requestUID: requestUID,
 			},
 			info:           types.ProcessInfo{CmdLine: cmdLineJsonTest},
 			wantCmdLine:    cmdLineJsonTest,
@@ -840,7 +840,6 @@ func TestProcessEbpf(t *testing.T) {
 			cache: &fakeBpfProcesses{
 				cmdLine: "env " + requestIdEnv + "=" + requestUID + " ",
 				args:    []string{"env", requestIdEnv + "=" + requestUID},
-				env:     map[string]string{},
 			},
 			wantCmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",
 			wantRequestUID: new(requestUID),
@@ -848,9 +847,9 @@ func TestProcessEbpf(t *testing.T) {
 		},
 		"prefers the request of the arguments": {
 			cache: &fakeBpfProcesses{
-				cmdLine: "env " + requestIdEnv + "=" + requestUID + " ",
-				args:    []string{"env", requestIdEnv + "=" + requestUID},
-				env:     map[string]string{requestIdEnv: "debug"},
+				cmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",
+				args:       []string{"env", requestIdEnv + "=" + requestUID},
+				requestUID: "debug",
 			},
 			wantCmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",
 			wantRequestUID: new(requestUID),
@@ -858,14 +857,14 @@ func TestProcessEbpf(t *testing.T) {
 		},
 		"empty request of the environment": {
 			cache: &fakeBpfProcesses{
-				cmdLine: cmdLineJsonTest,
-				env:     map[string]string{requestIdEnv: ""},
+				cmdLine:    cmdLineJsonTest,
+				requestUID: "",
 			},
 			wantCmdLine: cmdLineJsonTest,
 			wantLookups: 1,
 		},
 		"process without request": {
-			cache:       &fakeBpfProcesses{env: map[string]string{}},
+			cache:       &fakeBpfProcesses{},
 			wantLookups: 1,
 		},
 		"process not in the cache": {
@@ -876,7 +875,6 @@ func TestProcessEbpf(t *testing.T) {
 			cache: &fakeBpfProcesses{
 				cmdLine: "env " + requestIdEnv + "=" + requestUID + " ",
 				args:    []string{"env", requestIdEnv + "=" + requestUID},
-				env:     map[string]string{},
 				missing: 1,
 			},
 			wantCmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",

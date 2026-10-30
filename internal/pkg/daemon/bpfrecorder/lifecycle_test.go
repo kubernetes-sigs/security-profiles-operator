@@ -20,7 +20,6 @@ package bpfrecorder
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -41,11 +40,11 @@ import (
 )
 
 // allPrograms are the programs of the compiled object.
-var allPrograms = slices.Concat(baseHooks, filterHooks, execHooks, appArmorHooks)
+var allPrograms = slices.Concat(baseHooks, filterHooks, appArmorHooks)
 
 // unusedRecorderPrograms are the programs the recorder does not load without a
 // program name filter.
-var unusedRecorderPrograms = slices.Concat(filterHooks, execHooks)
+var unusedRecorderPrograms = filterHooks
 
 // fakePrograms makes the fake hand out a distinct program per name and returns
 // a function which tells the names of the programs SetAutoload disabled.
@@ -157,7 +156,7 @@ func TestLoadWithProgramNameAttachesFilterHooks(t *testing.T) {
 	disabled := fakePrograms(mock)
 
 	require.NoError(t, sut.Load())
-	require.ElementsMatch(t, slices.Concat(execHooks, appArmorHooks), disabled())
+	require.ElementsMatch(t, appArmorHooks, disabled())
 	require.Equal(t, len(baseHooks)+len(filterHooks), mock.AttachGenericCallCount())
 }
 
@@ -176,9 +175,9 @@ func TestLoadFailsIfProgramCannotBeDisabled(t *testing.T) {
 	require.Zero(t, mock.BPFLoadObjectCallCount())
 }
 
-// TestProcessCacheLoadsOnlyExecHooks asserts that the process cache of the
-// JSON enricher does not need more of the kernel than its exec hooks.
-func TestProcessCacheLoadsOnlyExecHooks(t *testing.T) {
+// TestProcessCacheLoadsOnlyItsHooks asserts that the process cache of the
+// JSON enricher does not need more of the kernel than its hooks.
+func TestProcessCacheLoadsOnlyItsHooks(t *testing.T) {
 	t.Parallel()
 
 	sut := NewBpfProcessCache(logr.Discard())
@@ -635,26 +634,6 @@ func TestProcessedPathsFitIntoMessage(t *testing.T) {
 
 	second, _ := sut.processExecFsEvents([]uint64{0, 1})
 	require.Equal(t, first, second)
-}
-
-// TestExecEventLengthsAreClamped asserts that lengths beyond the arrays of the
-// event do not make the process cache panic.
-func TestExecEventLengthsAreClamped(t *testing.T) {
-	t.Parallel()
-
-	event := getArgsEnvData()
-
-	lenOffset := bpfEventHeaderSize + maxFileNameLen + maxArgs*maxArgLen + maxEnv*maxEnvLen
-	binary.LittleEndian.PutUint32(event[lenOffset:], 1000)
-	binary.LittleEndian.PutUint32(event[lenOffset+4:], 1000)
-
-	sut := NewBpfProcessCache(logr.Discard())
-
-	require.NotPanics(t, func() { sut.handleEvent(event) })
-
-	cmdLine, _, _, err := sut.GetCmdLineAndEnv(1)
-	require.NoError(t, err)
-	require.Equal(t, "arg1 --flag value with spaces last_arg", strings.TrimSpace(cmdLine))
 }
 
 // TestLoadWithoutAppArmorHook asserts that an AppArmor hook which cannot be

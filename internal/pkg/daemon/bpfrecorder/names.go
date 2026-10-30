@@ -18,8 +18,6 @@ limitations under the License.
 
 package bpfrecorder
 
-import "slices"
-
 // Names of the maps and global variables of recorder.bpf.c the recorder uses.
 // Every name has to be listed in bpfMapNames or bpfGlobalNames, a test checks
 // them against the compiled objects.
@@ -44,8 +42,6 @@ const (
 	globalReportExits      = "report_exits"
 	globalInitComms        = "init_comms"
 	globalInitExePrefix    = "init_exe_prefix"
-	progSysEnterExecve     = "sys_enter_execve"
-	progSysEnterExecveat   = "sys_enter_execveat"
 	progSysEnterGetgid     = "sys_enter_getgid"
 	progSysEnter           = "sys_enter"
 	progSchedProcessExec   = "sched_process_exec"
@@ -98,13 +94,6 @@ var (
 		progSchedProcessExec,
 	}
 
-	// execHooks send the arguments of the execs, which only the process cache
-	// needs, see capture_exec_args.
-	execHooks = []string{
-		progSysEnterExecve,
-		progSysEnterExecveat,
-	}
-
 	// appArmorHooks are attached when recording AppArmor profiles.
 	appArmorHooks = []string{
 		progFileOpen,
@@ -127,8 +116,12 @@ var (
 		progCapCapable,
 	}
 
-	// procCacheHooks are attached by the process cache.
-	procCacheHooks = append(slices.Clone(execHooks), progSysEnterGetgid)
+	// procCacheHooks are attached by the process cache, sched_process_exec
+	// sends the arguments of the execs, see capture_exec_args.
+	procCacheHooks = []string{
+		progSchedProcessExec,
+		progSysEnterGetgid,
+	}
 
 	// procCacheUnusedMaps are the maps of the recorder which the hooks of the
 	// process cache do not fill, see BpfProcessCache.Load.

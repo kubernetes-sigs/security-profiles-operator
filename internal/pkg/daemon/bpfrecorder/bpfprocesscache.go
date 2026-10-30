@@ -31,6 +31,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/libbpflog"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -45,66 +46,105 @@ const (
 	// the lines of both.
 	maxProcessCacheItems uint64 = 8 * 1024
 	// These have to match the C data structure in recorder.bpf.c.
-	maxArgs        int = 20
-	maxEnv         int = 50
-	maxFileNameLen int = 128
-	maxArgLen          = 64
-	maxEnvLen          = 64
+	maxExecArgsLen = 4096
+	maxExecEnvLen  = 8192
+	// bpfExecEventDataOffset is where the arguments start, after the header,
+	// the lengths of the arguments and the environment, and the gap of the
+	// latter.
+	bpfExecEventDataOffset = bpfEventHeaderSize + 4 + 4 + 4
 )
 
 type bpfExecEvent struct {
-	Pid      uint32
-	Mntns    uint32
-	Key      uint64
-	Type     uint8
-	Flags    uint64
-	Filename [maxFileNameLen]uint8
-	Args     [maxArgs][maxArgLen]uint8
-	Env      [maxEnv][maxEnvLen]uint8
-	ArgsLen  uint32
-	EnvLen   uint32
+	Pid   uint32
+	Mntns uint32
+	Key   uint64
+	Type  uint8
+	Flags uint64
+	// Args and Env are NUL separated strings, like /proc/<pid>/cmdline.
+	Args []byte
+	Env  []byte
+	// EnvGap is the offset in Env where the middle of a long environment got
+	// left out, 0 if it is complete.
+	EnvGap int
 }
 
-// bpfExecEventSize is the packed wire size of bpfExecEvent.
-const bpfExecEventSize = bpfEventHeaderSize +
-	maxFileNameLen +
-	maxArgs*maxArgLen +
-	maxEnv*maxEnvLen +
-	4 + 4
-
-// unmarshal decodes a bpfExecEvent from the raw ring buffer bytes, avoiding the
-// reflection cost of binary.Read over the embedded fixed-size arrays.
+// unmarshal decodes a bpfExecEvent from the raw ring buffer bytes. The BPF
+// program only sends as much of the event as the arguments and the
+// environment need, Args and Env point into raw.
 func (e *bpfExecEvent) unmarshal(raw []byte) bool {
-	if len(raw) < bpfExecEventSize {
+	if len(raw) < bpfExecEventDataOffset {
 		return false
 	}
 
 	e.Pid, e.Mntns, e.Key, e.Type, e.Flags = unmarshalHeader(raw)
 
-	off := bpfEventHeaderSize
-	off += copy(e.Filename[:], raw[off:off+maxFileNameLen])
+	argsLen := int(binary.LittleEndian.Uint32(raw[bpfEventHeaderSize:]))
+	envLen := int(binary.LittleEndian.Uint32(raw[bpfEventHeaderSize+4:]))
+	e.EnvGap = int(binary.LittleEndian.Uint32(raw[bpfEventHeaderSize+8:]))
 
-	for i := range maxArgs {
-		off += copy(e.Args[i][:], raw[off:off+maxArgLen])
+	if argsLen > maxExecArgsLen || envLen > maxExecEnvLen || e.EnvGap > envLen ||
+		len(raw) < bpfExecEventDataOffset+argsLen+envLen {
+		return false
 	}
 
-	for i := range maxEnv {
-		off += copy(e.Env[i][:], raw[off:off+maxEnvLen])
-	}
-
-	e.ArgsLen = binary.LittleEndian.Uint32(raw[off : off+4])
-	off += 4
-	e.EnvLen = binary.LittleEndian.Uint32(raw[off : off+4])
+	data := raw[bpfExecEventDataOffset:]
+	e.Args = data[:argsLen]
+	e.Env = data[argsLen : argsLen+envLen]
 
 	return true
 }
 
+// execArgs returns the NUL separated arguments of buf. A last argument without
+// terminator got truncated by the BPF program, it still tells what got
+// executed.
+func execArgs(buf []byte) []string {
+	if len(buf) == 0 {
+		return nil
+	}
+
+	return strings.Split(string(bytes.TrimSuffix(buf, []byte{0})), "\x00")
+}
+
+// execRequestUID returns the non-empty request UID in the NUL separated
+// environment env, like enricher.ExecRequestIDForPID does for the process file
+// system. A variable the BPF program cut is left out, its value would be
+// wrong. Of a long environment, the BPF program sends the byte before its end
+// at gap, so the first variable after gap is complete if that is a NUL.
+func execRequestUID(env []byte, gap int) string {
+	parts := [][]byte{env}
+
+	if gap > 0 {
+		_, tail, _ := bytes.Cut(env[gap:], []byte{0})
+		parts = [][]byte{env[:gap], tail}
+	}
+
+	prefix := []byte(config.ExecRequestUIDEnvKey + "=")
+
+	for _, part := range parts {
+		for {
+			entry, rest, terminated := bytes.Cut(part, []byte{0})
+			if !terminated {
+				break
+			}
+
+			if value, ok := bytes.CutPrefix(entry, prefix); ok && len(value) > 0 {
+				return string(value)
+			}
+
+			part = rest
+		}
+	}
+
+	return ""
+}
+
 type BpfProcessInfo struct {
-	Pid int
-	// CmdLine has the arguments of Args, each followed by a space.
-	CmdLine string
-	Args    []string
-	Env     map[string]string
+	Pid  int
+	Args []string
+	// RequestUID is the request UID of the environment, see
+	// config.ExecRequestUIDEnvKey. The rest of the environment is not kept,
+	// it can carry credentials.
+	RequestUID string
 	// StartedAt is when the process started, since boot. It is zero if the
 	// BPF program could not tell.
 	StartedAt time.Duration
@@ -262,32 +302,39 @@ func (b *BpfProcessCache) Close() {
 	b.cache.Stop()
 }
 
-// GetCmdLineAndEnv returns the command line, the arguments and the environment
-// of the last exec of the process with the PID. They come from a single lookup, which
-// reads the start time of the process once. The exec of a process which
-// exited is still returned, as the audit lines are read with a delay, unless
-// another process runs with the PID by now: a process which only forked does
-// not exec, it must not get the arguments and the environment of the
-// previous process with its PID.
-func (b *BpfProcessCache) GetCmdLineAndEnv(
+// GetCmdLineAndRequestUID returns the command line, the arguments and the
+// request UID of the environment of the last exec of the process with the PID.
+// They come from a single lookup, which reads the start time of the process
+// once. The exec of a process which exited is still returned, as the audit
+// lines are read with a delay, unless another process runs with the PID by
+// now: a process which only forked does not exec, it must not get the
+// arguments and the request of the previous process with its PID. The command
+// line has every argument followed by a space, the request UID is empty if the
+// environment has none.
+func (b *BpfProcessCache) GetCmdLineAndRequestUID(
 	pid int,
-) (cmdLine string, args []string, env map[string]string, err error) {
+) (cmdLine string, args []string, requestUID string, err error) {
 	item := b.cache.Get(pid)
 	if item == nil {
-		return "", nil, nil, errors.New("no process info for Pid")
+		return "", nil, "", errors.New("no process info for Pid")
 	}
 
 	info := item.Value()
-	if info.StartedAt <= 0 {
-		return info.CmdLine, info.Args, info.Env, nil
+	if info.StartedAt > 0 {
+		started, err := b.startTime(pid)
+		if err == nil && started != info.StartedAt.Truncate(util.ProcessStartTimeTick) {
+			return "", nil, "", fmt.Errorf("%w: pid %d", errProcessReplaced, pid)
+		}
 	}
 
-	started, err := b.startTime(pid)
-	if err == nil && started != info.StartedAt.Truncate(util.ProcessStartTimeTick) {
-		return "", nil, nil, fmt.Errorf("%w: pid %d", errProcessReplaced, pid)
+	var cmdLineBuilder strings.Builder
+
+	for _, arg := range info.Args {
+		cmdLineBuilder.WriteString(arg)
+		cmdLineBuilder.WriteByte(' ')
 	}
 
-	return info.CmdLine, info.Args, info.Env, nil
+	return cmdLineBuilder.String(), info.Args, info.RequestUID, nil
 }
 
 func (b *BpfProcessCache) processEvents(events chan []byte) {
@@ -300,9 +347,9 @@ func (b *BpfProcessCache) processEvents(events chan []byte) {
 }
 
 func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
-	// The process cache only attaches the exec hooks, which only report
-	// execs. Other events of the object must not be read as exec events.
-	if len(eventBytes) >= bpfEventHeaderSize && eventBytes[16] != eventTypeExecveEnter {
+	// The hooks of the process cache only report execs. Other events of the
+	// object must not be read as exec events.
+	if len(eventBytes) >= bpfEventHeaderSize && eventBytes[16] != eventTypeExec {
 		return
 	}
 
@@ -311,45 +358,16 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 	if !execEvent.unmarshal(eventBytes) {
 		b.logger.Error(
 			errShortEvent, "Couldn't read event structure",
-			"got", len(eventBytes), "want", bpfExecEventSize,
+			"got", len(eventBytes),
 		)
 
 		return
 	}
 
-	// The lengths come from the kernel, but must not make the slices below
-	// panic whatever they say.
-	argsLen := min(int(execEvent.ArgsLen), maxArgs)
-	envLen := min(int(execEvent.EnvLen), maxEnv)
-
-	args := make([]string, 0, argsLen)
-
-	var cmdLineBuilder strings.Builder
-
-	for i := range argsLen {
-		arg := cString(execEvent.Args[i][:])
-		args = append(args, arg)
-
-		cmdLineBuilder.WriteString(arg)
-		cmdLineBuilder.WriteByte(' ')
-	}
-
-	cmdLine := cmdLineBuilder.String()
-
-	envMap := make(map[string]string)
-
-	for i := range envLen {
-		key, value, ok := strings.Cut(cString(execEvent.Env[i][:]), "=")
-		if ok {
-			envMap[strings.Trim(key, "\"")] = strings.Trim(value, "\"")
-		}
-	}
-
 	pInfo := &BpfProcessInfo{
-		Pid:     int(execEvent.Pid),
-		CmdLine: cmdLine,
-		Args:    args,
-		Env:     envMap,
+		Pid:        int(execEvent.Pid),
+		Args:       execArgs(execEvent.Args),
+		RequestUID: execRequestUID(execEvent.Env, execEvent.EnvGap),
 		// The flags carry when the process started, see submit_exec_event. A
 		// value beyond a duration turns negative, which counts as unknown.
 		//nolint:gosec // the overflow is intended, see above
@@ -358,18 +376,7 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 
 	b.cache.Set(int(execEvent.Pid), pInfo, ttlcache.DefaultTTL)
 
-	// The arguments and the environment are not logged, they are those of
-	// every exec on the node and can carry credentials.
+	// The arguments are not logged, they are those of every exec on the node
+	// and can carry credentials.
 	b.logger.V(2).Info("Exec processed", "pid", execEvent.Pid)
-}
-
-// cString returns the NUL terminated string at the start of buf. The ring
-// buffer is not zeroed, so the bytes after the terminator can be left over
-// from an earlier event.
-func cString(buf []byte) string {
-	if i := bytes.IndexByte(buf, 0); i >= 0 {
-		buf = buf[:i]
-	}
-
-	return string(buf)
 }

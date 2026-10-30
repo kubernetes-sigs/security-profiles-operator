@@ -41,8 +41,8 @@ func (b *BpfProcessCache) Load() error {
 // Close unloads the BPF module and stops the cache.
 func (b *BpfProcessCache) Close() {}
 
-func (b *BpfProcessCache) GetCmdLineAndEnv(
+func (b *BpfProcessCache) GetCmdLineAndRequestUID(
 	pid int,
-) (cmdLine string, args []string, env map[string]string, err error) {
-	return "", nil, nil, errors.New("no process info for Pid")
+) (cmdLine string, args []string, requestUID string, err error) {
+	return "", nil, "", errors.New("no process info for Pid")
 }

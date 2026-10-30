@@ -130,28 +130,53 @@ func TestFileDataToString(t *testing.T) {
 	}
 }
 
-func TestBpfExecEventUnmarshalMatchesBinaryRead(t *testing.T) {
+func TestBpfExecEventUnmarshal(t *testing.T) {
 	t.Parallel()
 
-	raw := randomBytes(t, bpfExecEventSize)
+	raw := newExecEvent("sh\x00-c\x00", "A=b\x00")
+	copy(raw, randomBytes(t, bpfEventHeaderSize))
 
-	var want bpfExecEvent
+	var header bpfEventHeader
 
-	require.NoError(t, binary.Read(bytes.NewReader(raw), binary.LittleEndian, &want))
+	require.NoError(t, binary.Read(bytes.NewReader(raw), binary.LittleEndian, &header))
 
 	var got bpfExecEvent
 
 	require.True(t, got.unmarshal(raw))
-	require.Equal(t, want, got)
+	require.Equal(t, bpfExecEvent{
+		Pid:   header.Pid,
+		Mntns: header.Mntns,
+		Key:   header.Key,
+		Type:  header.Type,
+		Flags: header.Flags,
+		Args:  []byte("sh\x00-c\x00"),
+		Env:   []byte("A=b\x00"),
+	}, got)
 }
 
-func TestBpfExecEventUnmarshalRejectsShortInput(t *testing.T) {
+func TestBpfExecEventUnmarshalRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
+
+	for name, raw := range map[string][]byte{
+		"short header":     newExecEvent("", "")[:bpfExecEventDataOffset-1],
+		"short data":       newExecEvent("sh\x00", "A=b\x00")[:bpfExecEventDataOffset+6],
+		"args beyond max":  newExecEvent(string(make([]byte, maxExecArgsLen+1)), ""),
+		"env beyond max":   newExecEvent("", string(make([]byte, maxExecEnvLen+1))),
+		"lengths overflow": setExecLens(newExecEvent("", ""), 1<<31, 1<<31),
+		"gap beyond env":   setExecGap(newExecEvent("", "A=b\x00"), 5),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var event bpfExecEvent
+
+			require.False(t, event.unmarshal(raw))
+		})
+	}
 
 	var event bpfExecEvent
 
-	require.False(t, event.unmarshal(randomBytes(t, bpfExecEventSize-1)))
-	require.True(t, event.unmarshal(randomBytes(t, bpfExecEventSize)))
+	require.True(t, event.unmarshal(newExecEvent("", "")))
 }
 
 func BenchmarkBpfEventDecode(b *testing.B) {
