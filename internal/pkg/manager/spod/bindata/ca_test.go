@@ -139,3 +139,31 @@ func TestGetCertManagerResources_PreservesOtherProperties(t *testing.T) {
 	require.Equal(t, issuer.Spec, resources.issuer.Spec)
 	require.Equal(t, issuer.Labels, resources.issuer.Labels)
 }
+
+func TestIsCertManagerResourceName(t *testing.T) {
+	t.Parallel()
+
+	// The operator watches the cert-manager resources by name to restore them,
+	// so every resource it creates must match.
+	count := 0
+
+	for name, obj := range GetCertManagerResources("test-namespace").objects() {
+		require.True(t, IsCertManagerResourceName(obj.GetName()), name)
+
+		count++
+	}
+
+	require.Equal(t, 3, count)
+
+	// Names close to the ones of the resources, like the ones of the secrets
+	// of the certificates, must not match.
+	for _, name := range []string{
+		"",
+		metricsServerCert,
+		webhookServerCert,
+		"metrics-cert-",
+		"selfsigned",
+	} {
+		require.False(t, IsCertManagerResourceName(name), name)
+	}
+}
