@@ -166,9 +166,12 @@ helm install security-profiles-operator --namespace security-profiles-operator \
   https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
 
-The chart renders the SPOD from its values, so a `helm upgrade` can revert the
-SPOD fields which got patched with `kubectl` since, for example when the chart
-changes their value. Set them through the values instead.
+The chart renders the SPOD from its values, and sets `DISABLE_DEFAULT_SPOD`
+of the [operator](reference/security-profiles-operator.md) so that the
+operator does not create its default one: a deleted SPOD only comes back with
+a `helm upgrade`, not with a restart of the operator. A `helm upgrade` can
+revert the SPOD fields which got patched with `kubectl` since, for example
+when the chart changes their value. Set them through the values instead.
 
 ### CRDs of the chart
 

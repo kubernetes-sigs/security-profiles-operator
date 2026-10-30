@@ -58,6 +58,10 @@ spec:
               fieldPath: spec.nodeName
         - name: KUBELET_DIR
           value: {{ .Values.kubeletDir | default "/var/lib/kubelet" | quote }}
+        # The chart ships the SPOD, see config.yaml. The operator creating its
+        # default one first would fail the installation.
+        - name: DISABLE_DEFAULT_SPOD
+          value: "true"
         {{- if .Values.restrictToNamespace }}
         - name: RESTRICT_TO_NAMESPACE
           value: {{ .Values.restrictToNamespace | quote }}

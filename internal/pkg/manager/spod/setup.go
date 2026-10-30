@@ -116,13 +116,17 @@ func (r *ReconcileSPOd) Setup(
 	r.baseSPOd = getEffectiveSPOd(dt)
 
 	// The default SPOD gets created by the elected leader only, so that the
-	// replicas do not race for it before the manager runs.
-	if err := mgr.Add(&defaultSPODCreator{
-		client:        r.client,
-		namespace:     r.namespace,
-		staticWebhook: isStaticWebhook(ctx),
-	}); err != nil {
-		return fmt.Errorf("add default SPOD creator: %w", err)
+	// replicas do not race for it before the manager runs. A deployment which
+	// ships its own SPOD would race the operator for it otherwise, Helm fails
+	// an install if the operator created it first.
+	if !config.EnvEnabled(config.DisableDefaultSPODEnvKey) {
+		if err := mgr.Add(&defaultSPODCreator{
+			client:        r.client,
+			namespace:     r.namespace,
+			staticWebhook: isStaticWebhook(ctx),
+		}); err != nil {
+			return fmt.Errorf("add default SPOD creator: %w", err)
+		}
 	}
 
 	inNamespace := func(obj client.Object) bool { return isInNamespace(obj, r.namespace) }

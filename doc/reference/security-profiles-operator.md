@@ -168,6 +168,7 @@ The following variables are read at runtime.
 | `OPERATOR_NAMESPACE` | namespace of the operator |
 | `RESTRICT_TO_NAMESPACE` | restricts manager and daemon to the comma separated namespaces, the namespace of the operator is always included |
 | `WATCH_NAMESPACE` | used like `RESTRICT_TO_NAMESPACE` if that is not set |
+| `DISABLE_DEFAULT_SPOD` | set to `true` by deployments which ship the `spod` `SecurityProfilesOperatorDaemon` themselves, like the Helm chart, so that the manager does not create the default one |
 | `KUBELET_DIR` | kubelet root directory, used when the kubelet configuration written by the non-root-enabler has none, defaults to `/var/lib/kubelet` |
 | `ENABLE_LOG_ENRICHER, ENABLE_JSON_ENRICHER, ENABLE_BPF_RECORDER` | enable the respective daemon container in addition to the `SecurityProfilesOperatorDaemon` configuration, the manager passes `ENABLE_LOG_ENRICHER` and `ENABLE_BPF_RECORDER` on to the daemon |
 | `ENABLE_INSECURE_METRICS_ACCESS` | read by the manager as well: allows unauthenticated access to the metrics endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration |

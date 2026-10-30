@@ -188,6 +188,12 @@ var runtimeEnvVars = []clidocs.EnvVar{
 		Description: "used like `" + config.RestrictNamespaceEnvKey + "` if that is not set",
 	},
 	{
+		Name: config.DisableDefaultSPODEnvKey,
+		Description: "set to `true` by deployments which ship the `" + config.SPOdName +
+			"` `SecurityProfilesOperatorDaemon` themselves, like the Helm chart, " +
+			"so that the manager does not create the default one",
+	},
+	{
 		Name: config.KubeletDirEnvKey,
 		Description: "kubelet root directory, used when the kubelet configuration written by the " +
 			"non-root-enabler has none, defaults to `" + config.DefaultKubeletPath + "`",
