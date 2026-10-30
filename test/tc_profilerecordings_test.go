@@ -58,11 +58,11 @@ func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Reg
 	return logs
 }
 
-// waitForJsonEnricherFileLogs waits until the log files of the JSON enricher
-// on all nodes match the conditions, and returns their content. The log file
-// is only mounted into the JSON enricher, so each spod pod gets a debug
-// container with the same mount, which the polls exec into.
-func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*regexp.Regexp) string {
+// jsonEnricherFileLogsReader returns a function which reads the log files of
+// the JSON enricher on all nodes. The log file is only mounted into the JSON
+// enricher, so each spod pod gets a debug container with the same mount, which
+// the reads exec into.
+func (e *e2e) jsonEnricherFileLogsReader(logFilePath string) func() (string, error) {
 	type volumeMount struct {
 		MountPath string `json:"mountPath"`
 		Name      string `json:"name"`
@@ -96,30 +96,21 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 			"--container="+debugContainerName, "--", "sleep", "3600")
 	}
 
-	var logs string
-
-	// This covers the flush interval of the JSON enricher.
-	e.eventually(time.Minute, 10*time.Second, func() error {
-		e.logf("Waiting for JSON enricher to record syscalls")
-
+	return func() (string, error) {
 		var logsBuilder strings.Builder
 
 		for _, podName := range podNames {
 			podLogs, err := e.kubectlCommand("-n", config.OperatorName, "exec", podName,
 				"-c", debugContainerName, "--", "cat", logFilePath)
 			if err != nil {
-				return fmt.Errorf("reading the JSON enricher logs of pod %s: %w", podName, err)
+				return "", fmt.Errorf("reading the JSON enricher logs of pod %s: %w", podName, err)
 			}
 
 			logsBuilder.WriteString(podLogs)
 		}
 
-		logs = logsBuilder.String()
-
-		return unmatchedLogs(logs, conditions)
-	})
-
-	return logs
+		return logsBuilder.String(), nil
+	}
 }
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {

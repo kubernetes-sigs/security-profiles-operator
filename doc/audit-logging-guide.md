@@ -217,11 +217,12 @@ which in most cases is root, and do not tell who started the session.
 The JSON enricher therefore relies on two mutating webhooks,
 `execmetadata.spo.io` and `nodedebuggingpod.spo.io`, which the operator
 deploys together with it. They set the UID of the request which started the
-session in the `SPO_EXEC_REQUEST_UID` environment variable of the session. The
-enricher reads it from the environment of the audited processes and writes it
-as `requestUID`. If the environment of a process lacks it, the enricher takes
-it from a command line like `env SPO_EXEC_REQUEST_UID=<uid> ls`, which is how
-the webhook starts exec sessions. The webhooks also add it as an audit annotation of the
+session in the `SPO_EXEC_REQUEST_UID` environment variable of the session.
+The webhook starts an exec session through an env command like
+`env SPO_EXEC_REQUEST_UID=<uid> ls`, so the enricher takes the request UID of
+an env command from the assignment which the webhook added to its arguments,
+and the one of any other process from its environment, and writes it as
+`requestUID`. The webhooks also add it as an audit annotation of the
 request, which the API server writes to its audit log, if enabled, as
 `execmetadata.spo.io/SPO_EXEC_REQUEST_UID` or
 `nodedebuggingpod.spo.io/SPO_EXEC_REQUEST_UID`. The `requestUID` thereby links

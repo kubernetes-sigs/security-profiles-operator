@@ -1282,6 +1282,8 @@ func (e *e2e) logEnricherOnlyTestCaseWithFilters(enricherFilterJsonStr string) {
 	e.enableLogEnricherInSpodWithFilters(enricherFilterJsonStr)
 }
 
+// jsonEnricherOnlyTestCase enables the JSON enricher, see
+// enableJsonEnricherInSpod.
 func (e *e2e) jsonEnricherOnlyTestCase() {
 	if !e.jsonEnricherEnabled {
 		e.T().Skip("Skipping json-enricher related test")
@@ -1370,15 +1372,19 @@ func (e *e2e) waitForSpodPodsRunning(message string) {
 	}
 }
 
-// enableJsonEnricherInSpod enables the JSON enricher and restores the previous
-// SPOD spec once the current test ends, so that its exec webhook does not
-// keep mutating the execs of the following test cases.
+// enableJsonEnricherInSpod enables the JSON enricher, with the SPOD at debug
+// verbosity, so that the logs of the JSON enricher tell which lookup missed a
+// process when a record lacks its details, and restores the previous SPOD spec
+// once the current test ends, so that its exec webhook does not keep mutating
+// the execs of the following test cases.
 func (e *e2e) enableJsonEnricherInSpod() {
 	e.restoreSpodSpec()
 
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
-	e.patchSpod(`{"spec":{"enricher":{"enableLogEnricher": false, "enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`)
+
+	e.patchSpod(fmt.Sprintf(`{"spec":{"verbosity": %d, "enricher":{"enableLogEnricher": false,
+		"enableJsonEnricher": true, "jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`,
+		config.VerboseLevel))
 
 	if !e.checkExecWebhook(podStartTimeout) {
 		e.Fail("Webhooks are not ready")
@@ -1452,10 +1458,15 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	e.restartOperator()
 
+	// At debug verbosity like enableJsonEnricherInSpod.
 	e.patchSpod(
-		fmt.Sprintf(`{"spec":{"enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,
+		fmt.Sprintf(
+			`{"spec":{"verbosity": %d, "enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,
 		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}}`,
-			logPath, enricherFilterJsonStr),
+			config.VerboseLevel,
+			logPath,
+			enricherFilterJsonStr,
+		),
 	)
 
 	e.logf("Patched the SPOD")

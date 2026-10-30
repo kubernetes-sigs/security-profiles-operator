@@ -125,6 +125,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 		name        string
 		args        args
 		wantCmdLine string
+		wantArgs    []string
 		wantEnv     map[string]string
 		wantErr     bool
 	}{
@@ -144,6 +145,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 				eventBytes: getArgsEnvData(),
 			},
 			wantCmdLine: "arg1 --flag value with spaces last_arg",
+			wantArgs:    []string{"arg1", "--flag", "value with spaces", "last_arg"},
 			wantEnv: map[string]string{
 				"HOME":                 "/root",
 				"SPO_EXEC_REQUEST_UID": "dde426d5-123e-4296-b9ff-afd6eee83ee9",
@@ -176,7 +178,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 				b.handleEvent(tt.args.eventBytes)
 			}
 
-			gotCmdLine, gotEnv, err := b.GetCmdLineAndEnv(tt.args.pid)
+			gotCmdLine, gotArgs, gotEnv, err := b.GetCmdLineAndEnv(tt.args.pid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetCmdLineAndEnv() error = %v, wantErr %v", err, tt.wantErr)
 
@@ -185,6 +187,10 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 
 			if strings.TrimSpace(gotCmdLine) != strings.TrimSpace(tt.wantCmdLine) {
 				t.Errorf("GetCmdLineAndEnv() gotCmdLine = %v, want %v", gotCmdLine, tt.wantCmdLine)
+			}
+
+			if len(tt.wantArgs) > 0 && !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Errorf("GetCmdLineAndEnv() gotArgs = %q, want %q", gotArgs, tt.wantArgs)
 			}
 
 			if len(gotEnv) != len(tt.wantEnv) {
@@ -219,8 +225,10 @@ func TestBpfProcessCacheIgnoresOtherEvents(t *testing.T) {
 
 	b.handleEvent(event)
 
-	_, _, err := b.GetCmdLineAndEnv(1)
+	cmdLine, _, env, err := b.GetCmdLineAndEnv(1)
 	require.Error(t, err)
+	require.Empty(t, cmdLine)
+	require.Nil(t, env)
 }
 
 // TestBpfProcessCacheChecksStartTime asserts that the exec of a process is not
@@ -266,9 +274,9 @@ func TestBpfProcessCacheChecksStartTime(t *testing.T) {
 				return tc.running, tc.runErr
 			}
 
-			cmdLine, env, err := b.GetCmdLineAndEnv(1)
+			cmdLine, args, env, err := b.GetCmdLineAndEnv(1)
 
-			// The process gets checked once for both.
+			// The process gets checked once for all of them.
 			if tc.startedAt > 0 {
 				require.Equal(t, 1, startTimeReads)
 			}
@@ -281,6 +289,7 @@ func TestBpfProcessCacheChecksStartTime(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, "sh ", cmdLine)
+			require.Equal(t, []string{"sh"}, args)
 			require.Equal(t, map[string]string{"K": "v"}, env)
 		})
 	}
@@ -404,7 +413,7 @@ func TestBpfProcessCacheHandleEvent(t *testing.T) {
 			b := NewBpfProcessCache(logr.Discard())
 			b.handleEvent(tc.event())
 
-			cmdLine, env, err := b.GetCmdLineAndEnv(1)
+			cmdLine, args, env, err := b.GetCmdLineAndEnv(1)
 			if !tc.wantCached {
 				require.Error(t, err)
 
@@ -413,6 +422,7 @@ func TestBpfProcessCacheHandleEvent(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tc.wantCmdLine, cmdLine)
+			require.Equal(t, strings.Fields(tc.wantCmdLine), args)
 			require.Equal(t, tc.wantEnv, env)
 		})
 	}

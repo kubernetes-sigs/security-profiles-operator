@@ -43,6 +43,6 @@ func (b *BpfProcessCache) Close() {}
 
 func (b *BpfProcessCache) GetCmdLineAndEnv(
 	pid int,
-) (cmdLine string, env map[string]string, err error) {
-	return "", nil, errors.New("no process info for Pid")
+) (cmdLine string, args []string, env map[string]string, err error) {
+	return "", nil, nil, errors.New("no process info for Pid")
 }

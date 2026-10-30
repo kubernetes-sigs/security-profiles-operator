@@ -71,9 +71,10 @@ var testCaseCosts = map[string]testCaseCost{
 		defaultTestCaseDuration,
 		needsBpfLogEnricher,
 	},
-	"JSON Enricher":              {58 * time.Second, needsJSONEnricher},
-	"Log Enricher with filters":  {67 * time.Second, needsLogEnricher},
-	"JSON Enricher File Options": {115 * time.Second, needsJSONEnricher},
+	"JSON Enricher":                    {60 * time.Second, needsJSONEnricher},
+	"JSON Enricher: exec of a command": {45 * time.Second, needsJSONEnricher},
+	"Log Enricher with filters":        {67 * time.Second, needsLogEnricher},
+	"JSON Enricher File Options":       {122 * time.Second, needsJSONEnricher},
 	"SELinux: base case (install policy, run pod and delete)": {
 		143 * time.Second, needsSelinux,
 	},

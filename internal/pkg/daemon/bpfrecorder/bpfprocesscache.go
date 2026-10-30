@@ -100,8 +100,10 @@ func (e *bpfExecEvent) unmarshal(raw []byte) bool {
 }
 
 type BpfProcessInfo struct {
-	Pid     int
+	Pid int
+	// CmdLine has the arguments of Args, each followed by a space.
 	CmdLine string
+	Args    []string
 	Env     map[string]string
 	// StartedAt is when the process started, since boot. It is zero if the
 	// BPF program could not tell.
@@ -260,8 +262,8 @@ func (b *BpfProcessCache) Close() {
 	b.cache.Stop()
 }
 
-// GetCmdLineAndEnv returns the command line and the environment of the last
-// exec of the process with the PID. Both come from a single lookup, which
+// GetCmdLineAndEnv returns the command line, the arguments and the environment
+// of the last exec of the process with the PID. They come from a single lookup, which
 // reads the start time of the process once. The exec of a process which
 // exited is still returned, as the audit lines are read with a delay, unless
 // another process runs with the PID by now: a process which only forked does
@@ -269,23 +271,23 @@ func (b *BpfProcessCache) Close() {
 // previous process with its PID.
 func (b *BpfProcessCache) GetCmdLineAndEnv(
 	pid int,
-) (cmdLine string, env map[string]string, err error) {
+) (cmdLine string, args []string, env map[string]string, err error) {
 	item := b.cache.Get(pid)
 	if item == nil {
-		return "", nil, errors.New("no process info for Pid")
+		return "", nil, nil, errors.New("no process info for Pid")
 	}
 
 	info := item.Value()
 	if info.StartedAt <= 0 {
-		return info.CmdLine, info.Env, nil
+		return info.CmdLine, info.Args, info.Env, nil
 	}
 
 	started, err := b.startTime(pid)
 	if err == nil && started != info.StartedAt.Truncate(util.ProcessStartTimeTick) {
-		return "", nil, fmt.Errorf("%w: pid %d", errProcessReplaced, pid)
+		return "", nil, nil, fmt.Errorf("%w: pid %d", errProcessReplaced, pid)
 	}
 
-	return info.CmdLine, info.Env, nil
+	return info.CmdLine, info.Args, info.Env, nil
 }
 
 func (b *BpfProcessCache) processEvents(events chan []byte) {
@@ -320,9 +322,15 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 	argsLen := min(int(execEvent.ArgsLen), maxArgs)
 	envLen := min(int(execEvent.EnvLen), maxEnv)
 
+	args := make([]string, 0, argsLen)
+
 	var cmdLineBuilder strings.Builder
+
 	for i := range argsLen {
-		cmdLineBuilder.WriteString(cString(execEvent.Args[i][:]))
+		arg := cString(execEvent.Args[i][:])
+		args = append(args, arg)
+
+		cmdLineBuilder.WriteString(arg)
 		cmdLineBuilder.WriteByte(' ')
 	}
 
@@ -340,6 +348,7 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 	pInfo := &BpfProcessInfo{
 		Pid:     int(execEvent.Pid),
 		CmdLine: cmdLine,
+		Args:    args,
 		Env:     envMap,
 		// The flags carry when the process started, see submit_exec_event. A
 		// value beyond a duration turns negative, which counts as unknown.

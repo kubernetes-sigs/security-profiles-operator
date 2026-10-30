@@ -66,16 +66,18 @@ type FakeImpl struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
-	CmdlineForPIDStub        func(int) (string, error)
+	CmdlineForPIDStub        func(int) (string, []string, error)
 	cmdlineForPIDMutex       sync.RWMutex
 	cmdlineForPIDArgsForCall []FakeImplCmdlineForPIDArgs
 	cmdlineForPIDReturns     struct {
 		result1 string
-		result2 error
+		result2 []string
+		result3 error
 	}
 	cmdlineForPIDReturnsOnCall map[int]struct {
 		result1 string
-		result2 error
+		result2 []string
+		result3 error
 	}
 	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, time.Duration, error)
 	containerIDForPIDMutex       sync.RWMutex
@@ -596,7 +598,7 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) CmdlineForPID(arg1 int) (string, error) {
+func (fake *FakeImpl) CmdlineForPID(arg1 int) (string, []string, error) {
 	fake.cmdlineForPIDMutex.Lock()
 	ret, specificReturn := fake.cmdlineForPIDReturnsOnCall[len(fake.cmdlineForPIDArgsForCall)]
 	fake.cmdlineForPIDArgsForCall = append(fake.cmdlineForPIDArgsForCall, FakeImplCmdlineForPIDArgs{arg1})
@@ -608,9 +610,9 @@ func (fake *FakeImpl) CmdlineForPID(arg1 int) (string, error) {
 		return stub(arg1)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
 func (fake *FakeImpl) CmdlineForPIDCallCount() int {
@@ -619,7 +621,7 @@ func (fake *FakeImpl) CmdlineForPIDCallCount() int {
 	return len(fake.cmdlineForPIDArgsForCall)
 }
 
-func (fake *FakeImpl) CmdlineForPIDCalls(stub func(int) (string, error)) {
+func (fake *FakeImpl) CmdlineForPIDCalls(stub func(int) (string, []string, error)) {
 	fake.cmdlineForPIDMutex.Lock()
 	defer fake.cmdlineForPIDMutex.Unlock()
 	fake.CmdlineForPIDStub = stub
@@ -640,30 +642,33 @@ func (fake *FakeImpl) CmdlineForPIDArgs() []FakeImplCmdlineForPIDArgs {
 	return args
 }
 
-func (fake *FakeImpl) CmdlineForPIDReturns(result1 string, result2 error) {
+func (fake *FakeImpl) CmdlineForPIDReturns(result1 string, result2 []string, result3 error) {
 	fake.cmdlineForPIDMutex.Lock()
 	defer fake.cmdlineForPIDMutex.Unlock()
 	fake.CmdlineForPIDStub = nil
 	fake.cmdlineForPIDReturns = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
+		result2 []string
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) CmdlineForPIDReturnsOnCall(i int, result1 string, result2 error) {
+func (fake *FakeImpl) CmdlineForPIDReturnsOnCall(i int, result1 string, result2 []string, result3 error) {
 	fake.cmdlineForPIDMutex.Lock()
 	defer fake.cmdlineForPIDMutex.Unlock()
 	fake.CmdlineForPIDStub = nil
 	if fake.cmdlineForPIDReturnsOnCall == nil {
 		fake.cmdlineForPIDReturnsOnCall = make(map[int]struct {
 			result1 string
-			result2 error
+			result2 []string
+			result3 error
 		})
 	}
 	fake.cmdlineForPIDReturnsOnCall[i] = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
+		result2 []string
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, time.Duration, error) {

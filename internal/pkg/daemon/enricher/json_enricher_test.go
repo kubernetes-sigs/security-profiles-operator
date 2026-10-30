@@ -287,7 +287,7 @@ func TestJsonRun(t *testing.T) {
 			},
 			"sends multiple lines": {
 				prepare: func(mock *enricherfakes.FakeImpl) {
-					mock.CmdlineForPIDReturns(cmdLineJsonTest, nil)
+					mock.CmdlineForPIDReturns(cmdLineJsonTest, []string{"/bin/sh"}, nil)
 					mock.ExecRequestIDForPIDReturns("da83c434-91f0-4696-a04e-75d08b6d80b2", true, nil)
 				},
 				assert: func(t *testing.T, mock *enricherfakes.FakeImpl, lineChan chan string) {
@@ -771,24 +771,32 @@ func TestJsonEnricherLockedLogBucketEmitted(t *testing.T) {
 	require.Equal(t, "ts", bucket.TimestampID)
 }
 
-// fakeBpfProcesses is a BPF process cache which counts its lookups.
+// fakeBpfProcesses is a BPF process cache which counts its lookups. The first
+// missing lookups do not find the process.
 type fakeBpfProcesses struct {
 	cmdLine string
+	args    []string
 	env     map[string]string
 	err     error
+	missing int
 	hits    int
 }
 
 func (f *fakeBpfProcesses) GetCmdLineAndEnv(
 	int,
-) (cmdLine string, env map[string]string, err error) {
+) (cmdLine string, args []string, env map[string]string, err error) {
 	f.hits++
 
-	return f.cmdLine, f.env, f.err
+	if f.hits <= f.missing {
+		return "", nil, nil, errTest
+	}
+
+	return f.cmdLine, f.args, f.env, f.err
 }
 
 // TestProcessEbpf asserts that the BPF process cache fills in what the
-// process file system did not tell, and that a bucket looks it up only once.
+// process file system did not tell, and that a bucket looks it up until it is
+// found.
 func TestProcessEbpf(t *testing.T) {
 	t.Parallel()
 
@@ -828,13 +836,52 @@ func TestProcessEbpf(t *testing.T) {
 			wantRequestUID: new(requestUID),
 			wantLookups:    1,
 		},
+		"fills in the request of an env command": {
+			cache: &fakeBpfProcesses{
+				cmdLine: "env " + requestIdEnv + "=" + requestUID + " ",
+				args:    []string{"env", requestIdEnv + "=" + requestUID},
+				env:     map[string]string{},
+			},
+			wantCmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",
+			wantRequestUID: new(requestUID),
+			wantLookups:    1,
+		},
+		"prefers the request of the arguments": {
+			cache: &fakeBpfProcesses{
+				cmdLine: "env " + requestIdEnv + "=" + requestUID + " ",
+				args:    []string{"env", requestIdEnv + "=" + requestUID},
+				env:     map[string]string{requestIdEnv: "debug"},
+			},
+			wantCmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",
+			wantRequestUID: new(requestUID),
+			wantLookups:    1,
+		},
+		"empty request of the environment": {
+			cache: &fakeBpfProcesses{
+				cmdLine: cmdLineJsonTest,
+				env:     map[string]string{requestIdEnv: ""},
+			},
+			wantCmdLine: cmdLineJsonTest,
+			wantLookups: 1,
+		},
 		"process without request": {
 			cache:       &fakeBpfProcesses{env: map[string]string{}},
 			wantLookups: 1,
 		},
 		"process not in the cache": {
 			cache:       &fakeBpfProcesses{err: errTest},
-			wantLookups: 1,
+			wantLookups: 3,
+		},
+		"process found on a later line": {
+			cache: &fakeBpfProcesses{
+				cmdLine: "env " + requestIdEnv + "=" + requestUID + " ",
+				args:    []string{"env", requestIdEnv + "=" + requestUID},
+				env:     map[string]string{},
+				missing: 1,
+			},
+			wantCmdLine:    "env " + requestIdEnv + "=" + requestUID + " ",
+			wantRequestUID: new(requestUID),
+			wantLookups:    2,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -847,10 +894,9 @@ func TestProcessEbpf(t *testing.T) {
 
 			info := tc.info
 			bucket := &types.LogBucket{ProcessInfo: &info}
-			line := &types.AuditLine{ProcessID: 42}
 
 			for range 3 {
-				sut.processEbpf(bucket, line)
+				sut.processEbpf(bucket, 42)
 			}
 
 			require.Equal(t, tc.wantCmdLine, bucket.ProcessInfo.CmdLine)

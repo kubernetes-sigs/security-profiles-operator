@@ -122,6 +122,19 @@ if [[ "$UPGRADE_FROM_RELEASE" == "true" ]]; then
 fi
 wait_for_spod
 
+# The operator rolls the webhook deployment as well, and the validating
+# webhooks time out the dry run below while it reaches a webhook pod which is
+# going away. After an upgrade, the webhook of the released chart is rolled
+# out already until the operator updated it, like the daemonset above.
+echo "Waiting for the operator to roll out the webhook"
+wait_until 60 5 k get deployment security-profiles-operator-webhook >/dev/null 2>&1 || true
+if [[ "$UPGRADE_FROM_RELEASE" == "true" ]]; then
+  kubectl wait --timeout "$WAIT_TIMEOUT" \
+    --for jsonpath='{.spec.template.spec.containers[0].image}'="$image" \
+    -n "$NAMESPACE" deployment security-profiles-operator-webhook
+fi
+k rollout status deployment security-profiles-operator-webhook --timeout "$WAIT_TIMEOUT"
+
 # The examples must pass the API server validation and the admission webhooks
 # of the installed operator.
 echo "Validating the examples against the cluster"

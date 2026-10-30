@@ -62,10 +62,10 @@ const (
 // errTailEnded is reported when the audit log tail ends without an error.
 var errTailEnded = errors.New("audit log tail ended")
 
-// bpfProcesses tells the command line and the environment of the processes
-// which the BPF process cache saw executing.
+// bpfProcesses tells the command line, the arguments and the environment of
+// the processes which the BPF process cache saw executing.
 type bpfProcesses interface {
-	GetCmdLineAndEnv(pid int) (cmdLine string, env map[string]string, err error)
+	GetCmdLineAndEnv(pid int) (cmdLine string, args []string, env map[string]string, err error)
 }
 
 type JsonEnricher struct {
@@ -247,7 +247,10 @@ func (e *JsonEnricher) run(ctx context.Context) error {
 
 			auditLogBucket.Emitted = true
 
-			// The pod may tell the container by now.
+			// The BPF event of the exec of the process may have got processed
+			// by now, and the pod may tell the container.
+			e.processEbpf(auditLogBucket, logItem.Key())
+
 			if auditLogBucket.ContainerInfo == nil && auditLogBucket.ContainerID != "" {
 				if info, err := e.lookup.containers.get(auditLogBucket.ContainerID); err == nil {
 					auditLogBucket.ContainerInfo = info
@@ -357,7 +360,7 @@ func (e *JsonEnricher) processLine(line string) {
 			auditLine.Executable, auditLine.Uid, auditLine.Gid, auditTime(auditLine))
 	}
 
-	e.processEbpf(logBucket, auditLine)
+	e.processEbpf(logBucket, auditLine.ProcessID)
 
 	if logBucket.ContainerInfo == nil && time.Since(logBucket.NoContainerAt) >= noContainerRecheck {
 		var noContainer bool
@@ -443,14 +446,15 @@ func (e *JsonEnricher) lockedLogBucket(
 }
 
 // processEbpf fills in what the process file system did not tell about the
-// process from the BPF process cache. It is looked up once per bucket: a
-// process which did not get it from its exec does not get it later on.
-func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
-	if e.bpfProcessCache == nil || logBucket.ProcessInfo == nil || logBucket.BpfLookedUp {
+// process with the PID from the BPF process cache. It is looked up until it is
+// found, once per line of the bucket and when the bucket gets emitted: the
+// audit line of a process which exited right away can be read before the BPF
+// event of its exec got processed. Once found, a process which did not get it
+// from its exec does not get it later on.
+func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, pid int) {
+	if e.bpfProcessCache == nil || logBucket.ProcessInfo == nil || logBucket.BpfFound {
 		return
 	}
-
-	logBucket.BpfLookedUp = true
 
 	needCmdLine := logBucket.ProcessInfo.CmdLine == ""
 	needRequest := logBucket.ProcessInfo.ExecRequestId == nil
@@ -461,27 +465,33 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 
 	// A single lookup, which checks the process with the PID only once.
 	//nolint:staticcheck,nolintlint // platform-dependent
-	cmdLine, procEnv, err := e.bpfProcessCache.GetCmdLineAndEnv(auditLine.ProcessID)
+	cmdLine, args, procEnv, err := e.bpfProcessCache.GetCmdLineAndEnv(pid)
 	//nolint:staticcheck,nolintlint // platform-dependent
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info("process not found in eBPF either",
-			"processId", auditLine.ProcessID, "error", err.Error())
+			"processId", pid, "error", err.Error())
 
 		return
 	}
+
+	logBucket.BpfFound = true
 
 	if needCmdLine {
 		logBucket.ProcessInfo.CmdLine = cmdLine
 
 		e.logger.V(config.VerboseLevel).Info("cmdline found in eBPF",
-			"processId", auditLine.ProcessID, "cmdLine", cmdLine)
+			"processId", pid, "cmdLine", cmdLine)
 	}
 
 	if needRequest {
-		reqId, ok := procEnv[requestIdEnv]
+		reqId, ok := execRequestUID(args, func() (string, bool) {
+			reqId, ok := procEnv[requestIdEnv]
+
+			return reqId, ok
+		})
 		if !ok {
 			e.logger.V(config.VerboseLevel).Info("exec request id info not found in eBPF either",
-				"processId", auditLine.ProcessID)
+				"processId", pid)
 
 			return
 		}
@@ -490,7 +500,7 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 
 		e.logger.V(config.VerboseLevel).
 			Info("exec request id info found in eBPF", "reqId", reqId,
-				"processId", auditLine.ProcessID)
+				"processId", pid)
 	}
 }
 
