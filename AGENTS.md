@@ -16,12 +16,17 @@ and [doc/hacking.md](doc/hacking.md).
 
 ## Building and testing
 
-- Without the native libraries (libbpf, libelf, libseccomp, libapparmor),
-  build with `BPF_ENABLED=0 APPARMOR_ENABLED=0 make`, or use the Nix targets.
+- Without the native libraries (libbpf, libelf, libz, libzstd, libseccomp,
+  libapparmor), build with `BPF_ENABLED=0 APPARMOR_ENABLED=0 make`, or use the
+  Nix targets.
 - Rely on CI for the heavy checks. Locally, stick to quick compile checks like
   `go build ./...`, `go vet -tags e2e ./test/...` and the unit tests of the
-  packages you changed. Do not run the e2e suite, `make verify` or the full
-  linter unless asked to: they need a cluster or take a long time.
+  packages you changed. A plain `go test` of a package which links the native
+  libraries needs the flags of the build, see
+  [running the unit tests of a package](doc/hacking.md#running-the-unit-tests-of-a-package).
+  Do not run the e2e suite, `make verify` or the full linter unless asked to:
+  they need a cluster or take a long time. Do not run `nix develop` either, it
+  builds for hours.
 - The e2e tests only build with the `e2e` build tag. New e2e test cases start
   quarantined with `flaky: true` and need an entry in `testCaseCosts` in
   `test/shard_cases_test.go`, which
@@ -37,6 +42,9 @@ Do not edit generated files by hand, regenerate them:
 - `make bundle` for the OLM bundle below `bundle/`, which also embeds the
   examples of `examples/`.
 - `make update-toc` for the tables of contents of the documentation.
+- `make update-docs` for the command line reference below `doc/reference/`,
+  after changing the flags of `spoc` or the operator.
+- `make update-proto` for the gRPC code of `api/grpc`.
 - `make update-bpf` for the BPF objects, which needs Nix.
 
 ## Things to leave alone

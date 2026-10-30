@@ -1,4 +1,4 @@
-# Releasing a new version of the security-profiles-operator
+# Releasing a new version of the Security Profiles Operator
 
 <!-- toc -->
 - [Who does what](#who-does-what)
@@ -13,7 +13,7 @@
   - [Attestations on registry.k8s.io](#attestations-on-registryk8sio)
 <!-- /toc -->
 
-A new security-profiles-operator release is done by overall three Pull
+A new Security Profiles Operator release is done by overall three Pull
 Requests (PRs): the version bump, the image promotion in
 [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io) and the back-to-dev
 PR. Track it in a new `Release vx.y.z` issue from the
@@ -58,7 +58,7 @@ signature of the release manager on the tag:
 | Instance | What it does | Signs as |
 | -------- | ------------ | -------- |
 | Release manager | version bump PR, release tag, GitHub release, promotion PR, back-to-dev PR | the git signing key of the tag |
-| Prow with Cloud Build, in the `k8s-staging-images` project | builds every push to `main` and pushes the images, the bundle, the catalog and the profiles to staging with their attestations (`post-security-profiles-operator-push-image`); publishes `spoc` and the chart of a `v*` tag to staging and attaches the GitHub provenance (`post-security-profiles-operator-push-release-artifacts`) | `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com` |
+| Prow with Cloud Build, in the `k8s-staging-images` project | builds every push to `main` and pushes the images, the bundle, the catalog and the profiles to staging with their attestations (`post-security-profiles-operator-push-image`); publishes `spoc` and the chart of a `vx.y.z` tag to staging and attaches the GitHub provenance (`post-security-profiles-operator-push-release-artifacts`) | `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com` |
 | GitHub Actions | builds `spoc`, the SBOMs and the chart and attaches them with their SLSA Build L3 provenance to the GitHub release, rebuilds the per-arch images, the bundle and the catalog and attaches the provenance of their digests | the `build.yml` and `helm-chart-package.yaml` workflows of the tag for the signatures, the `provenance.yml` workflow of the tag for the provenance |
 | Image promoter, the promotion jobs of [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io) | verifies the staging attestations against the provenance policy, copies the artifacts by digest to `registry.k8s.io`, carries the attestations and writes a verification summary | `krel-trust@k8s-releng-prod.iam.gserviceaccount.com`, and `promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com` for the summaries |
 
@@ -97,12 +97,23 @@ sequenceDiagram
 ```
 
 Solid arrows trigger or write something, dashed ones show what the instance
-they point to reads and verifies. Users and verifiers like
-[nri-supply-chain](https://github.com/saschagrunert/nri-supply-chain) only
-read from `registry.k8s.io` and the GitHub release, see
+they point to reads and verifies. Users and the verifiers of their clusters
+only read from `registry.k8s.io` and the GitHub release, see
 [verification.md](verification.md).
 
 ## Release steps
+
+Before the version bump, check that the base profile versions of
+`examples/baseprofile-<runtime>.yaml` are promoted to `registry.k8s.io`, see
+[base profiles](release-baseprofiles.md#updating-a-profile). The script points
+the end-to-end test which pulls them at `registry.k8s.io`. For a version that
+is not promoted it falls back to the `latest` artifact, which is never
+promoted, so the end-to-end test of the release fails. For example, with the version of
+`metadata.name` of the runc profile:
+
+```shell
+crane ls registry.k8s.io/security-profiles-operator/base/runc
+```
 
 Run the `./hack/release.sh x.y.z` script by replacing the appropriate version.
 The script basically:
@@ -114,7 +125,7 @@ The script basically:
   `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`).
 - changes the `image` in the `CatalogSource` in the same way at
-  [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
+  [./examples/olm/install-resources.yaml](../examples/olm/install-resources.yaml)
 - changes the image of the webhook overlay
   [./deploy/overlays/webhook/kustomization.yaml](../deploy/overlays/webhook/kustomization.yaml)
   and the image, tag and pull policy in the Helm chart
@@ -122,7 +133,7 @@ The script basically:
   in the same way
 - sets the `IfNotPresent` pull policy in the operator and webhook deployments,
   which the operator passes on to the daemon and the webhook
-- changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) and the e2e tests to
+- changes [`hack/ci/e2e-olm.sh`](../hack/ci/e2e-olm.sh) and the e2e tests to
   use the released images from `registry.k8s.io` instead of the staging ones,
   for example `registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:vx.y.z`
   instead of
@@ -185,9 +196,9 @@ more and push the tag right away to
 `kubernetes-sigs/security-profiles-operator`, while no other staging build of
 the same `VERSION` runs:
 
-```console
-> git verify-tag vx.y.z
-> git push <upstream remote> vx.y.z
+```shell
+git verify-tag vx.y.z
+git push <upstream remote> vx.y.z
 ```
 
 The script prints the push command with the remote whose push URL is
@@ -200,8 +211,11 @@ The `v*` tags have to be protected in the repository settings (a tag ruleset
 which restricts their creation, update and deletion to the release managers),
 since the release workflows trust a tag to be a reviewed release commit, and
 the `post-security-profiles-operator-push-release-artifacts` job runs the
-Cloud Build configuration of any pushed `v*` tag with the staging service
-account.
+Cloud Build configuration of every pushed `v*` tag with the staging
+service account. The job runs for every `v*` tag, but
+[`hack/push-release-artifacts.sh`](../hack/push-release-artifacts.sh) refuses
+tags which are not of three numbers, like `v1.2.3`, so other `v*` tags
+publish nothing.
 
 Right after pushing the tag, [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
@@ -272,14 +286,14 @@ looks up the digests of the staging images and creates the PR, see
 [Install](https://github.com/kubernetes-sigs/promo-tools#installation) its
 latest release, then run:
 
-```bash
-> export GITHUB_TOKEN=<YOUR_TOKEN>
-> kpromo pr \
-    --fork <YOUR_GH_USERNAME> \
-    --project sp-operator \
-    --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator \
-    --tag v0.x.y \
-    --tag 0.x.y
+```shell
+export GITHUB_TOKEN=<YOUR_TOKEN>
+kpromo pr \
+  --fork <YOUR_GH_USERNAME> \
+  --project sp-operator \
+  --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator \
+  --tag vx.y.z \
+  --tag x.y.z
 ```
 
 This will automatically create a PR in the k/k8s.io repository. The first
@@ -295,11 +309,11 @@ the digests of `security-profiles-operator-amd64`, `-arm64`, `-ppc64le`,
 `security-profiles-operator` manifest list digest in it, have to be the
 subjects of `images.intoto.jsonl`:
 
-```console
-> gh release download vx.y.z -R kubernetes-sigs/security-profiles-operator -p images.intoto.jsonl
-> jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[] | "\(.name) sha256:\(.digest.sha256)"' images.intoto.jsonl
-> crane manifest us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@<digest of the manifest list in the PR> |
-    jq -r '.manifests[] | "\(.platform.architecture) \(.digest)"'
+```shell
+gh release download vx.y.z -R kubernetes-sigs/security-profiles-operator -p images.intoto.jsonl
+jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[] | "\(.name) sha256:\(.digest.sha256)"' images.intoto.jsonl
+crane manifest us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@<digest of the manifest list in the PR> |
+  jq -r '.manifests[] | "\(.platform.architecture) \(.digest)"'
 ```
 
 The release artifacts job checked the `vx.y.z` staging tags when it ran, but
@@ -335,9 +349,12 @@ SBOMs of the `spoc` index and the chart, with the commands of
 [verification.md](verification.md#container-image) and
 [OCI artifacts](verification.md#oci-artifacts-on-registryk8sio). The platform
 manifests of `spoc` keep theirs in staging, because the promoter manifest
-doesn't list them. `cosign tree` lists what a promoted digest carries. The
-policy is in `require` mode, so a digest that violates it isn't promoted at
-all. Also check that the manifest list, its
+doesn't list them. `cosign tree` lists what a promoted digest carries. A digest
+that violates the policy is not promoted at all or promoted without
+attestations, depending on the `mode` of the policy in the
+[promoter manifest](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/manifests/k8s-staging-sp-operator/promoter-manifest.yaml),
+see [attestations on registry.k8s.io](#attestations-on-registryk8sio). Also
+check that the manifest list, its
 platform manifests, `spoc` and the chart have a passed verification summary
 of the promoter, see
 [verification summaries](verification.md#verification-summaries). The
@@ -374,6 +391,11 @@ After that, run the `./hack/back-to-dev.sh` script, which:
 - reverts the Helm chart [values](../deploy/helm/values.yaml) to the staging
   image with the `Always` pull policy, and sets the `Always` pull policy in the
   deployments and manifests again.
+- sets the released version as the release the upgrade test starts from, the
+  `spo-previous-release` entry of [./dependencies.yaml](../dependencies.yaml)
+  and `fallbackPreviousRelease` in
+  [`test/tc_upgrade_test.go`](../test/tc_upgrade_test.go), and fails if it
+  can't.
 - sets the development version in
   [./dependencies.yaml](../dependencies.yaml), the catalog preamble
   [`deploy/catalog-preamble.json`](../deploy/catalog-preamble.json), the
@@ -382,9 +404,12 @@ After that, run the `./hack/back-to-dev.sh` script, which:
   the results.
 
 Create a new pull request in the OperatorHub.io [community
-operators](https://github.com/k8s-operatorhub/community-operators) repository to
-add the new version like in [this
-PR](https://github.com/k8s-operatorhub/community-operators/pull/1672).
+operators](https://github.com/k8s-operatorhub/community-operators) repository
+which adds the bundle of the release as a new version directory below
+`operators/security-profiles-operator`, see the previous pull requests of the
+operator there. Get it merged before the next version bump:
+`hack/release.sh` sets the `replaces` field of the bundle to the latest
+version on OperatorHub.io.
 
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).
@@ -525,11 +550,11 @@ limit is hit, the build only warns, and the build of a later commit looks the
 profile up again and attaches the provenance. Check that a profile has it
 before promoting it:
 
-```console
-> cosign verify-attestation --type slsaprovenance1 \
-    --certificate-identity-regexp '^https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/heads/main$' \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/runc@<digest> >/dev/null
+```shell
+cosign verify-attestation --type slsaprovenance1 \
+  --certificate-identity-regexp '^https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/runc@<digest> >/dev/null
 ```
 
 ## OCI artifacts
@@ -554,7 +579,7 @@ and attest their digests, and the staging job only verifies and copies them:
   layouts without the layers are release assets.
 - The `post-security-profiles-operator-push-release-artifacts` job runs
   [`hack/push-release-artifacts.sh`](../hack/push-release-artifacts.sh) for
-  every `v*` tag. It waits for the release assets, restores the layouts,
+  every `vx.y.z` tag. It waits for the release assets, restores the layouts,
   checks every blob against its digest and verifies with cosign that the
   provenance was signed by the `provenance.yml` workflow of the tag for the
   tagged commit and the GitHub release event, on a GitHub hosted runner, and
@@ -670,16 +695,16 @@ against a release in a fork and a local registry, without signing anything:
    and `image-reproducible` workflows attach the release assets with
    provenance signed by the `provenance.yml` workflow of the fork.
 1. Start a local registry, for example with
-   `docker run -d -p 5000:5000 registry:3`.
+   `docker run -d -p 5000:5000 registry`.
 1. Check out the tag and run the script for the fork:
 
-   ```console
-   > SPO_REPOSITORY_URL=https://github.com/<user>/security-profiles-operator \
-       TAG=vx.y.z \
-       REGISTRY=localhost:5000/sp-operator \
-       SIGN=false \
-       IMAGE_WAIT_TIMEOUT=0 \
-       hack/push-release-artifacts.sh
+   ```shell
+   SPO_REPOSITORY_URL=https://github.com/<user>/security-profiles-operator \
+     TAG=vx.y.z \
+     REGISTRY=localhost:5000/sp-operator \
+     SIGN=false \
+     IMAGE_WAIT_TIMEOUT=0 \
+     hack/push-release-artifacts.sh
    ```
 
 The script downloads the release assets of the fork and verifies their
@@ -796,11 +821,10 @@ digests keep the `krel-trust` signature of the promoter and get no
 attestations, and since tags in `registry.k8s.io` can't be repointed, attested
 versions of them need new tags.
 
-The manifest list only carries the signature: verifiers like
-[nri-supply-chain](https://github.com/saschagrunert/nri-supply-chain) use the
-attestations of an index digest instead of the platform ones as soon as there
-are any, so partial attestations on the manifest list would hide the per-arch
-ones. The platform images it holds are
+The manifest list only carries the signature: a verifier which finds
+attestations on an index digest may use them instead of the ones of its
+platform manifests, so partial attestations on the manifest list would hide
+the per-arch ones. The platform images it holds are
 signed and get the attestations of their per-arch images in the
 `security-profiles-operator` repository too, because container runtimes pull
 them by digest from there and verifiers and the image promoter look up
@@ -809,7 +833,7 @@ name of the per-arch image. That layout only exists in staging: the image
 promoter carries the attestations of the per-arch images into their per-arch
 repositories on `registry.k8s.io`, not those of the platform manifests into
 the repository of the manifest list, see
-[container image](verification.md#container-image). There, nri-supply-chain
+[container image](verification.md#container-image). There, a cluster policy
 verifies the promoter's verification summary of the manifest list instead,
 which covers it through the provenance of its platform manifests, see
 [enforcing the verification in a cluster](verification.md#enforcing-the-verification-in-a-cluster).
@@ -895,15 +919,15 @@ the artifact. A missing signature or attestation fails the build. It only
 reads from the registry, so it can verify other digests too, see the script.
 
 To verify an attestation by hand, use the predicate type and the signing
-identity, for example:
+identity, with a cosign that reads the Sigstore bundle format, see
+[verification.md](verification.md), for example:
 
-```console
-> # Needs cosign v3 or later.
-> cosign verify-attestation \
-    --type https://slsa.dev/provenance/v1 \
-    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64:latest
+```shell
+cosign verify-attestation \
+  --type https://slsa.dev/provenance/v1 \
+  --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
+  --certificate-oidc-issuer https://accounts.google.com \
+  us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64:latest
 ```
 
 ### Attestations on registry.k8s.io

@@ -1,4 +1,4 @@
-# Migration Guide: API Graduation to v1
+# Migration guide: API graduation to v1
 
 <!-- toc -->
 - [API version changes](#api-version-changes)
@@ -16,11 +16,11 @@
   - [Registering the v1 scheme](#registering-the-v1-scheme)
 <!-- /toc -->
 
-Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. SPO 1.1.0 removed the old API versions. This document covers what changed, how to upgrade, and what you should update. For general installation and usage instructions, see the [documentation](README.md).
+Security Profiles Operator (SPO) 1.0.0 graduated all CRD APIs from alpha/beta to v1, and SPO 1.1.0 removed the old API versions. This document covers what changed, how to upgrade, and what you should update. For general installation and usage instructions, see the [documentation](README.md).
 
 ## API version changes
 
-All SPO custom resources move to `security-profiles-operator.x-k8s.io/v1`:
+All SPO custom resources moved to `security-profiles-operator.x-k8s.io/v1`:
 
 | CRD | Previous version(s) | New version |
 |-----|---------------------|-------------|
@@ -93,7 +93,7 @@ profiles may allow.
 Since 1.0.x drops these fields, export the affected objects before the
 upgrade, and set the fields under their new names after it:
 
-```bash
+```shell
 kubectl get apparmorprofiles,selinuxprofiles -A -o yaml >profiles-0.10.yaml
 kubectl get spod -A -o yaml >spod-0.10.yaml
 ```
@@ -119,6 +119,11 @@ serve only v1, which means:
 
 ## Upgrade path
 
+OLM installations with the `installPlanApproval: Automatic` of their
+`Subscription` upgrade through these releases on their own, possibly before
+the stored objects are migrated. Set it to `Manual` before upgrading to 1.0.x,
+and approve the install plan of 1.1.0 or later only after step 2.
+
 1. **Upgrade to 1.0.x.** Install the latest 1.0.x release and wait for the
    operator and the daemon to become ready. Coming from 0.10.x, export the
    objects with renamed fields before the upgrade and set the fields under
@@ -128,7 +133,8 @@ serve only v1, which means:
    to 1.0.x stay stored in their old API version until they are written again.
    Rewrite them while the 1.0.x conversion webhooks are still available, for
    example:
-   ```bash
+
+   ```shell
    for crd in seccompprofiles selinuxprofiles rawselinuxprofiles \
      apparmorprofiles profilerecordings profilebindings \
      securityprofilesoperatordaemons securityprofilenodestatuses; do
@@ -136,12 +142,14 @@ serve only v1, which means:
        kubectl replace -f -
    done
    ```
+
    `kubectl replace` reports an error for resource types without any objects,
    which can be ignored. Rerun the loop if it reports conflicts, which occur
    when the operator updates an object at the same time.
 
    Then remove the old versions from the stored versions of each CRD:
-   ```bash
+
+   ```shell
    for crd in seccompprofiles selinuxprofiles rawselinuxprofiles \
      apparmorprofiles profilerecordings profilebindings \
      securityprofilesoperatordaemons securityprofilenodestatuses; do
@@ -149,23 +157,32 @@ serve only v1, which means:
        --subresource=status --type=merge -p '{"status":{"storedVersions":["v1"]}}'
    done
    ```
+
    The Kubernetes API server rejects CRD updates which remove a version that is
    still listed in `status.storedVersions`, so this step is required before
-   installing 1.1.x.
+   installing 1.1.0 or later. Check that every CRD lists only `v1` before the
+   upgrade:
+
+   ```shell
+   kubectl get crd -o custom-columns=NAME:.metadata.name,STORED:.status.storedVersions |
+     grep -e NAME -e security-profiles-operator.x-k8s.io
+   ```
 
 3. **Update your manifests and clients to v1** (see
    [Recommended actions](#recommended-actions)).
 
-4. **Upgrade to 1.1.x.** Helm installs the CRDs from the chart's `crds`
+4. **Upgrade to 1.1.0 or later.** Helm installs the CRDs from the chart's `crds`
    directory only on the first install and never updates them, so a
    `helm upgrade` keeps the 1.0.x CRDs. They still serve the old API
-   versions and point to the conversion webhook which 1.1.x removed. Apply
+   versions and point to the conversion webhook which 1.1.0 removed. Apply
    the CRDs of the new release before running `helm upgrade`, where
    `VERSION` is the release version to upgrade to, for example `1.1.0`:
-   ```bash
+
+   ```shell
    kubectl apply --server-side --force-conflicts -f \
      "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/helm/crds/crds.yaml"
    ```
+
    The manifest and OLM installations update the CRDs on their own.
 
 ## Recommended actions
@@ -184,6 +201,7 @@ Update everything that references the SPO APIs to v1:
 
 4. **Update Go client imports.** If you consume the SPO API types in Go code,
    update imports from `api/*/v1alpha1` to `api/*/v1`. For example:
+
    ```go
    // Before
    import profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"

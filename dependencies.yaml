@@ -880,6 +880,10 @@ dependencies:
     - path: Makefile
       match: "^CLANG_FORMAT_VERSION ="
 
+  # Pinned on purpose, without upstream so that the upstream check leaves it
+  # alone: newer Flatcar releases break the e2e job, for example with a
+  # missing /etc/sysctl.d and I/O errors of the developer container reading
+  # the host files. Don't bump it without fixing the job, see doc/hacking.md.
   - name: flatcar
     version: 3510.2.3
     refPaths:

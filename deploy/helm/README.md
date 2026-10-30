@@ -6,7 +6,10 @@ The Kubernetes Security Profiles Operator.
 
 ## Installation
 
-please refer to [Installation Guide](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/installation.md#installation-using-helm)
+See the [installation guide](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/installation.md#installation-using-helm)
+and the [configuration](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/configuration.md).
+They describe the `main` branch, select the tag of the release in GitHub for
+the documentation of a release.
 
 ## Values
 
@@ -26,11 +29,11 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | daemon.tolerations | list | `NoSchedule` on `node-role.kubernetes.io/master` and `node-role.kubernetes.io/control-plane`, `NoExecute` on `node.kubernetes.io/not-ready` | a list of daemonset tolerations rules |
 | enableAppArmor | bool | `false` | enable apparmor or not |
 | enableBpfRecorder | bool | `false` | enable BpfRecorder or not |
-| enableLogEnricher | bool | `false` | enable log enricher or not |
 | enableJsonEnricher | bool | `false` | enable audit JSON enricher or not |
-| enableProfiling | bool | `false` | enable profiling or not |
+| enableLogEnricher | bool | `false` | enable log enricher or not |
+| enableProfiling | bool | `false` | enable the profiling endpoints of the daemon or not; set `SPO_PROFILING` through `extraEnv` for the operator |
 | enableSelinux | bool | unset | deprecated, use `selinux.enable` instead |
-| extraEnv | list | `[]` | additional environment variables of the operator container, like `MAX_METRIC_SERIES` or `ENABLE_INSECURE_METRICS_ACCESS`; their names must not repeat the environment variables the chart sets |
+| extraEnv | list | `[]` | additional environment variables of the operator container, like `MAX_METRIC_SERIES`, `SPO_MAX_CONCURRENT_RECONCILES` or `ENABLE_INSECURE_METRICS_ACCESS`; their names must not repeat the environment variables the chart sets |
 | fullnameOverride | string | `""` | has no effect, the chart uses fixed names for the resources it creates |
 | imagePullSecrets | list | `[]` | secrets for pulling the images from a private registry, for example `[{name: my-pull-secret}]`; they apply to the operator deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon and the webhook |
 | kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
@@ -66,5 +69,5 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | spoImage.tag | string | `"latest"` | tag for spoImage |
 | tolerations | list | `[]` | additional tolerations of the operator pods, appended to the `NoSchedule` tolerations of `node-role.kubernetes.io/master` and `node-role.kubernetes.io/control-plane` and the `NoExecute` toleration of `node.kubernetes.io/not-ready` |
 | topologySpreadConstraints | list | `ScheduleAnyway` spread with `maxSkew: 1` across `kubernetes.io/hostname` and `topology.kubernetes.io/zone` | topology spread constraints of the operator pods; constraints without `labelSelector` get the selector labels of the operator pods |
-| verbosity | int | `0` | the log level for the spo |
+| verbosity | int | `0` | the log level of the daemon; set `SPO_VERBOSITY` through `extraEnv` for the operator |
 | webhook.tolerations | list | `[]` | webhook tolerations (inherits daemon tolerations when empty) |

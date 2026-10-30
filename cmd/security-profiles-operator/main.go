@@ -224,6 +224,14 @@ var runtimeEnvVars = []clidocs.EnvVar{
 			"which the `" + util.SelinuxdImageMappingKey + "` mapping of the operator ConfigMap refers to, " +
 			"an unset one falls back to RELATED_IMAGE_SELINUXD",
 	},
+	{
+		Name: "TUF_ROOT, TUF_MIRROR, TUF_ROOT_JSON",
+		Description: "the TUF cache directory, mirror and trust anchor of the Sigstore " +
+			"trusted root which the daemon verifies the signatures of `oci://` base profiles with, " +
+			"as for cosign, the operator does not set them, so the daemon uses the public " +
+			"Sigstore TUF repository and caches it in `.sigstore/root` below `HOME`, " +
+			"which the DaemonSet sets to the emptyDir `" + bindata.HomeDirectory + "`",
+	},
 }
 
 func main() {
@@ -308,21 +316,24 @@ func managerCommand(info *version.Info) *cli.Command {
 			enabledByDefault(recordingTrackerFlag, "enable the recording tracker"),
 			enabledByDefault(bindingTrackerFlag, "enable the binding tracker"),
 			&cli.IntFlag{
-				Name:  maxConcurrentReconcilesFlag,
-				Value: controller.DefaultMaxConcurrentReconciles,
-				Usage: "the number of concurrent reconciles of the pod driven controllers",
+				Name:    maxConcurrentReconcilesFlag,
+				Value:   controller.DefaultMaxConcurrentReconciles,
+				Usage:   "the number of concurrent reconciles of the pod driven controllers",
+				EnvVars: []string{config.MaxConcurrentReconcilesEnvKey},
 			},
 			&cli.Float64Flag{
 				Name:        kubeAPIQPSFlag,
 				DefaultText: "unlimited",
 				Usage: "the queries per second of the client to the API server, " +
 					"which only API priority and fairness limits if it is 0 or less",
+				EnvVars: []string{config.KubeAPIQPSEnvKey},
 			},
 			&cli.IntFlag{
 				Name:        kubeAPIBurstFlag,
 				DefaultText: "10",
 				Usage: "the burst of the client to the API server, " +
 					"which only applies if --" + kubeAPIQPSFlag + " limits the queries per second",
+				EnvVars: []string{config.KubeAPIBurstEnvKey},
 			},
 		},
 	}

@@ -14,10 +14,10 @@
 # limitations under the License.
 
 # Attests the latest OpenSSF Scorecard result of this repository
-# (https://scorecard.dev/result/v0.1, the provisional predicate type that
-# verifiers like nri-supply-chain recognize) for each given image digest. The
-# result comes from the public Scorecard API, it describes the repository at
-# the commit Scorecard scanned last, which may be older than the built commit.
+# (https://scorecard.dev/result/v0.1, the provisional predicate type of
+# Scorecard results) for each given image digest. The result comes from the
+# public Scorecard API, it describes the repository at the commit Scorecard
+# scanned last, which may be older than the built commit.
 # The digests are also attested as their aliases, see attest_aliases.
 # An unavailable API skips the attestation with a warning.
 

@@ -1,6 +1,7 @@
 <!--  Thanks for sending a pull request!  Here are some tips for you:
 
-- If this is your first time, please read our contributor guidelines: https://git.k8s.io/community/contributors/guide#your-first-contribution and developer guide https://git.k8s.io/community/contributors/devel/development.md#development-guide
+- If this is your first time, please read our contributor guidelines: https://git.k8s.io/community/contributors/guide#your-first-contribution and the contributing guide of this project: https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/CONTRIBUTING.md
+- Run the checks of https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/hacking.md#verifying-changes before submitting the pull request.
 - Please label this pull request according to what type of issue you are addressing, especially if this is a release targeted pull request. For reference on required PR/issue labels, read here:
 https://git.k8s.io/community/contributors/devel/sig-release/release.md#issuepr-kind-label
 - If you want *faster* PR reviews, read how: https://git.k8s.io/community/contributors/guide/pull-requests.md#best-practices-for-faster-reviews
@@ -25,9 +26,9 @@ Optionally add one or more of the following kinds if applicable:
 /kind regression
 -->
 
-#### What this PR does / why we need it:
+#### What this PR does / why we need it
 
-#### Which issue(s) this PR fixes:
+#### Which issue(s) this PR fixes
 
 <!--
 *Automatically closes linked issue when PR is merged.
@@ -46,7 +47,7 @@ None
 If tests aren't applicable just write N/A.
 -->
 
-#### Special notes for your reviewer:
+#### Special notes for your reviewer
 
 #### Does this PR introduce a user-facing change?
 

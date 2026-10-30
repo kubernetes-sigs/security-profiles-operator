@@ -145,6 +145,9 @@ The following variables set the default of a flag.
 | `SPO_PROFILING` | `--profiling` | (global) |
 | `SPO_PROFILING_PORT` | `--profiling-port` | (global) |
 | `SPO_PROFILING_ADDRESS` | `--profiling-address` | (global) |
+| `SPO_MAX_CONCURRENT_RECONCILES` | `--max-concurrent-reconciles` | manager |
+| `SPO_KUBE_API_QPS` | `--kube-api-qps` | manager |
+| `SPO_KUBE_API_BURST` | `--kube-api-burst` | manager |
 | `ENABLE_SECCOMP` | `--with-seccomp` | daemon |
 | `ENABLE_SELINUX` | `--with-selinux` | daemon |
 | `ENABLE_APPARMOR` | `--with-apparmor` | daemon |
@@ -171,3 +174,4 @@ The following variables are read at runtime.
 | `MAX_METRIC_SERIES` | read by the manager as well: passed on to the daemon if set |
 | `RELATED_IMAGE_SELINUXD` | image of the selinuxd container of the daemon if the image mapping of the operator ConfigMap selects none for the operating system of the node |
 | `RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA` | images of the selinuxd container per operating system of the node, which the `selinuxd-image-mapping.json` mapping of the operator ConfigMap refers to, an unset one falls back to RELATED_IMAGE_SELINUXD |
+| `TUF_ROOT, TUF_MIRROR, TUF_ROOT_JSON` | the TUF cache directory, mirror and trust anchor of the Sigstore trusted root which the daemon verifies the signatures of `oci://` base profiles with, as for cosign, the operator does not set them, so the daemon uses the public Sigstore TUF repository and caches it in `.sigstore/root` below `HOME`, which the DaemonSet sets to the emptyDir `/home` |

@@ -123,6 +123,19 @@ const (
 	// series each per workload metric of the daemon keeps at most.
 	MaxMetricSeriesEnvKey = "MAX_METRIC_SERIES"
 
+	// MaxConcurrentReconcilesEnvKey is the environment variable key for the
+	// number of concurrent reconciles of the pod driven controllers of the
+	// manager.
+	MaxConcurrentReconcilesEnvKey = "SPO_MAX_CONCURRENT_RECONCILES"
+
+	// KubeAPIQPSEnvKey is the environment variable key for the queries per
+	// second of the client of the manager to the API server.
+	KubeAPIQPSEnvKey = "SPO_KUBE_API_QPS"
+
+	// KubeAPIBurstEnvKey is the environment variable key for the burst of the
+	// client of the manager to the API server.
+	KubeAPIBurstEnvKey = "SPO_KUBE_API_BURST"
+
 	// VerboseLevel is the increased verbosity log level.
 	VerboseLevel = 1
 

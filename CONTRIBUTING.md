@@ -1,4 +1,4 @@
-# Contributing Guidelines
+# Contributing guidelines
 
 Welcome to Kubernetes. We are excited about the prospect of you joining our
 [community](https://git.k8s.io/community)! The Kubernetes community abides by
@@ -9,7 +9,7 @@ fostering an open and welcoming community, we pledge to respect all people who
 contribute through reporting issues, posting feature requests, updating
 documentation, submitting pull requests or patches, and other activities._
 
-## Getting Started
+## Getting started
 
 We have full documentation on how to get started contributing here:
 
@@ -26,8 +26,11 @@ We have full documentation on how to get started contributing here:
 
 ## Prerequisites
 
-- [go](https://golang.org/dl/) version v1.27+.
-- [docker](https://docs.docker.com/install/) version 24.0+ or [podman](https://podman.io/getting-started/installation) version 4.0+.
+- [Go](https://go.dev/dl/) with the version of the `go` directive in
+  [go.mod](go.mod).
+- [podman](https://podman.io/docs/installation) or
+  [docker](https://docs.docker.com/engine/install/) to build the container
+  images.
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.30+.
 - Access to a Kubernetes v1.30+ cluster.
 
@@ -43,20 +46,16 @@ For detailed development setup and build instructions, see [hacking.md](doc/hack
 
 ## What to do before submitting a pull request
 
-Following the targets that can be used to test your changes locally.
-
-| Command                     | Description                                  | Is called in the CI? |
-| --------------------------- | -------------------------------------------- | -------------------- |
-| make test-unit              | Runs go tests                                | yes                  |
-| make test-e2e               | Runs the CI e2e tests locally                | yes                  |
-| make verify-go-lint         | Run [golangci][golangci] lint checks         | yes                  |
-| make verify-vulnerabilities | Fail on reachable vulnerabilities with a fix | yes                  |
-| make verify                 | Run all verification checks                  | yes                  |
-
-CI also scans the built images with trivy. If a vulnerability check fails, see
+Run the unit tests with `make test-unit` and the checks of
+[verifying changes](doc/hacking.md#verifying-changes), which also lists the
+checks that only run in CI. The e2e tests need a cluster, see
+[running e2e tests](doc/hacking.md#running-e2e-tests). If a vulnerability
+check fails, see
 [vulnerability checks and assessments](doc/hacking.md#vulnerability-checks-and-assessments).
+The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) asks for the
+kind of the change and a release note for user-facing changes.
 
-## Where the CI Tests are configured
+## Where the CI tests are configured
 
 1. See the [action files](.github/workflows) to check its tests, and the scripts used on it.
 1. Note that the prow tests used in the CI are configured in [kubernetes-sigs/security-profiles-operator/security-profiles-operator-presubmits.yaml](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/security-profiles-operator/security-profiles-operator-presubmits.yaml).
@@ -67,8 +66,6 @@ CI also scans the built images with trivy. If a vulnerability check fails, see
   diverse set of mentorship programs available that are always looking for
   volunteers!
 
-## Contact Information
+## Contact information
 
 - [Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator)
-
-[golangci]: https://golangci-lint.run/

@@ -4,16 +4,20 @@ flowchart LR
         FS1[(FileSystem)]
         P1[Pod]
         D1[Daemon]
+        S1[selinuxd]
         R1[eBpfRecorder]
         E1[LogEnricher]
         J1[JsonEnricher]
-        M1[Metrics]
+        M1[Metrics server<br>of the daemon]
 
         D1 -.->|install profile|FS1
+        D1 --> |install SELinux policy| S1
         P1 -.-> |use profile|FS1
         D1 --> |gRPC: record profile| R1
         D1 --> |gRPC: record profile| E1
-        D1 --> |gRPC: update metric| M1
+        D1 -.->|serves| M1
+        R1 --> |gRPC: update metric| M1
+        E1 --> |gRPC: update metric| M1
         R1 --> |record profile| P1
         E1 --> |record profile| P1
         J1 --> |audit in-pod activity| P1
@@ -26,7 +30,7 @@ flowchart LR
     NodeStatus[/SecurityProfileNodeStatus<br> CR/]
     Binding[/ProfileBinding CR/]
     W[Mutating Webhooks]
-    VW[Validating Webhook]
+    VW[Validating Webhooks]
     M[Manager]
     D[Daemonset]
 
@@ -44,6 +48,7 @@ flowchart LR
     M -->|create/update<br>unless statically configured|W
     M -->|create/update<br>unless statically configured|VW
     M -->|aggregate node states|Profile
+    M -->|merge recorded<br>partial profiles|Profile
     M -.->|watch|NodeStatus
 
     D -.->|start|D1
@@ -55,11 +60,12 @@ flowchart LR
     W-->|get|Binding
     W-->|get|Profile
     W-->|add SecurityContext<br>when profile binding is defined|P1
-    VW-->|validate|Profile
+    VW-->|validate RawSelinuxProfile|Profile
+    VW-->|reject image changes<br>of bound pods|P1
 
   classDef green fill:#9f6,stroke:#333,stroke-width:2px;
   classDef orange fill:#f96,stroke:#333,stroke-width:4px;
   classDef purple fill:#f9f,stroke:#333,stroke-width:4px
-  class W,VW,M,D,D1,R1,E1,J1,M1 green
+  class W,VW,M,D,D1,S1,R1,E1,J1,M1 green
   class U orange
   class P1 purple

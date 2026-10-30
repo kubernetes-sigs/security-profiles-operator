@@ -10,15 +10,15 @@ labels: kind/bug
 If the matter is security related, please disclose it privately via https://kubernetes.io/security/
 -->
 
-#### What happened:
+#### What happened
 
-#### What you expected to happen:
+#### What you expected to happen
 
-#### How to reproduce it (as minimally and precisely as possible):
+#### How to reproduce it (as minimally and precisely as possible)
 
-#### Anything else we need to know?:
+#### Anything else we need to know?
 
-#### Environment:
+#### Environment
 
 - Security Profiles Operator or spoc version (e.g. the image tag or `spoc version`):
 - Installation method (e.g. manifests, Helm, OLM):
