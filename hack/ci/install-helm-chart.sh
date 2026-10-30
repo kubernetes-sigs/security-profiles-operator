@@ -80,11 +80,31 @@ if [[ "$UPGRADE_FROM_RELEASE" == "true" ]]; then
   if [[ -n "$PREVIOUS_CHART_VERSION" ]]; then
     version_args=(--version "$PREVIOUS_CHART_VERSION")
   fi
+  install_released() {
+    helm install "$RELEASE" "$PREVIOUS_CHART" "${version_args[@]}" \
+      --namespace "$NAMESPACE" --create-namespace \
+      --wait --timeout "$WAIT_TIMEOUT" \
+      --set replicaCount=1
+  }
+
   echo "Installing the released Helm chart $PREVIOUS_CHART ${PREVIOUS_CHART_VERSION:-(latest)}"
-  helm install "$RELEASE" "$PREVIOUS_CHART" "${version_args[@]}" \
-    --namespace "$NAMESPACE" --create-namespace \
-    --wait --timeout "$WAIT_TIMEOUT" \
-    --set replicaCount=1
+  # The operator of a release without DISABLE_DEFAULT_SPOD in its chart can
+  # create the spod before Helm does, which fails the installation, with an
+  # error which depends on the Helm version. That gets retried once, after
+  # removing the spod and the release, if the spod is not the one of Helm.
+  if ! install_released; then
+    # The spod of the chart has the managed-by label of Helm.
+    spod=$(k get securityprofilesoperatordaemon spod --ignore-not-found \
+      -o jsonpath='{.metadata.name}:{.metadata.labels.app\.kubernetes\.io/managed-by}')
+    if [[ "$spod" != "spod:" ]]; then
+      echo "The installation of the released Helm chart failed, not because of the spod of its operator"
+      false
+    fi
+    echo "Retrying the installation, the operator created the spod first"
+    k delete securityprofilesoperatordaemon spod --wait --timeout "$WAIT_TIMEOUT"
+    helm uninstall "$RELEASE" --namespace "$NAMESPACE" --wait --timeout "$WAIT_TIMEOUT"
+    install_released
+  fi
   wait_for_spod
   echo "The released Helm chart installs a working operator"
 

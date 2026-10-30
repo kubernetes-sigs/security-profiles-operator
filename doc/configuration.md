@@ -116,7 +116,7 @@ them. How to set them depends on the installation method:
   variables which the chart sets itself: `RELATED_IMAGE_SELINUXD*` from the
   `selinuxdImage.*` values, `KUBELET_DIR` from `kubeletDir`,
   `RESTRICT_TO_NAMESPACE` from `restrictToNamespace`, and `OPERATOR_NAMESPACE`,
-  `WATCH_NAMESPACE` and `NODE_NAME`. A `helm upgrade` resets the variables
+  `WATCH_NAMESPACE`, `NODE_NAME` and `DISABLE_DEFAULT_SPOD`. A `helm upgrade` resets the variables
   which the chart sets itself.
 - OLM: set them in `spec.config.env` of the `Subscription`. OLM reverts the
   changes made to the Deployment directly.

@@ -85,6 +85,11 @@ const (
 	// the operator to work on only a single Kubernetes namespace.
 	RestrictNamespaceEnvKey = "RESTRICT_TO_NAMESPACE"
 
+	// DisableDefaultSPODEnvKey is the environment variable key for not
+	// creating the default SPOD, for deployments like the Helm chart which
+	// ship their own.
+	DisableDefaultSPODEnvKey = "DISABLE_DEFAULT_SPOD"
+
 	// VerbosityEnvKey is the environment variable key for the logging verbosity.
 	VerbosityEnvKey = "SPO_VERBOSITY"
 
