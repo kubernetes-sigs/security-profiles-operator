@@ -386,30 +386,3 @@ func TestBpfProcessCacheLoadClosesModuleOnError(t *testing.T) {
 	require.ErrorIs(t, b.Load(), errTest)
 	require.Equal(t, 1, mock.CloseModuleCallCount())
 }
-
-// TestBpfProcessCacheLoadShrinksUnusedMaps asserts that the maps only the
-// recorder fills are shrunk before the object gets loaded.
-func TestBpfProcessCacheLoadShrinksUnusedMaps(t *testing.T) {
-	t.Parallel()
-
-	b := NewBpfProcessCache(logr.Discard())
-	mock := &bpfrecorderfakes.FakeImpl{}
-	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
-	b.recorder.impl = mock
-
-	require.NoError(t, b.Load())
-
-	require.Equal(t, len(procCacheUnusedMaps), mock.SetMaxEntriesCallCount())
-
-	for i := range mock.SetMaxEntriesCallCount() {
-		_, maxEntries := mock.SetMaxEntriesArgsForCall(i)
-		require.Equal(t, uint32(1), maxEntries)
-	}
-
-	for i, name := range procCacheUnusedMaps {
-		_, got := mock.GetMapArgsForCall(i)
-		require.Equal(t, name, got)
-	}
-
-	b.Close()
-}

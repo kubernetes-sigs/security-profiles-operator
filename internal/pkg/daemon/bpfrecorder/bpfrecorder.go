@@ -1311,6 +1311,19 @@ func (b *BpfRecorder) loadModule(bpfObject []byte, withAppArmor bool) error {
 		return err
 	}
 
+	skipped := execMaps
+	if !withAppArmor {
+		skipped = slices.Concat(skipped, appArmorMaps)
+
+		if err := b.shrinkMaps(module, appArmorRecordMaps); err != nil {
+			return err
+		}
+	}
+
+	if err := b.skipMaps(module, skipped); err != nil {
+		return err
+	}
+
 	b.logger.Info("Loading bpf object from module")
 
 	if err := b.BPFLoadObject(module); err != nil {
@@ -1470,6 +1483,42 @@ func (b *BpfRecorder) Load() (err error) {
 // object, so they must not even be loaded then.
 func (b *BpfRecorder) wantAppArmor() bool {
 	return b.AppArmor != nil && b.BPFLSMEnabled()
+}
+
+// skipMaps keeps maps from getting created with the module, which take kernel
+// memory, the scratch buffers on every CPU. They have to be the maps of
+// programs which do not get loaded, a loaded program which uses one of them
+// fails loading the module.
+func (b *BpfRecorder) skipMaps(module *bpf.Module, names []string) error {
+	for _, name := range names {
+		bpfMap, err := b.GetMap(module, name)
+		if err != nil {
+			return fmt.Errorf("get bpf map %s: %w", name, err)
+		}
+
+		if err := b.SetAutocreate(bpfMap, false); err != nil {
+			return fmt.Errorf("skip bpf map %s: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
+// shrinkMaps creates maps with a single entry, for the maps which the loaded
+// programs refer to but never fill.
+func (b *BpfRecorder) shrinkMaps(module *bpf.Module, names []string) error {
+	for _, name := range names {
+		bpfMap, err := b.GetMap(module, name)
+		if err != nil {
+			return fmt.Errorf("get bpf map %s: %w", name, err)
+		}
+
+		if err := b.SetMaxEntries(bpfMap, 1); err != nil {
+			return fmt.Errorf("shrink bpf map %s: %w", name, err)
+		}
+	}
+
+	return nil
 }
 
 // disableProgramsExcept keeps the programs which are not going to be attached

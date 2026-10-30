@@ -18,6 +18,8 @@ limitations under the License.
 
 package bpfrecorder
 
+import "slices"
+
 // Names of the maps and global variables of recorder.bpf.c the recorder uses.
 // Every name has to be listed in bpfMapNames or bpfGlobalNames, a test checks
 // them against the compiled objects.
@@ -35,16 +37,20 @@ const (
 	mapRecordedCaps        = "recorded_caps"
 	mapRecordedSockets     = "recorded_sockets"
 	mapLastFileEvent       = "last_file_event"
+	mapExecEventScratch    = "exec_event_scratch"
+	mapFileEventScratch    = "file_event_scratch"
+	mapFileEventBusy       = "file_event_busy"
+	mapBufferHeap          = "buffer_heap_map"
 	globalFilterName       = "filter_name"
 	globalUseCgroupID      = "use_cgroup_id"
 	globalUseMntnsSeq      = "use_mntns_seq"
-	globalCaptureExecArgs  = "capture_exec_args"
 	globalReportExits      = "report_exits"
 	globalInitComms        = "init_comms"
 	globalInitExePrefix    = "init_exe_prefix"
 	progSysEnterGetgid     = "sys_enter_getgid"
 	progSysEnter           = "sys_enter"
 	progSchedProcessExec   = "sched_process_exec"
+	progSchedExecArgs      = "sched_exec_args"
 	progSchedProcessExit   = "sched_process_exit"
 	progSchedProcessFork   = "sched_process_fork"
 	progFileOpen           = "file_open"
@@ -72,12 +78,13 @@ var (
 		mapIsRecording, mapEvents, mapExcludeMntns, mapRecordedSyscalls,
 		mapActivePids, mapChildPids, mapExcludeKeys, mapSeccompInitialized,
 		mapApparmorInitialized, mapLostEvents, mapRecordedCaps, mapRecordedSockets,
-		mapLastFileEvent,
+		mapLastFileEvent, mapExecEventScratch, mapFileEventScratch, mapFileEventBusy,
+		mapBufferHeap,
 	}
 
 	bpfGlobalNames = []string{
-		globalFilterName, globalUseCgroupID, globalUseMntnsSeq, globalCaptureExecArgs,
-		globalReportExits, globalInitComms, globalInitExePrefix,
+		globalFilterName, globalUseCgroupID, globalUseMntnsSeq, globalReportExits,
+		globalInitComms, globalInitExePrefix,
 	}
 
 	// baseHooks are attached by the recorder in any case.
@@ -92,6 +99,12 @@ var (
 	filterHooks = []string{
 		progSchedProcessFork,
 		progSchedProcessExec,
+	}
+
+	// execHooks send the arguments of the execs, which only the process cache
+	// needs.
+	execHooks = []string{
+		progSchedExecArgs,
 	}
 
 	// appArmorHooks are attached when recording AppArmor profiles.
@@ -116,18 +129,28 @@ var (
 		progCapCapable,
 	}
 
-	// procCacheHooks are attached by the process cache, sched_process_exec
-	// sends the arguments of the execs, see capture_exec_args.
-	procCacheHooks = []string{
-		progSchedProcessExec,
-		progSysEnterGetgid,
-	}
+	// procCacheHooks are attached by the process cache.
+	procCacheHooks = slices.Concat(execHooks, []string{progSysEnterGetgid})
 
-	// procCacheUnusedMaps are the maps of the recorder which the hooks of the
-	// process cache do not fill, see BpfProcessCache.Load.
-	procCacheUnusedMaps = []string{
-		mapExcludeMntns, mapRecordedSyscalls, mapActivePids, mapChildPids,
-		mapExcludeKeys, mapSeccompInitialized, mapApparmorInitialized,
-		mapRecordedCaps, mapRecordedSockets, mapLastFileEvent,
-	}
+	// execMaps are only used by the execHooks, and appArmorMaps by the
+	// appArmorHooks. Without their hooks they do not get created, see
+	// BpfRecorder.skipMaps. TestBpfHookMaps checks that no other hook uses
+	// them.
+	execMaps     = []string{mapExecEventScratch}
+	appArmorMaps = []string{mapFileEventScratch, mapFileEventBusy, mapBufferHeap}
+
+	// appArmorRecordMaps are only filled by the appArmorHooks, the base hooks
+	// remove entries of them. Without the AppArmor hooks they get shrunk, see
+	// BpfRecorder.shrinkMaps.
+	appArmorRecordMaps = []string{mapRecordedCaps, mapRecordedSockets, mapLastFileEvent}
+
+	// procCacheSkippedMaps are not used by the procCacheHooks, so they do not
+	// get created for the process cache. TestBpfHookMaps checks them.
+	procCacheSkippedMaps = slices.Concat(appArmorMaps, appArmorRecordMaps, []string{
+		mapRecordedSyscalls, mapActivePids, mapSeccompInitialized, mapApparmorInitialized,
+	})
+
+	// procCacheUnusedMaps are used by the procCacheHooks but never filled for
+	// the process cache, they get shrunk.
+	procCacheUnusedMaps = []string{mapExcludeMntns, mapChildPids, mapExcludeKeys}
 )

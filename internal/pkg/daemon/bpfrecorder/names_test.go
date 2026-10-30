@@ -21,6 +21,7 @@ package bpfrecorder
 import (
 	"bytes"
 	"debug/elf"
+	"encoding/binary"
 	"slices"
 	"testing"
 
@@ -93,11 +94,109 @@ func TestBpfNamesExist(t *testing.T) {
 			require.Equal(t, size, symbols[name].size, "%s: size of %s", arch, name)
 		}
 
-		for _, name := range slices.Concat(baseHooks, appArmorHooks, procCacheHooks) {
+		for _, name := range slices.Concat(baseHooks, filterHooks, execHooks, appArmorHooks) {
 			symbol, ok := symbols[name]
 			require.True(t, ok, "%s: program %s not found", arch, name)
 			require.Equal(t, elf.STT_FUNC, symbol.typ, "%s: %s is no program", arch, name)
 			require.NotEqual(t, ".text", symbol.section, "%s: %s is no program", arch, name)
+		}
+	}
+}
+
+// bpfProgramMaps returns the maps which each program of a compiled BPF object
+// refers to, from the relocations of its instructions.
+func bpfProgramMaps(t *testing.T, object []byte) map[string][]string {
+	t.Helper()
+
+	file, err := elf.NewFile(bytes.NewReader(object))
+	require.NoError(t, err)
+
+	symbols, err := file.Symbols()
+	require.NoError(t, err)
+
+	sectionName := func(index elf.SectionIndex) string {
+		if int(index) >= len(file.Sections) {
+			return ""
+		}
+
+		return file.Sections[index].Name
+	}
+
+	result := map[string][]string{}
+
+	for _, section := range file.Sections {
+		target := elf.SectionIndex(section.Info)
+		if section.Type != elf.SHT_REL || sectionName(target) == ".BTF" ||
+			sectionName(target) == ".BTF.ext" {
+			continue
+		}
+
+		data, err := section.Data()
+		require.NoError(t, err)
+
+		relocations := make([]elf.Rel64, len(data)/binary.Size(elf.Rel64{}))
+		require.NoError(t, binary.Read(bytes.NewReader(data), file.ByteOrder, relocations))
+
+		for _, relocation := range relocations {
+			index := elf.R_SYM64(relocation.Info)
+			if index == 0 || sectionName(symbols[index-1].Section) != ".maps" {
+				continue
+			}
+
+			// Calls to functions which are not inlined would hide which
+			// program refers to the map.
+			require.NotEqual(t, ".text", sectionName(target),
+				"map %s is used outside of a program", symbols[index-1].Name)
+
+			program := ""
+
+			for _, symbol := range symbols {
+				if symbol.Section == target && elf.ST_TYPE(symbol.Info) == elf.STT_FUNC &&
+					symbol.Value <= relocation.Off && relocation.Off < symbol.Value+symbol.Size {
+					program = symbol.Name
+				}
+			}
+
+			require.NotEmpty(
+				t,
+				program,
+				"no program at the relocation of %s",
+				symbols[index-1].Name,
+			)
+			result[program] = append(result[program], symbols[index-1].Name)
+		}
+	}
+
+	return result
+}
+
+// TestBpfHookMaps asserts that the maps which do not get created without some
+// hooks are not used by the other hooks, which would fail loading the object.
+func TestBpfHookMaps(t *testing.T) {
+	t.Parallel()
+
+	for arch, object := range map[string][]byte{"amd64": bpfAmd64, "arm64": bpfArm64} {
+		programMaps := bpfProgramMaps(t, object)
+		require.NotEmpty(t, programMaps[progSysEnter], "%s: no maps of %s", arch, progSysEnter)
+
+		for _, tc := range []struct {
+			loader  string
+			hooks   []string
+			skipped []string
+		}{
+			{"recorder", slices.Concat(baseHooks, filterHooks, appArmorHooks), execMaps},
+			{
+				"recorder without AppArmor", slices.Concat(baseHooks, filterHooks),
+				slices.Concat(execMaps, appArmorMaps),
+			},
+			{"process cache", procCacheHooks, procCacheSkippedMaps},
+		} {
+			for _, hook := range tc.hooks {
+				for _, name := range programMaps[hook] {
+					require.NotContains(t, tc.skipped, name,
+						"%s: %s of the %s uses the skipped map", arch, hook, tc.loader)
+				}
+			}
 		}
 	}
 }

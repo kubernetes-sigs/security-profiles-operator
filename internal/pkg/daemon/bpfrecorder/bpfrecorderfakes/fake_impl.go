@@ -388,6 +388,15 @@ type FakeImpl struct {
 	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
+	SetAutocreateStub        func(*libbpfgo.BPFMap, bool) error
+	setAutocreateMutex       sync.RWMutex
+	setAutocreateArgsForCall []FakeImplSetAutocreateArgs
+	setAutocreateReturns     struct {
+		result1 error
+	}
+	setAutocreateReturnsOnCall map[int]struct {
+		result1 error
+	}
 	SetAutoloadStub        func(*libbpfgo.BPFProg, bool) error
 	setAutoloadMutex       sync.RWMutex
 	setAutoloadArgsForCall []FakeImplSetAutoloadArgs
@@ -641,6 +650,12 @@ type FakeImplSendMetricArgs struct {
 type FakeImplServeArgs struct {
 	Arg1 *grpc.Server
 	Arg2 net.Listener
+}
+
+// FakeImplSetAutocreateArgs holds the arguments of one call to SetAutocreate.
+type FakeImplSetAutocreateArgs struct {
+	Arg1 *libbpfgo.BPFMap
+	Arg2 bool
 }
 
 // FakeImplSetAutoloadArgs holds the arguments of one call to SetAutoload.
@@ -3039,6 +3054,73 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.serveReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetAutocreate(arg1 *libbpfgo.BPFMap, arg2 bool) error {
+	fake.setAutocreateMutex.Lock()
+	ret, specificReturn := fake.setAutocreateReturnsOnCall[len(fake.setAutocreateArgsForCall)]
+	fake.setAutocreateArgsForCall = append(fake.setAutocreateArgsForCall, FakeImplSetAutocreateArgs{arg1, arg2})
+	stub := fake.SetAutocreateStub
+	fakeReturns := fake.setAutocreateReturns
+	fake.recordInvocation("SetAutocreate", []interface{}{arg1, arg2})
+	fake.setAutocreateMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) SetAutocreateCallCount() int {
+	fake.setAutocreateMutex.RLock()
+	defer fake.setAutocreateMutex.RUnlock()
+	return len(fake.setAutocreateArgsForCall)
+}
+
+func (fake *FakeImpl) SetAutocreateCalls(stub func(*libbpfgo.BPFMap, bool) error) {
+	fake.setAutocreateMutex.Lock()
+	defer fake.setAutocreateMutex.Unlock()
+	fake.SetAutocreateStub = stub
+}
+
+func (fake *FakeImpl) SetAutocreateArgsForCall(i int) (*libbpfgo.BPFMap, bool) {
+	fake.setAutocreateMutex.RLock()
+	defer fake.setAutocreateMutex.RUnlock()
+	argsForCall := fake.setAutocreateArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) SetAutocreateArgs() []FakeImplSetAutocreateArgs {
+	fake.setAutocreateMutex.RLock()
+	defer fake.setAutocreateMutex.RUnlock()
+	args := make([]FakeImplSetAutocreateArgs, len(fake.setAutocreateArgsForCall))
+	copy(args, fake.setAutocreateArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) SetAutocreateReturns(result1 error) {
+	fake.setAutocreateMutex.Lock()
+	defer fake.setAutocreateMutex.Unlock()
+	fake.SetAutocreateStub = nil
+	fake.setAutocreateReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetAutocreateReturnsOnCall(i int, result1 error) {
+	fake.setAutocreateMutex.Lock()
+	defer fake.setAutocreateMutex.Unlock()
+	fake.SetAutocreateStub = nil
+	if fake.setAutocreateReturnsOnCall == nil {
+		fake.setAutocreateReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.setAutocreateReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
