@@ -401,6 +401,10 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 
 		// Mount or copy
 		if err := mounter.Mount(ctx, desc, sourceRepository, getContent); err != nil && !errors.Is(err, skipSource) {
+			if errors.Is(err, SkipNode) {
+				// PreCopy made the blob available in the target
+				return nil
+			}
 			return newCopyError("Mount", CopyErrorOriginDestination, err)
 		}
 

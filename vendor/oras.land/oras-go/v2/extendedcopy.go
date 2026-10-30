@@ -361,7 +361,7 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 				// if the artifact type is not present in the descriptors,
 				// fetch it from the manifest content.
 				switch p.MediaType {
-				case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
+				case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
 					artifactType, err := fetchArtifactType(ctx, src, p)
 					if err != nil {
 						return nil, err
@@ -397,7 +397,16 @@ func fetchArtifactType(ctx context.Context, src content.ReadOnlyGraphStorage, de
 		if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
 			return "", err
 		}
+		if manifest.ArtifactType != "" {
+			return manifest.ArtifactType, nil
+		}
 		return manifest.Config.MediaType, nil
+	case ocispec.MediaTypeImageIndex:
+		var index ocispec.Index
+		if err := json.NewDecoder(rc).Decode(&index); err != nil {
+			return "", err
+		}
+		return index.ArtifactType, nil
 	default:
 		return "", nil
 	}
