@@ -33,87 +33,37 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-// newExecEvent returns an exec event with the header set, laid out like the
-// packed C struct in recorder.bpf.c.
-func newExecEvent() []byte {
-	eventBytes := make([]byte, bpfExecEventSize)
+// newExecEvent returns an exec event of PID 1 with the arguments and the
+// complete environment, laid out like the packed C struct in recorder.bpf.c.
+func newExecEvent(args, env string) []byte {
+	event := make([]byte, bpfExecEventDataOffset, bpfExecEventDataOffset+len(args)+len(env))
 
-	binary.LittleEndian.PutUint32(eventBytes[0:], 1) // PID = 1
-	eventBytes[16] = eventTypeExecveEnter
+	binary.LittleEndian.PutUint32(event[0:], 1) // PID = 1
+	event[16] = eventTypeExec
 
-	return eventBytes
+	//nolint:gosec // the lengths of test values
+	setExecLens(event, uint32(len(args)), uint32(len(env)))
+
+	return append(append(event, args...), env...)
 }
 
-func getEventDataFileName() []byte {
-	eventBytes := newExecEvent()
+// setExecLens overwrites the lengths of the arguments and the environment of
+// an exec event.
+func setExecLens(event []byte, argsLen, envLen uint32) []byte {
+	binary.LittleEndian.PutUint32(event[bpfEventHeaderSize:], argsLen)
+	binary.LittleEndian.PutUint32(event[bpfEventHeaderSize+4:], envLen)
 
-	copy(eventBytes[bpfEventHeaderSize:], "foo.txt\x00")
-
-	return eventBytes
+	return event
 }
 
-// Test Constants must match C definitions so that it can test the real code changes.
-const (
-	MAX_ARGS         = 20
-	MAX_ENV          = 50
-	MAX_FILENAME_LEN = 128
-	MAX_ARG_LEN      = 64
-	MAX_ENV_LEN      = 64
-)
+// setExecGap overwrites the gap of the environment of an exec event.
+func setExecGap(event []byte, gap uint32) []byte {
+	binary.LittleEndian.PutUint32(event[bpfEventHeaderSize+8:], gap)
 
-func getArgsEnvData() []byte {
-	eventBytes := newExecEvent()
-
-	filenameOffset := bpfEventHeaderSize
-
-	copy(eventBytes[filenameOffset:], "myapp")
-
-	eventBytes[filenameOffset+5] = 0 // Null terminator
-
-	argsOffset := filenameOffset + MAX_FILENAME_LEN
-	sampleArgs := []string{"arg1", "--flag", "value with spaces", "last_arg"}
-
-	for i, arg := range sampleArgs {
-		if i >= MAX_ARGS {
-			break
-		}
-
-		copy(eventBytes[argsOffset+i*MAX_ARG_LEN:], arg)
-
-		if len(arg) < MAX_ARG_LEN {
-			eventBytes[argsOffset+i*MAX_ARG_LEN+len(arg)] = 0 // Null terminator
-		}
-	}
-
-	envOffset := argsOffset + MAX_ARGS*MAX_ARG_LEN
-
-	sampleEnv := []string{"HOME=/root", "SPO_EXEC_REQUEST_UID=dde426d5-123e-4296-b9ff-afd6eee83ee9"}
-	for i, env := range sampleEnv {
-		if i >= MAX_ENV {
-			break
-		}
-
-		copy(eventBytes[envOffset+i*MAX_ENV_LEN:], env)
-
-		if len(env) < MAX_ENV_LEN {
-			eventBytes[envOffset+i*MAX_ENV_LEN+len(env)] = 0 // Null terminator
-		}
-	}
-
-	argsLenOffset := envOffset + MAX_ENV*MAX_ENV_LEN
-
-	//nolint:gosec // a few test values
-	binary.LittleEndian.PutUint32(eventBytes[argsLenOffset:], uint32(len(sampleArgs)))
-
-	envLenOffset := argsLenOffset + 4
-
-	//nolint:gosec // a few test values
-	binary.LittleEndian.PutUint32(eventBytes[envLenOffset:], uint32(len(sampleEnv)))
-
-	return eventBytes
+	return event
 }
 
-func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
+func TestBpfProcessCache_GetCmdLineAndRequestUID(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -122,18 +72,18 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		args        args
-		wantCmdLine string
-		wantArgs    []string
-		wantEnv     map[string]string
-		wantErr     bool
+		name           string
+		args           args
+		wantCmdLine    string
+		wantArgs       []string
+		wantRequestUID string
+		wantErr        bool
 	}{
 		{
-			name: "Basic Test with event data filename",
+			name: "exec without arguments",
 			args: args{
 				pid:        1,
-				eventBytes: getEventDataFileName(),
+				eventBytes: newExecEvent("", ""),
 			},
 			wantCmdLine: "",
 			wantErr:     false,
@@ -141,16 +91,16 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 		{
 			name: "Test with all event data args and env",
 			args: args{
-				pid:        1,
-				eventBytes: getArgsEnvData(),
+				pid: 1,
+				eventBytes: newExecEvent(
+					"arg1\x00--flag\x00value with spaces\x00last_arg\x00",
+					"HOME=/root\x00SPO_EXEC_REQUEST_UID=dde426d5-123e-4296-b9ff-afd6eee83ee9\x00",
+				),
 			},
-			wantCmdLine: "arg1 --flag value with spaces last_arg",
-			wantArgs:    []string{"arg1", "--flag", "value with spaces", "last_arg"},
-			wantEnv: map[string]string{
-				"HOME":                 "/root",
-				"SPO_EXEC_REQUEST_UID": "dde426d5-123e-4296-b9ff-afd6eee83ee9",
-			},
-			wantErr: false,
+			wantCmdLine:    "arg1 --flag value with spaces last_arg",
+			wantArgs:       []string{"arg1", "--flag", "value with spaces", "last_arg"},
+			wantRequestUID: "dde426d5-123e-4296-b9ff-afd6eee83ee9",
+			wantErr:        false,
 		},
 	}
 
@@ -178,35 +128,31 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 				b.handleEvent(tt.args.eventBytes)
 			}
 
-			gotCmdLine, gotArgs, gotEnv, err := b.GetCmdLineAndEnv(tt.args.pid)
+			gotCmdLine, gotArgs, gotRequestUID, err := b.GetCmdLineAndRequestUID(tt.args.pid)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetCmdLineAndEnv() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetCmdLineAndRequestUID() error = %v, wantErr %v", err, tt.wantErr)
 
 				return
 			}
 
 			if strings.TrimSpace(gotCmdLine) != strings.TrimSpace(tt.wantCmdLine) {
-				t.Errorf("GetCmdLineAndEnv() gotCmdLine = %v, want %v", gotCmdLine, tt.wantCmdLine)
-			}
-
-			if len(tt.wantArgs) > 0 && !reflect.DeepEqual(gotArgs, tt.wantArgs) {
-				t.Errorf("GetCmdLineAndEnv() gotArgs = %q, want %q", gotArgs, tt.wantArgs)
-			}
-
-			if len(gotEnv) != len(tt.wantEnv) {
 				t.Errorf(
-					"GetCmdLineAndEnv() gotEnv len = %v, want len %v",
-					len(gotEnv),
-					len(tt.wantEnv),
+					"GetCmdLineAndRequestUID() gotCmdLine = %v, want %v",
+					gotCmdLine,
+					tt.wantCmdLine,
 				)
 			}
 
-			if len(gotEnv) == 0 {
-				return
+			if len(tt.wantArgs) > 0 && !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Errorf("GetCmdLineAndRequestUID() gotArgs = %q, want %q", gotArgs, tt.wantArgs)
 			}
 
-			if !reflect.DeepEqual(gotEnv, tt.wantEnv) {
-				t.Errorf("GetCmdLineAndEnv() gotEnv = %v, want %v", gotEnv, tt.wantEnv)
+			if gotRequestUID != tt.wantRequestUID {
+				t.Errorf(
+					"GetCmdLineAndRequestUID() gotRequestUID = %q, want %q",
+					gotRequestUID,
+					tt.wantRequestUID,
+				)
 			}
 		})
 	}
@@ -225,10 +171,10 @@ func TestBpfProcessCacheIgnoresOtherEvents(t *testing.T) {
 
 	b.handleEvent(event)
 
-	cmdLine, _, env, err := b.GetCmdLineAndEnv(1)
+	cmdLine, _, requestUID, err := b.GetCmdLineAndRequestUID(1)
 	require.Error(t, err)
 	require.Empty(t, cmdLine)
-	require.Nil(t, env)
+	require.Empty(t, requestUID)
 }
 
 // TestBpfProcessCacheChecksStartTime asserts that the exec of a process is not
@@ -258,12 +204,9 @@ func TestBpfProcessCacheChecksStartTime(t *testing.T) {
 
 			b := NewBpfProcessCache(logr.Discard())
 
-			event := newExecEvent()
+			event := newExecEvent("sh\x00", "SPO_EXEC_REQUEST_UID=r\x00")
 			//nolint:gosec // a duration which is never negative
 			binary.LittleEndian.PutUint64(event[17:25], uint64(tc.startedAt))
-			putExecSlot(argSlot(event, 0), "sh", "")
-			putExecSlot(envSlot(event, 0), "K=v", "")
-			setExecLens(event, 1, 1)
 			b.handleEvent(event)
 
 			var startTimeReads int
@@ -274,7 +217,7 @@ func TestBpfProcessCacheChecksStartTime(t *testing.T) {
 				return tc.running, tc.runErr
 			}
 
-			cmdLine, args, env, err := b.GetCmdLineAndEnv(1)
+			cmdLine, args, requestUID, err := b.GetCmdLineAndRequestUID(1)
 
 			// The process gets checked once for all of them.
 			if tc.startedAt > 0 {
@@ -290,118 +233,119 @@ func TestBpfProcessCacheChecksStartTime(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "sh ", cmdLine)
 			require.Equal(t, []string{"sh"}, args)
-			require.Equal(t, map[string]string{"K": "v"}, env)
+			require.Equal(t, "r", requestUID)
 		})
 	}
-}
-
-// putExecSlot writes value into a slot of the args or env array of an exec
-// event, followed by a terminator and stale bytes, the way a reused ring
-// buffer slot looks.
-func putExecSlot(slot []byte, value, stale string) {
-	for j := range slot {
-		slot[j] = 'X'
-	}
-
-	n := copy(slot, value)
-	slot[n] = 0
-	copy(slot[n+1:], stale)
-}
-
-func argSlot(event []byte, i int) []byte {
-	offset := bpfEventHeaderSize + maxFileNameLen + i*maxArgLen
-
-	return event[offset : offset+maxArgLen]
-}
-
-func envSlot(event []byte, i int) []byte {
-	offset := bpfEventHeaderSize + maxFileNameLen + maxArgs*maxArgLen + i*maxEnvLen
-
-	return event[offset : offset+maxEnvLen]
-}
-
-func setExecLens(event []byte, argsLen, envLen uint32) {
-	lenOffset := bpfEventHeaderSize + maxFileNameLen + maxArgs*maxArgLen + maxEnv*maxEnvLen
-	binary.LittleEndian.PutUint32(event[lenOffset:], argsLen)
-	binary.LittleEndian.PutUint32(event[lenOffset+4:], envLen)
 }
 
 func TestBpfProcessCacheHandleEvent(t *testing.T) {
 	t.Parallel()
 
+	const (
+		uid    = "dde426d5-123e-4296-b9ff-afd6eee83ee9"
+		uidVar = "SPO_EXEC_REQUEST_UID=" + uid + "\x00"
+	)
+
+	// gapEvent returns an event whose environment has head and tail around
+	// its gap.
+	gapEvent := func(head, tail string) []byte {
+		//nolint:gosec // the length of a test value
+		return setExecGap(newExecEvent("sh\x00", head+tail), uint32(len(head)))
+	}
+
 	tests := []struct {
-		name        string
-		event       func() []byte
-		wantCached  bool
-		wantCmdLine string
-		wantEnv     map[string]string
+		name           string
+		event          func() []byte
+		wantCached     bool
+		wantCmdLine    string
+		wantRequestUID string
 	}{
 		{
-			name: "stale bytes after the terminator are ignored",
+			name: "request UID among other variables",
 			event: func() []byte {
-				event := newExecEvent()
-				copy(event[bpfEventHeaderSize:], "/bin/sh\x00/usr/bin/stale")
-				putExecSlot(argSlot(event, 0), "sh", "stale-arg")
-				putExecSlot(argSlot(event, 1), "-c", "")
-				putExecSlot(envSlot(event, 0), "A=b", "C=stale")
-				putExecSlot(envSlot(event, 1), `"Q"="v"`, "=x")
-				setExecLens(event, 2, 2)
-
-				return event
+				return newExecEvent("sh\x00-c\x00", "A=b\x00"+uidVar+"C=d\x00")
 			},
-			wantCached:  true,
-			wantCmdLine: "sh -c ",
-			wantEnv:     map[string]string{"A": "b", "Q": "v"},
+			wantCached:     true,
+			wantCmdLine:    "sh -c ",
+			wantRequestUID: uid,
 		},
 		{
-			name: "slot without terminator keeps all bytes",
+			name: "truncated argument is kept",
 			event: func() []byte {
-				event := newExecEvent()
-				copy(argSlot(event, 0), strings.Repeat("a", maxArgLen))
-				setExecLens(event, 1, 0)
-
-				return event
+				return newExecEvent("sh\x00-c\x00trunc", "")
 			},
 			wantCached:  true,
-			wantCmdLine: strings.Repeat("a", maxArgLen) + " ",
-			wantEnv:     map[string]string{},
+			wantCmdLine: "sh -c trunc ",
 		},
 		{
-			name: "env entry without separator is skipped",
+			name: "empty argument is kept",
 			event: func() []byte {
-				event := newExecEvent()
-				putExecSlot(envSlot(event, 0), "NOVALUE", "=stale")
-				setExecLens(event, 0, 1)
-
-				return event
-			},
-			wantCached: true,
-			wantEnv:    map[string]string{},
-		},
-		{
-			name: "lengths beyond the arrays are clamped",
-			event: func() []byte {
-				event := newExecEvent()
-				for i := range maxArgs {
-					putExecSlot(argSlot(event, i), "a", "stale")
-				}
-
-				for i := range maxEnv {
-					putExecSlot(envSlot(event, i), "K=v", "stale")
-				}
-
-				setExecLens(event, 1000, 1000)
-
-				return event
+				return newExecEvent("sh\x00\x00", "")
 			},
 			wantCached:  true,
-			wantCmdLine: strings.Repeat("a ", maxArgs),
-			wantEnv:     map[string]string{"K": "v"},
+			wantCmdLine: "sh  ",
+		},
+		{
+			name: "empty request UID is none",
+			event: func() []byte {
+				return newExecEvent("sh\x00", "SPO_EXEC_REQUEST_UID=\x00")
+			},
+			wantCached:  true,
+			wantCmdLine: "sh ",
+		},
+		{
+			name: "request UID before the gap",
+			event: func() []byte {
+				return gapEvent("A=b\x00"+uidVar+"C=cut", "ut\x00D=e\x00")
+			},
+			wantCached:     true,
+			wantCmdLine:    "sh ",
+			wantRequestUID: uid,
+		},
+		{
+			name: "request UID after the gap",
+			event: func() []byte {
+				return gapEvent("A=b\x00C=cut", "ut\x00D=e\x00"+uidVar)
+			},
+			wantCached:     true,
+			wantCmdLine:    "sh ",
+			wantRequestUID: uid,
+		},
+		{
+			name: "request UID right after the gap",
+			event: func() []byte {
+				return gapEvent("A=b\x00C=cut", "\x00"+uidVar)
+			},
+			wantCached:     true,
+			wantCmdLine:    "sh ",
+			wantRequestUID: uid,
+		},
+		{
+			name: "request UID cut before the gap",
+			event: func() []byte {
+				return gapEvent("A=b\x00"+uidVar[:30], "ut\x00D=e\x00")
+			},
+			wantCached:  true,
+			wantCmdLine: "sh ",
+		},
+		{
+			name: "request UID cut after the gap",
+			event: func() []byte {
+				return gapEvent("A=b\x00", uidVar[10:]+"D=e\x00")
+			},
+			wantCached:  true,
+			wantCmdLine: "sh ",
+		},
+		{
+			name: "lengths beyond the event are dropped",
+			event: func() []byte {
+				return setExecLens(newExecEvent("sh\x00", "K=v\x00"), 4, 5)
+			},
 		},
 		{
 			name: "short event is dropped",
 			event: func() []byte {
-				return newExecEvent()[:bpfExecEventSize-1]
+				return newExecEvent("", "")[:bpfExecEventDataOffset-1]
 			},
 		},
 	}
@@ -413,7 +357,7 @@ func TestBpfProcessCacheHandleEvent(t *testing.T) {
 			b := NewBpfProcessCache(logr.Discard())
 			b.handleEvent(tc.event())
 
-			cmdLine, args, env, err := b.GetCmdLineAndEnv(1)
+			cmdLine, args, requestUID, err := b.GetCmdLineAndRequestUID(1)
 			if !tc.wantCached {
 				require.Error(t, err)
 
@@ -422,8 +366,8 @@ func TestBpfProcessCacheHandleEvent(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tc.wantCmdLine, cmdLine)
-			require.Equal(t, strings.Fields(tc.wantCmdLine), args)
-			require.Equal(t, tc.wantEnv, env)
+			require.Equal(t, tc.wantCmdLine, strings.Join(args, " ")+" ")
+			require.Equal(t, tc.wantRequestUID, requestUID)
 		})
 	}
 }

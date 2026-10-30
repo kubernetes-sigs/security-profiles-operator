@@ -62,10 +62,10 @@ const (
 // errTailEnded is reported when the audit log tail ends without an error.
 var errTailEnded = errors.New("audit log tail ended")
 
-// bpfProcesses tells the command line, the arguments and the environment of
-// the processes which the BPF process cache saw executing.
+// bpfProcesses tells the command line, the arguments and the request UID of
+// the environment of the processes which the BPF process cache saw executing.
 type bpfProcesses interface {
-	GetCmdLineAndEnv(pid int) (cmdLine string, args []string, env map[string]string, err error)
+	GetCmdLineAndRequestUID(pid int) (cmdLine string, args []string, requestUID string, err error)
 }
 
 type JsonEnricher struct {
@@ -465,7 +465,7 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, pid int) {
 
 	// A single lookup, which checks the process with the PID only once.
 	//nolint:staticcheck,nolintlint // platform-dependent
-	cmdLine, args, procEnv, err := e.bpfProcessCache.GetCmdLineAndEnv(pid)
+	cmdLine, args, envRequestUID, err := e.bpfProcessCache.GetCmdLineAndRequestUID(pid)
 	//nolint:staticcheck,nolintlint // platform-dependent
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info("process not found in eBPF either",
@@ -485,9 +485,7 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, pid int) {
 
 	if needRequest {
 		reqId, ok := execRequestUID(args, func() (string, bool) {
-			reqId, ok := procEnv[requestIdEnv]
-
-			return reqId, ok
+			return envRequestUID, envRequestUID != ""
 		})
 		if !ok {
 			e.logger.V(config.VerboseLevel).Info("exec request id info not found in eBPF either",

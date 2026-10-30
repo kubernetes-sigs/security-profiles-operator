@@ -71,7 +71,7 @@ const (
 	eventTypeAppArmorSocket uint8         = 3
 	eventTypeAppArmorCap    uint8         = 4
 	eventTypeClearMntns     uint8         = 5
-	eventTypeExecveEnter    uint8         = 6
+	eventTypeExec           uint8         = 6
 	excludeMntnsEnabled     byte          = 1
 
 	// eventsQueueSize is how many events the consumer of the ring buffer can

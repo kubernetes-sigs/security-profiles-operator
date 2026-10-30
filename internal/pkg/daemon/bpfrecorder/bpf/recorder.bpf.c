@@ -25,7 +25,7 @@
 #define EVENT_TYPE_APPARMOR_SOCKET 3
 #define EVENT_TYPE_APPARMOR_CAP 4
 #define EVENT_TYPE_CLEAR_MNTNS 5
-#define EVENT_TYPE_EXECVE_ENTER 6
+#define EVENT_TYPE_EXEC 6
 
 #define FLAG_READ 0x1
 #define FLAG_WRITE 0x2
@@ -240,13 +240,11 @@ struct {
     __type(value, u64);
 } lost_events SEC(".maps");
 
-// Max number of arguments/env vars to capture
-#define MAX_ARGS 20
-#define MAX_ENV 50
-// Max length for each argument/env var string
-#define MAX_FILENAME_LEN 128
-#define MAX_ARG_LEN 64
-#define MAX_ENV_LEN 64
+// How much of the arguments and of the environment of an exec is sent. Of a
+// longer environment, its start and its end are sent, see submit_exec_event.
+#define MAX_EXEC_ARGS_LEN 4096
+#define MAX_EXEC_ENV_LEN 8192
+#define MAX_EXEC_ENV_PART_LEN (MAX_EXEC_ENV_LEN / 2)
 
 // Every event starts with this header. Events which carry no data are sent as
 // the header alone, so that they only take a few bytes of the ring buffer.
@@ -265,14 +263,27 @@ typedef struct __attribute__((__packed__)) event_data {
 } event_data_t;
 
 // The exec event is only used by the process cache, see capture_exec_args.
+// data holds args_len bytes of arguments followed by env_len bytes of
+// environment, both NUL separated strings like /proc/<pid>/cmdline, and is
+// only sent as far as it is in use. env_gap is the offset in the environment
+// where its middle got left out, 0 if it is complete.
 typedef struct __attribute__((__packed__)) exec_event_data {
     event_header_t hdr;
-    char filename[MAX_FILENAME_LEN];
-    char args[MAX_ARGS][MAX_ARG_LEN];
-    char env[MAX_ENV][MAX_ENV_LEN];
     u32 args_len;
     u32 env_len;
+    u32 env_gap;
+    char data[MAX_EXEC_ARGS_LEN + MAX_EXEC_ENV_LEN];
 } exec_event_data_t;
+
+// Exec events are assembled here, they are too large for the stack. The
+// tracepoint runs with preemption disabled, so no other exec on the CPU can
+// use the buffer meanwhile.
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, exec_event_data_t);
+} exec_event_scratch SEC(".maps");
 
 // File events are assembled here before they are copied into the ring buffer
 // with their actual size.
@@ -326,7 +337,7 @@ const volatile bool use_cgroup_id = false;
 // without cgroup v2.
 const volatile bool use_mntns_seq = false;
 
-// Send the arguments and environment of every execve to the userspace. Only
+// Send the arguments and environment of every exec to the userspace. Only
 // the process cache needs them, the recorder would just waste ring buffer
 // space on them.
 const volatile bool capture_exec_args = false;
@@ -1297,123 +1308,73 @@ int BPF_PROG(cap_capable, const struct cred * cred,
     return 0;
 }
 
-static __always_inline void submit_exec_event(const __u8 * filename,
-                                              const __u8 * const * argv,
-                                              const __u8 * const * envp,
-                                              u32 mntns, u64 key)
+// submit_exec_event sends the arguments and the environment of the program the
+// current process just executed, from the memory of the new program which the
+// kernel copied them into. sched_process_exec fires for every exec, the
+// syscall tracepoints do not on all kernels.
+static __always_inline void submit_exec_event(u32 mntns, u64 key)
 {
-    exec_event_data_t * exec_event =
-        bpf_ringbuf_reserve(&events, sizeof(exec_event_data_t), 0);
-    if (!exec_event) {
-        count_lost(LOST_RINGBUF);
+    u32 zero = 0;
+    exec_event_data_t * event = bpf_map_lookup_elem(&exec_event_scratch, &zero);
+    if (!event) {
         return;
     }
 
-    const __u8 * ptr;
-    int ret;
-    u32 count = 0;
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    struct mm_struct * mm = BPF_CORE_READ(task, mm);
+    u64 arg_start = BPF_CORE_READ(mm, arg_start);
+    u64 env_start = BPF_CORE_READ(mm, env_start);
+    u64 env_end = BPF_CORE_READ(mm, env_end);
+    u64 args_len = BPF_CORE_READ(mm, arg_end) - arg_start;
+    u64 env_len = env_end - env_start;
+    u32 env_gap = 0;
 
-    exec_event->hdr.pid = bpf_get_current_pid_tgid() >> 32;
-    exec_event->hdr.mntns = mntns;
-    exec_event->hdr.key = key;
-    exec_event->hdr.type = EVENT_TYPE_EXECVE_ENTER;
+    // Longer arguments get truncated.
+    if (args_len > MAX_EXEC_ARGS_LEN) {
+        args_len = MAX_EXEC_ARGS_LEN;
+    }
+    if (bpf_probe_read_user(event->data, args_len, (void *)arg_start) != 0) {
+        args_len = 0;
+    }
+
+    char * env = event->data + args_len;
+    if (env_len <= MAX_EXEC_ENV_LEN) {
+        if (bpf_probe_read_user(env, env_len, (void *)env_start) != 0) {
+            env_len = 0;
+        }
+    } else {
+        // The exec metadata webhook adds the request UID to the end of the
+        // environment with an env command, or to the variables of the pod
+        // spec, which the kubelet puts before the service links. The end
+        // starts with the byte before it, a NUL tells that its first variable
+        // is complete.
+        env_len = MAX_EXEC_ENV_LEN;
+        env_gap = MAX_EXEC_ENV_PART_LEN - 1;
+        if (bpf_probe_read_user(env, MAX_EXEC_ENV_PART_LEN - 1,
+                                (void *)env_start) != 0 ||
+            bpf_probe_read_user(
+                env + MAX_EXEC_ENV_PART_LEN - 1, MAX_EXEC_ENV_PART_LEN + 1,
+                (void *)(env_end - MAX_EXEC_ENV_PART_LEN - 1)) != 0) {
+            env_len = 0;
+            env_gap = 0;
+        }
+    }
+
+    event->hdr.pid = bpf_get_current_pid_tgid() >> 32;
+    event->hdr.mntns = mntns;
+    event->hdr.key = key;
+    event->hdr.type = EVENT_TYPE_EXEC;
     // When the process started, which tells it apart from a later process
     // with the same PID, see submit_new_pid.
-    exec_event->hdr.flags = get_start_time();
+    event->hdr.flags = get_start_time();
+    event->args_len = args_len;
+    event->env_len = env_len;
+    event->env_gap = env_gap;
 
-    // Get filename (first argument)
-    bpf_probe_read_user_str(&exec_event->filename, sizeof(exec_event->filename),
-                            (void *)filename);
-
-    // Read argv
-#pragma unroll
-    for (int i = 0; i < MAX_ARGS; i++) {
-        // Read pointer to the argument string
-        ret = bpf_probe_read_user(&ptr, sizeof(ptr), &argv[i]);
-        if (ret < 0 || !ptr) {
-            break;  // End of arguments
-        }
-
-        // Read the argument string into our buffer
-        ret = bpf_probe_read_user_str(exec_event->args[i],
-                                      sizeof(exec_event->args[i]), ptr);
-        if (ret < 0) {
-            break;
-        }
-        count++;
+    u64 size = offsetof(exec_event_data_t, data) + args_len + env_len;
+    if (bpf_ringbuf_output(&events, event, size, 0) != 0) {
+        count_lost(LOST_RINGBUF);
     }
-
-    exec_event->args_len = count;  // Store actual length of args data
-
-    count = 0;
-
-#pragma unroll
-    for (int i = 0; i < MAX_ENV; i++) {
-        // Read pointer to the environment string
-        ret = bpf_probe_read_user(&ptr, sizeof(ptr), &envp[i]);
-        if (ret < 0 || !ptr) {
-            break;
-        }
-
-        // Read the env string into our buffer
-        ret = bpf_probe_read_user_str(exec_event->env[i],
-                                      sizeof(exec_event->env[i]), ptr);
-        if (ret < 0) {
-            break;
-        }
-        count++;
-    }
-
-    exec_event->env_len = count;  // Store actual length of env data
-
-    bpf_ringbuf_submit(exec_event, 0);
-}
-
-// The exec tracepoints only serve the process cache, see capture_exec_args.
-// The container start is detected in sys_enter, which sees the exec syscalls
-// as well. The arguments are read through the CO-RE relocated tracepoint
-// context, as the layout of its common fields differs between kernels, see
-// sys_enter_socket.
-SEC("tracepoint/syscalls/sys_enter_execve")
-int sys_enter_execve(struct syscall_trace_enter * ctx)
-{
-    if (!_is_recording_cached)
-        return 0;
-    if (!capture_exec_args)
-        return 0;
-    u64 key;
-    u32 mntns = get_mntns_key(&key);
-    if (!mntns)
-        return 0;
-    trace_hook("sys_enter_execve");
-
-    submit_exec_event((const __u8 *)ctx->args[0],
-                      (const __u8 * const *)ctx->args[1],
-                      (const __u8 * const *)ctx->args[2], mntns, key);
-
-    return 0;
-}
-
-// execveat is sys_enter_execve for programs started from a file descriptor or
-// relative to a directory, like fexecve does.
-SEC("tracepoint/syscalls/sys_enter_execveat")
-int sys_enter_execveat(struct syscall_trace_enter * ctx)
-{
-    if (!_is_recording_cached)
-        return 0;
-    if (!capture_exec_args)
-        return 0;
-    u64 key;
-    u32 mntns = get_mntns_key(&key);
-    if (!mntns)
-        return 0;
-    trace_hook("sys_enter_execveat");
-
-    submit_exec_event((const __u8 *)ctx->args[1],
-                      (const __u8 * const *)ctx->args[2],
-                      (const __u8 * const *)ctx->args[3], mntns, key);
-
-    return 0;
 }
 
 SEC("tracepoint/sched/sched_process_exec")
@@ -1421,6 +1382,19 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
     if (!_is_recording_cached)
         return 0;
+
+    // The process cache does not filter by program name, see
+    // capture_exec_args.
+    if (capture_exec_args) {
+        u64 key;
+        u32 mntns = get_mntns_key(&key);
+        if (mntns) {
+            trace_hook("sched_process_exec");
+            submit_exec_event(mntns, key);
+        }
+        return 0;
+    }
+
     if (!has_filter()) {
         return 0;
     }
