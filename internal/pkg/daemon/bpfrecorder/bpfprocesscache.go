@@ -213,12 +213,6 @@ func (b *BpfProcessCache) Load() (err error) {
 		}
 	}()
 
-	// The recorder shares the BPF program, but only the process cache needs
-	// the arguments and environment of each exec.
-	if err := b.recorder.InitGlobalVariable(module, globalCaptureExecArgs, true); err != nil {
-		return fmt.Errorf("init global variable: %w", err)
-	}
-
 	// Only the exec hooks are needed, everything else would just cost
 	// verification time, and the LSM hooks fail loading the whole object on
 	// kernels without the BPF LSM.
@@ -226,17 +220,15 @@ func (b *BpfProcessCache) Load() (err error) {
 		return err
 	}
 
-	// The maps are created with the object even if no hook fills them, the
-	// ones of the recorder would take megabytes of kernel memory for nothing.
-	for _, name := range procCacheUnusedMaps {
-		bpfMap, err := b.recorder.GetMap(module, name)
-		if err != nil {
-			return fmt.Errorf("get bpf map %s: %w", name, err)
-		}
+	// The maps of the recorder would take megabytes of kernel memory for
+	// nothing. The ones the hooks refer to have to be created, even if they
+	// stay empty.
+	if err := b.recorder.skipMaps(module, procCacheSkippedMaps); err != nil {
+		return err
+	}
 
-		if err := b.recorder.SetMaxEntries(bpfMap, 1); err != nil {
-			return fmt.Errorf("shrink bpf map %s: %w", name, err)
-		}
+	if err := b.recorder.shrinkMaps(module, procCacheUnusedMaps); err != nil {
+		return err
 	}
 
 	b.logger.Info("Loading bpf object from module")

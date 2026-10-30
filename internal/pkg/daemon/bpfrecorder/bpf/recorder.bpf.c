@@ -262,7 +262,7 @@ typedef struct __attribute__((__packed__)) event_data {
     char data[PATH_MAX];
 } event_data_t;
 
-// The exec event is only used by the process cache, see capture_exec_args.
+// The exec event is only used by the process cache, see sched_exec_args.
 // data holds args_len bytes of arguments followed by env_len bytes of
 // environment, both NUL separated strings like /proc/<pid>/cmdline, and is
 // only sent as far as it is in use. env_gap is the offset in the environment
@@ -336,11 +336,6 @@ const volatile bool use_cgroup_id = false;
 // namespace, which is never reused either. Set by the userspace for hosts
 // without cgroup v2.
 const volatile bool use_mntns_seq = false;
-
-// Send the arguments and environment of every exec to the userspace. Only
-// the process cache needs them, the recorder would just waste ring buffer
-// space on them.
-const volatile bool capture_exec_args = false;
 
 // Set by the userspace if it waits for processes to exit, which only spoc
 // does. In-cluster, the exits of the recorded workloads are not reported.
@@ -1377,24 +1372,29 @@ static __always_inline void submit_exec_event(u32 mntns, u64 key)
     }
 }
 
+// sched_exec_args sends the arguments and the environment of every exec to
+// the userspace. Only the process cache loads it, so that the recorder neither
+// wastes ring buffer space on them nor needs exec_event_scratch.
+SEC("tracepoint/sched/sched_process_exec")
+int sched_exec_args(struct trace_event_raw_sched_process_exec * ctx)
+{
+    if (!_is_recording_cached)
+        return 0;
+
+    u64 key;
+    u32 mntns = get_mntns_key(&key);
+    if (mntns) {
+        trace_hook("sched_exec_args");
+        submit_exec_event(mntns, key);
+    }
+    return 0;
+}
+
 SEC("tracepoint/sched/sched_process_exec")
 int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
     if (!_is_recording_cached)
         return 0;
-
-    // The process cache does not filter by program name, see
-    // capture_exec_args.
-    if (capture_exec_args) {
-        u64 key;
-        u32 mntns = get_mntns_key(&key);
-        if (mntns) {
-            trace_hook("sched_process_exec");
-            submit_exec_event(mntns, key);
-        }
-        return 0;
-    }
-
     if (!has_filter()) {
         return 0;
     }

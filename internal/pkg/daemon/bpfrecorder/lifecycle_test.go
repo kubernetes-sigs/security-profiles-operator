@@ -25,6 +25,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -40,11 +41,11 @@ import (
 )
 
 // allPrograms are the programs of the compiled object.
-var allPrograms = slices.Concat(baseHooks, filterHooks, appArmorHooks)
+var allPrograms = slices.Concat(baseHooks, filterHooks, execHooks, appArmorHooks)
 
 // unusedRecorderPrograms are the programs the recorder does not load without a
 // program name filter.
-var unusedRecorderPrograms = filterHooks
+var unusedRecorderPrograms = slices.Concat(filterHooks, execHooks)
 
 // fakePrograms makes the fake hand out a distinct program per name and returns
 // a function which tells the names of the programs SetAutoload disabled.
@@ -156,8 +157,176 @@ func TestLoadWithProgramNameAttachesFilterHooks(t *testing.T) {
 	disabled := fakePrograms(mock)
 
 	require.NoError(t, sut.Load())
-	require.ElementsMatch(t, appArmorHooks, disabled())
+	require.ElementsMatch(t, slices.Concat(execHooks, appArmorHooks), disabled())
 	require.Equal(t, len(baseHooks)+len(filterHooks), mock.AttachGenericCallCount())
+}
+
+// fakeMaps makes the fake hand out a distinct map per name and returns
+// functions which tell the names of the maps SetAutocreate got called for,
+// with "=true" appended if it enabled one, and the ones SetMaxEntries shrunk
+// to a single entry, both in the order of the calls.
+func fakeMaps(mock *bpfrecorderfakes.FakeImpl) (skipped, shrunk func() []string) {
+	var mu sync.Mutex
+
+	names := map[*libbpfgo.BPFMap]string{}
+
+	mock.GetMapCalls(func(_ *libbpfgo.Module, name string) (*libbpfgo.BPFMap, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		bpfMap := &libbpfgo.BPFMap{}
+		names[bpfMap] = name
+
+		return bpfMap, nil
+	})
+
+	skipped = func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+
+		var calls []string
+
+		for i := range mock.SetAutocreateCallCount() {
+			bpfMap, autocreate := mock.SetAutocreateArgsForCall(i)
+			if autocreate {
+				calls = append(calls, names[bpfMap]+"=true")
+			} else {
+				calls = append(calls, names[bpfMap])
+			}
+		}
+
+		return calls
+	}
+
+	shrunk = func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+
+		var calls []string
+
+		for i := range mock.SetMaxEntriesCallCount() {
+			if bpfMap, maxEntries := mock.SetMaxEntriesArgsForCall(i); maxEntries == 1 {
+				calls = append(calls, names[bpfMap])
+			}
+		}
+
+		return calls
+	}
+
+	return skipped, shrunk
+}
+
+// TestLoadSkipsUnusedMaps asserts that the recorder does not create the maps
+// of the programs it does not load.
+func TestLoadSkipsUnusedMaps(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		programName    string
+		recordAppArmor bool
+		lsmEnabled     bool
+		wantSkipped    []string
+		wantShrunk     []string
+	}{
+		"with AppArmor": {recordAppArmor: true, lsmEnabled: true, wantSkipped: execMaps},
+		"without the BPF LSM": {
+			recordAppArmor: true,
+			wantSkipped:    slices.Concat(execMaps, appArmorMaps), wantShrunk: appArmorRecordMaps,
+		},
+		"without AppArmor": {
+			lsmEnabled:  true,
+			wantSkipped: slices.Concat(execMaps, appArmorMaps), wantShrunk: appArmorRecordMaps,
+		},
+		"program name filter with AppArmor": {
+			programName: "/bin/app", recordAppArmor: true, lsmEnabled: true,
+			wantSkipped: execMaps,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := New(tc.programName, logr.Discard(), true, tc.recordAppArmor)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+			mock.BPFLSMEnabledReturns(tc.lsmEnabled)
+			sut.impl = mock
+
+			fakePrograms(mock)
+			skipped, shrunk := fakeMaps(mock)
+
+			require.NoError(t, sut.Load())
+			require.Equal(t, tc.wantSkipped, skipped())
+			require.Equal(t, tc.wantShrunk, shrunk())
+		})
+	}
+}
+
+// TestLoadRetrySkipsUnusedMaps asserts that the object which gets loaded again
+// without the AppArmor programs does not create their maps either.
+func TestLoadRetrySkipsUnusedMaps(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	mock.BPFLSMEnabledReturns(true)
+	mock.BPFLoadObjectReturnsOnCall(0, errTest)
+	sut.impl = mock
+
+	fakePrograms(mock)
+	skipped, shrunk := fakeMaps(mock)
+
+	require.NoError(t, sut.Load())
+	require.Equal(t, 2, mock.BPFLoadObjectCallCount())
+	require.Equal(t, slices.Concat(execMaps, execMaps, appArmorMaps), skipped())
+	require.Equal(t, appArmorRecordMaps, shrunk())
+}
+
+// TestProcessCacheSkipsUnusedMaps asserts that the process cache creates the
+// maps of its hooks, the unused ones with a single entry, and no others.
+func TestProcessCacheSkipsUnusedMaps(t *testing.T) {
+	t.Parallel()
+
+	sut := NewBpfProcessCache(logr.Discard())
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	sut.recorder.impl = mock
+
+	skipped, shrunk := fakeMaps(mock)
+
+	require.NoError(t, sut.Load())
+
+	defer sut.Close()
+
+	require.Equal(t, procCacheSkippedMaps, skipped())
+	require.Equal(t, procCacheUnusedMaps, shrunk())
+	require.NotContains(t, skipped(), mapExecEventScratch)
+}
+
+// TestLoadFailsIfMapCannotBeSkipped asserts that the recorder does not load
+// the object with maps it did not mean to create.
+func TestLoadFailsIfMapCannotBeSkipped(t *testing.T) {
+	t.Parallel()
+
+	for name, fail := range map[string]func(*bpfrecorderfakes.FakeImpl){
+		"map not found":       func(mock *bpfrecorderfakes.FakeImpl) { mock.GetMapReturns(nil, errTest) },
+		"autocreate rejected": func(mock *bpfrecorderfakes.FakeImpl) { mock.SetAutocreateReturns(errTest) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := New("", logr.Discard(), true, false)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+			fail(mock)
+			sut.impl = mock
+
+			fakePrograms(mock)
+
+			require.ErrorIs(t, sut.Load(), errTest)
+			require.Zero(t, mock.BPFLoadObjectCallCount())
+		})
+	}
 }
 
 func TestLoadFailsIfProgramCannotBeDisabled(t *testing.T) {

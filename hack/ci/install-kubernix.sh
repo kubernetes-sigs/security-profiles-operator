@@ -59,9 +59,22 @@ start_kubernix() {
   echo "127.0.0.1 $KUBERNIX_NODE" | sudo tee -a /etc/hosts
   sudo hostnamectl set-hostname "$KUBERNIX_NODE"
 
-  # CoreDNS binds port 53 of the host.
+  # CoreDNS binds port 53 of the host. systemd-networkd hands the DNS
+  # settings of every new pod veth to systemd-resolved over D-Bus, which can
+  # start it again, and a restarted CoreDNS fails to bind the port then. So
+  # its stub listener gets turned off, which a restart of a running
+  # systemd-resolved applies right away, besides disabling, stopping and
+  # masking it. Each of these may fail on hosts without it.
+  # /etc/resolv.conf links to its stub file, so it gets replaced rather than
+  # written through.
+  sudo mkdir -p /etc/systemd/resolved.conf.d
+  printf '[Resolve]\nDNSStubListener=no\n' |
+    sudo tee /etc/systemd/resolved.conf.d/no-stub-listener.conf >/dev/null
+  sudo systemctl try-restart systemd-resolved.service || true
+  sudo systemctl disable --now systemd-resolved.service || true
+  sudo systemctl mask systemd-resolved.service || true
+  sudo rm -f /etc/resolv.conf
   echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
-  sudo systemctl stop systemd-resolved || true
 
   echo "Starting kubernix, logging to $KUBERNIX_LOG"
   # kubernix loads the kernel modules and sets the network sysctls on its own.
