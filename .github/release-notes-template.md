@@ -1,22 +1,25 @@
 <!--
 Template for the hand-written part of a GitHub release body. Copy everything
-below the line into the release, replace VERSION, write the summary paragraph,
+below the line into the release, replace {VERSION} with the version without
+the v prefix, like in the release issue template, write the summary paragraph,
 and let GitHub generate the changelog underneath. See doc/release.md, the
 release issue template links here as well.
 -->
 
 ---
 
-Welcome to the VERSION release of the **security-profiles-operator**!
+Welcome to the v{VERSION} release of the **security-profiles-operator**!
 
 SUMMARY: one paragraph on what this release brings, for example the main
 features, the most relevant fixes, or that it is a patch release. The general
 usage and setup can be found [in our documentation][docs].
 
-To install the operator, run:
+To install the operator, install [cert-manager](https://cert-manager.io)
+first, which is not needed on OpenShift, see the [installation guide][install],
+then run:
 
-```
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/VERSION/deploy/operator.yaml
+```shell
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v{VERSION}/deploy/operator.yaml
 ```
 
 The operator can also be installed [with helm][helm], and `spoc`, the official
@@ -31,7 +34,8 @@ for the container images, the binaries, the SBOM and the helm chart.
 Feel free to provide us any kind of feedback in the official
 [Kubernetes Slack #security-profiles-operator channel][slack].
 
-[docs]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/README.md
-[helm]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/installation.md#installation-using-helm
-[verification]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/verification.md
+[docs]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/README.md
+[install]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/installation.md
+[helm]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/installation.md#installation-using-helm
+[verification]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/verification.md
 [slack]: https://kubernetes.slack.com/messages/security-profiles-operator

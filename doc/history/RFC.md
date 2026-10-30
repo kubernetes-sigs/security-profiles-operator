@@ -1,17 +1,31 @@
-**Note:** This RFC is a historical document from the initial proposal of the
-Security Profiles Operator. Most of the features described here have been
-implemented, but some details changed since then. For example, the operator no
-longer watches the `seccomp.security.alpha.kubernetes.io` annotations, which
-Kubernetes removed in favor of the `seccompProfile` field of the security
-context. For current usage and configuration, refer to the [installation](installation.md) and [profiles](profiles.md) documentation.
+# RFC: Security Profiles Operator
 
-# Summary
+> [!NOTE]
+> This RFC is a historical document from the initial proposal of the Security
+> Profiles Operator, which started out with seccomp only. Most of its features
+> got implemented, but some in another way:
+>
+> - The operator does not watch the `seccomp.security.alpha.kubernetes.io`
+>   annotations, which Kubernetes removed in favor of the `seccompProfile`
+>   field of the security context.
+> - Instead of pre-defined profiles for application groups, the operator
+>   provides base profiles of the container runtimes, which profiles extend.
+> - A `ProfileBinding` applies a profile to the containers of a namespace
+>   which use a certain image, instead of a profile enforced per namespace.
+> - Profiles get recorded from the audit log by the log enricher or with eBPF
+>   by the bpf recorder, instead of an OCI hook or a sidecar container.
+>
+> For current usage and configuration, refer to the
+> [installation](../installation.md) and [profiles](../profiles.md)
+> documentation.
+
+## Summary
 
 The main target is to simplify the usage of seccomp profiles in Kubernetes by
 still providing high security standards and enough flexibility for further
 additions.
 
-# Motivation
+## Motivation
 
 The seccomp feature of Kubernetes will [graduate to General Availability (GA)][0] in
 one of the upcoming releases. Non-goals of this Kubernetes Enhancement Proposal
@@ -30,7 +44,7 @@ Target of this RFC is to fill the gap between the current and future usage of
 seccomp in Kubernetes to provide on one hand a better user experience and on
 the other hand a more secure Kubernetes installation.
 
-## Explanation
+### Explanation
 
 The overall enhancement can be split-up into multiple features:
 
@@ -59,25 +73,25 @@ The overall enhancement can be split-up into multiple features:
    reconcile the state with the usage of the operator. This way the operator
    can be deployed in clusters which already use custom seccomp profiles.
 
-### Future enhancements
+#### Future enhancements
 
-4. **Provide pre-defined seccomp profiles:**
+1. **Provide pre-defined seccomp profiles:**
    We could provide pre-defined profiles for application groups like
-   _webservers_ to work the box with commonly used applications. The profiles
+   _webservers_ to work out of the box with commonly used applications. The profiles
    can be shipped directly with the operator as pre-defined custom resources.
 
-5. **Provide the possibility to enforce a profile per namespace:**
+2. **Provide the possibility to enforce a profile per namespace:**
    A mutating webhook could be used to allow administrators to enforce a
    certain profile per namespace for security hardening purposes. If we
    implement this via an annotation on namespace level or via a new resource
    (-binding) is currently open.
 
-6. **Provide the possibility to record seccomp profiles in Kubernetes:**
+3. **Provide the possibility to record seccomp profiles in Kubernetes:**
    It is possible to record seccomp profiles via an OCI hook or probably with a
    sidecar container. This means we can put workloads from a security
    perspective into three possible modes:
 
-   - _Disabled_: This refers to the unconfined behavior wchich means that seccomp
+   - _Disabled_: This refers to the unconfined behavior which means that seccomp
      is disabled at all.
    - _Recording_: Seccomp is still in _disabled_ mode, but we now record the
      profile during the run of the application.
@@ -86,20 +100,20 @@ The overall enhancement can be split-up into multiple features:
    This also means that we would be able to audit the cluster from a security
    perspective and report workloads which are currently in _disabled_ mode.
 
-# Drawbacks
+## Drawbacks
 
 This will add additional maintenance overhead to the cluster operator and
 enforces users to understand what the usage of seccomp implies for their
 business. It will increase the complexity if the user has not used seccomp
 before.
 
-# Alternatives
+## Alternatives
 
 We could alternatively stick to the classic approach in providing seccomp
 profiles for containers via RPM packaging. This would still mean that users have
 to select the right profile in their Kubernetes workloads.
 
-## Related projects and enhancements to Kubernetes
+### Related projects and enhancements to Kubernetes
 
 There is an [open KEP][10] about using config maps which should be passed down
 the CRI to be applied directly by containers runtimes like CRI-O. This would

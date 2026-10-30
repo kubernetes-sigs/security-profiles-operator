@@ -1,310 +1,51 @@
-[Documentation](README.md) | [Installation](installation.md) | **Profiles** | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
+# Security profiles
+
+[Documentation](README.md) | [Installation](installation.md) | [Configuration](configuration.md) | **Profiles** | [Recording](recording.md) | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
+
+This page describes how to create, install and use seccomp, AppArmor and
+SELinux profiles, and how to bind them to workloads. Recording profiles from a
+running workload is described in [Recording profiles](recording.md), auditing
+the activity in pods with the JSON enricher in
+[Audit logging](audit-logging-guide.md).
 
 <!-- toc -->
-- [Create and Install Security Profiles](#create-and-install-security-profiles)
-  - [Seccomp profile](#seccomp-profile)
-    - [Record Seccomp profile](#record-seccomp-profile)
-      - [Recording based on audit log](#recording-based-on-audit-log)
-      - [Recording based on eBPF instrumentation](#recording-based-on-ebpf-instrumentation)
-    - [Use Seccomp profile](#use-seccomp-profile)
-  - [Audit JSON log enricher](#audit-json-log-enricher)
-    - [Audit JSON Log Enricher Configuration](#audit-json-log-enricher-configuration)
-      - [Audit Log Interval](#audit-log-interval)
-      - [Audit Log File Destination](#audit-log-file-destination)
-        - [Audit Log File Fine-Tuning (Rotation)](#audit-log-file-fine-tuning-rotation)
-        - [Verbosity (Debugging Logs)](#verbosity-debugging-logs)
-    - [How to Monitor Audit Logs for a Specific Pod](#how-to-monitor-audit-logs-for-a-specific-pod)
-    - [Correlating with API Server Audit Log](#correlating-with-api-server-audit-log)
-  - [AppArmor Profile](#apparmor-profile)
-    - [Record AppArmor profile](#record-apparmor-profile)
-    - [Use AppArmor profile](#use-apparmor-profile)
-  - [SELinux profile](#selinux-profile)
-    - [Record SELinux profile](#record-selinux-profile)
-    - [Use SELinux profile](#use-selinux-profile)
-  - [Filtering Logs](#filtering-logs)
-    - [Rule Evaluation Logic](#rule-evaluation-logic)
-    - [Examples](#examples)
-  - [General Considerations](#general-considerations)
-    - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
-    - [Recording profiles without applying them](#recording-profiles-without-applying-them)
-    - [Disable profile recording](#disable-profile-recording)
-    - [OCI Artifact support for base profiles](#oci-artifact-support-for-base-profiles)
-    - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
-      - [Binding precedence and status](#binding-precedence-and-status)
-    - [Merging per-container profile instances](#merging-per-container-profile-instances)
+- [Seccomp profiles](#seccomp-profiles)
+  - [Create a seccomp profile](#create-a-seccomp-profile)
+  - [Use a seccomp profile](#use-a-seccomp-profile)
+- [Base profiles](#base-profiles)
+  - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
+  - [Base profiles from OCI registries](#base-profiles-from-oci-registries)
+  - [Verify the signatures of OCI base profiles](#verify-the-signatures-of-oci-base-profiles)
+- [AppArmor profiles](#apparmor-profiles)
+  - [Enable AppArmor](#enable-apparmor)
+  - [Create an AppArmor profile](#create-an-apparmor-profile)
+  - [Use an AppArmor profile](#use-an-apparmor-profile)
+- [SELinux profiles](#selinux-profiles)
+  - [Enable SELinux](#enable-selinux)
+  - [SelinuxProfile and RawSelinuxProfile](#selinuxprofile-and-rawselinuxprofile)
+  - [Denied types, classes and permissions](#denied-types-classes-and-permissions)
+  - [Create a SELinux profile](#create-a-selinux-profile)
+  - [Create a raw SELinux profile](#create-a-raw-selinux-profile)
+  - [Make a SELinux profile permissive](#make-a-selinux-profile-permissive)
+  - [Use a SELinux profile](#use-a-selinux-profile)
+  - [Use a SELinux profile on OpenShift](#use-a-selinux-profile-on-openshift)
+- [Bind workloads to profiles](#bind-workloads-to-profiles)
+  - [Binding precedence and status](#binding-precedence-and-status)
 - [Profile reference](#profile-reference)
+  - [Common fields](#common-fields)
   - [SeccompProfile](#seccompprofile)
   - [AppArmorProfile](#apparmorprofile)
-  - [ProfileRecording](#profilerecording)
+  - [SelinuxProfile](#selinuxprofile)
+  - [RawSelinuxProfile](#rawselinuxprofile)
+  - [ProfileBinding](#profilebinding)
   - [SecurityProfilesOperatorDaemon](#securityprofilesoperatordaemon)
 <!-- /toc -->
 
-## Create and Install Security Profiles
+## Seccomp profiles
 
-The next sections will describe how to record and install security profiles for a container. The namespace
-where the recording takes place needs to be labeled with `spo.x-k8s.io/enable-recording` in order to enable
-recording in that namespace. The examples without a namespace run in the `default` namespace, which gets
-labeled as following:
+### Create a seccomp profile
 
-```sh
-$ kubectl label ns default spo.x-k8s.io/enable-recording=
-```
-
-Note that the label value is not important, only its presence matters.
-
-A `ProfileRecording` lives in the namespace of the recorded workload, but the
-profiles it produces are cluster scoped. Each recorded container results in a
-profile named `<recording name>-<container name>`, for example
-`test-recording-nginx`, without the namespace. With the default
-`mergeStrategy: None`, the profiles of the replicas of a replicating
-controller additionally carry the suffix of the pod name, see
-[Merging per-container profile instances](#merging-per-container-profile-instances).
-Recordings with the same name in different namespaces therefore produce
-profiles with the same name, and the first recording which stores a profile
-wins: the operator refuses to overwrite it for the other recording, emits a
-warning event and drops that recording's data. A recording also never replaces
-a profile which was not recorded. Use recording names which are unique across
-the cluster, for example by including the namespace in the name.
-
-### Seccomp profile
-
-#### Record Seccomp profile
-
-The operator is capable of recording seccomp profiles by the usage of the
-built-in [eBPF](https://ebpf.io) recorder or by evaluating the [audit][auditd] or [syslog][syslog] files. Each method has
-its pros and cons as well as separate technical requirements.
-
-##### Recording based on audit log
-
-The operator ships with a log enrichment feature, which is disabled per
-default. The reason for that is that the log enricher container runs in
-privileged mode to be able to read the audit logs from the local node. It is also
-required that the enricher is able to read the host processes and therefore runs
-within host PID namespace (`hostPID`).
-
-One of the following requirements to the Kubernetes node have to be fulfilled to
-use the log enrichment feature:
-
-- [auditd][auditd] needs to run and has to be configured to log into
-  `/var/log/audit/audit.log`
-- [syslog][syslog] can be used as fallback to auditd and needs to log into
-  `/var/log/syslog`. Depending on the system configuration, a printk rate limiting may be
-  in place which has direct influence on the log enrichment. To disable the rate
-  limiting, set the following sysctls:
-  ```
-  > sysctl -w kernel.printk_ratelimit=0
-  > sysctl -w kernel.printk_ratelimit_burst=0
-  ```
-
-[auditd]: https://man7.org/linux/man-pages/man8/auditd.8.html
-[syslog]: https://man7.org/linux/man-pages/man3/syslog.3.html
-
-If all requirements are met, then the feature can be enabled by patching the
-`spod` configuration:
-
-```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true}}}'
-securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
-```
-
-Alternatively, make sure the operator deployment sets the `ENABLE_LOG_ENRICHER` variable,
-to `true`, either by setting the environment variable in the deployment or by enabling
-the variable through a `Subscription` resource, when installing the operator using OLM.
-See [Constrain spod scheduling](installation.md#constrain-spod-scheduling) for an example of
-setting `tolerations` and `affinity` on the SPOD.
-
-Now the operator will take care of re-deploying the `spod` DaemonSet and the
-enricher should be listening for new changes to the audit logs:
-
-```
-> kubectl -n security-profiles-operator logs -f ds/spod log-enricher
-…
-log-enricher "msg"="Starting log-enricher on node" "node"="127.0.0.1"
-log-enricher "msg"="Connecting to local GRPC server"
-log-enricher "msg"="Starting GRPC server API"
-```
-
-To record by using the log enricher, create a `ProfileRecording` which is using
-`recorder: Logs`:
-
-```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: ProfileRecording
-metadata:
-  name: test-recording
-spec:
-  kind: SeccompProfile
-  recorder: Logs
-  podSelector:
-    matchLabels:
-      app: my-app
-```
-
-Then we can create a workload to be recorded, for example two containers within
-a single pod:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: my-pod
-  labels:
-    app: my-app
-spec:
-  containers:
-    - name: nginx
-      image: quay.io/security-profiles-operator/test-nginx:1.19.1
-    - name: redis
-      image: quay.io/security-profiles-operator/redis:6.2.1
-```
-
-If the pod is up and running:
-
-```
-> kubectl get pods
-NAME     READY   STATUS    RESTARTS   AGE
-my-pod   2/2     Running   0          18s
-```
-
-Then the enricher should indicate that it receives audit logs for those containers:
-
-```
-> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
-…
-log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
-```
-
-Now, if we remove the pod:
-
-```
-> kubectl delete pod my-pod
-```
-
-Then the operator will reconcile two seccomp profiles:
-
-```
-> kubectl get sp
-NAME                   STATUS      AGE
-test-recording-nginx   Installed   15s
-test-recording-redis   Installed   15s
-```
-
-Please note that log based recording does not have any effect if the recorded container
-is privileged, that is, the container's security context sets `privileged: true`. This
-is because privileged containers are not subject to SELinux or seccomp policies at all
-and the log based recording makes use of a special seccomp or SELinux profile respectively
-to record the syscalls or SELinux events.
-
-##### Recording based on eBPF instrumentation
-
-The operator also supports an [eBPF](https://ebpf.io) based recorder. This
-recorder only supports seccomp and AppArmor profiles for now. Recording via eBPF works for
-kernels which expose the `/sys/kernel/btf/vmlinux` file per default. In
-addition, this feature requires new library versions and thus might not be
-enabled. You can find out if your SPO build has the eBPF feature disabled by
-looking at the build tags:
-
-```
-> kubectl -n security-profiles-operator logs --selector name=security-profiles-operator --tail=-1 | grep buildTags
-```
-
-If the output contains `no_bpf` then the feature has been disabled.
-
-To use the recorder, enable it by patching the `spod` configuration:
-
-```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
-securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
-```
-
-Alternatively, make sure the operator deployment sets the `ENABLE_BPF_RECORDER`
-environment variable to `true`. This method can be easier to set up during
-installation than patching the `spod`.
-
-We can verify that the recorder is up and running after the spod rollout has
-been finished:
-
-```
-> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder --tail=-1
-…
-bpf-recorder "msg"="Setting up caches" "expiry"="1h0m0s"
-bpf-recorder "msg"="Starting ebpf recorder on node" "node"="ip-10-0-228-234.us-east-2.compute.internal"
-bpf-recorder "msg"="Connecting to metrics server"
-bpf-recorder "msg"="Got system mount namespace: 4026531840"
-bpf-recorder "msg"="Loading BPF program"
-bpf-recorder "msg"="Loading bpf module..."
-bpf-recorder "msg"="Using system btf file"
-bpf-recorder "msg"="Loading bpf object from module"
-bpf-recorder "msg"="Excluding mount namespace" "mntns"=4026531840
-bpf-recorder "msg"="Getting syscalls map"
-bpf-recorder "msg"="BPF module successfully loaded."
-bpf-recorder "msg"="Doing BPF start/stop self-test..."
-…
-bpf-recorder "msg"="BPF start/stop self-test successful."
-bpf-recorder "msg"="Starting GRPC API server"
-```
-
-The recorder does a system sanity check on startup to ensure everything works as
-expected. This includes loading the BPF module and starting and stopping a
-recording. If this fails, please open an issue so that we can find out what went
-wrong.
-
-To record seccomp profiles by using the BPF recorder, create a
-`ProfileRecording` which is using `recorder: Bpf`:
-
-```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: ProfileRecording
-metadata:
-  name: my-recording
-spec:
-  kind: SeccompProfile
-  recorder: Bpf
-  podSelector:
-    matchLabels:
-      app: my-app
-```
-
-Then we can create a workload to be recorded, for example this one:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: my-pod
-  labels:
-    app: my-app
-spec:
-  containers:
-    - name: nginx
-      image: quay.io/security-profiles-operator/test-nginx:1.19.1
-```
-
-If the pod is up and running:
-
-```
-> kubectl get pods
-NAME     READY   STATUS    RESTARTS   AGE
-my-pod   1/1     Running   0          10s
-```
-
-Now, if we remove the pod:
-
-```
-> kubectl delete pod my-pod
-```
-
-Then the operator will reconcile the seccomp profile:
-
-```
-> kubectl get sp
-NAME                 STATUS      AGE
-my-recording-nginx   Installed   15s
-```
-
-#### Use Seccomp profile
-
-Use the `SeccompProfile` kind to create profiles. Example:
+Use the `SeccompProfile` kind to create profiles, for example:
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -315,14 +56,25 @@ spec:
   defaultAction: SCMP_ACT_LOG
 ```
 
-This seccomp profile will be saved at the path:
+[`seccompprofile.yaml`](../examples/seccompprofile.yaml) holds a few more
+examples, which the [quick start](../README.md#quick-start) installs. The
+daemon saves the profile on each node at the path:
 
-`/var/lib/kubelet/seccomp/operator/profile1.json`.
+`/var/lib/kubelet/seccomp/operator/profile1.json`
 
-An init container will set up the root directory of the operator to be able to
-run it without root G/UID. This will be done by creating a symlink from the
-rootless profile storage `/var/lib/security-profiles-operator` to the default seccomp root
-path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
+An init container of the daemon sets up the root directory of the operator, so
+that the daemon can run without root UID and GID. It creates a symlink from the
+rootless profile storage `/var/lib/security-profiles-operator` to the seccomp
+directory inside of the kubelet root, `/var/lib/kubelet/seccomp/operator`. For
+a kubelet with another root directory, see
+[Configure a custom kubelet root directory](configuration.md#configure-a-custom-kubelet-root-directory).
+
+The SPOD can restrict the syscalls and actions which seccomp profiles may
+allow. The daemons reject profiles which allow others, and the operator
+deletes them when the lists change, see
+[Restrict the allowed syscalls in seccomp profiles](configuration.md#restrict-the-allowed-syscalls-in-seccomp-profiles).
+
+### Use a seccomp profile
 
 Create a pod using one of the created profiles. The profile can be specified
 as part of the pod's security context:
@@ -342,11 +94,10 @@ spec:
       image: nginx
 ```
 
-You can find the profile path of the seccomp profile by checking the
-`status.localhostProfile` attribute (remember to use the `wide`
-output mode):
+The `status.localhostProfile` attribute of the seccomp profile holds the path
+to use, which the `wide` output mode shows:
 
-```sh
+```console
 $ kubectl get seccompprofile profile1 --output wide
 NAME       STATUS      AGE   LOCALHOSTPROFILE
 profile1   Installed   14s   operator/profile1.json
@@ -355,15 +106,14 @@ profile1   Installed   14s   operator/profile1.json
 You can apply the profile to an existing application, such as a Deployment or
 DaemonSet:
 
-```sh
+```shell
 kubectl --namespace my-namespace patch deployment myapp --patch '{"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": "Localhost", "localhostProfile": "'$(kubectl get seccompprofile profile1 --output=jsonpath='{.status.localhostProfile}')'"}}}}}}'
-deployment.apps/myapp patched
 ```
 
-The pods in the Deployment will be automatically restarted. Check that the
-profile was applied correctly:
+The pods of the Deployment get restarted automatically. Check that the
+profile was applied:
 
-```sh
+```console
 $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spec.template.spec.securityContext}' | jq .
 {
   "seccompProfile": {
@@ -373,865 +123,27 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 }
 ```
 
-Note that a security profile that is in use by existing pods cannot be
-deleted unless the pods exit or are removed - the profile deletion is
-protected by finalizers. Completed pods, like the ones of a finished Job, do
-not count as using the profile. The `status.activeWorkloads` of a profile
-lists the first 1000 pods using it and `status.activeWorkloadsCount` counts
-all of them.
-
-### Audit JSON log enricher
-
-Similar to the log enricher feature above, audit JSON log enricher watches auditd (`/var/log/audit/audit.log`)
-or the syslog (`/var/log/syslog`) and generates an audit log in JSON lines format. Each JSON line will include the
-following:
-
-- **Timestamp**: When the activity happened, shown in a standard ISO format
-- **Executable Name**: The name of the program that was run (e.g., bash, ls).
-- **Command Line Arguments (cmdline)**: The extra instructions given when the program was started (e.g., ls -l /home).
-- **User and Group IDs (uid/gid)**: The identification numbers of the system user who ran the program.
-- **System Calls (syscalls)**: A list of system calls (syscalls) that the process made
-
-This log format and the configuration is similar to how Kubernetes itself records audit logs. This is useful for:
-
-- Seeing what users and automated processes are doing inside a pod.
-- Tracking when someone uses commands like kubectl exec to get into a running container and run commands or scripts.
-- Monitoring activities in debug containers where users might run various tools.
-
-For a complete walkthrough of configuring audit logging, see the [Audit Logging Guide](audit-logging-guide.md).
-
-To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster.
-Once it's installed, you can enable the JSON log enricher with this command:
-
-```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true}}}'
-```
-
-Alternatively, make sure the operator deployment sets the `ENABLE_JSON_ENRICHER`
-variable to `true`, either by setting the environment variable in the deployment or
-by enabling the variable through a `Subscription` resource, when installing the
-operator using OLM.
-
-The audit JSON log enricher uses eBPF as a supplemental data source. While processing auditd logs from
-`/var/log/audit/audit.log`, the enricher attempts to fetch ephemeral data from `/proc/<pid>` directories. Due to a
-race condition, these files might be deleted before they can be read. To ensure data completeness, the enricher falls
-back to fetching the necessary information from eBPF whenever it's not found in `/proc/<pid>`.
-
-#### Audit JSON Log Enricher Configuration
-
-Here's how to set up and fine-tune your audit logs.
-
-##### Audit Log Interval
-
-Set how often audit logs are created using the `auditLogIntervalSeconds` option. The syscalls of each process within
-the interval are grouped into one log entry. The default is 60 seconds and the minimum 1. For example to configure
-audit log interval to 30 seconds use the command:
-
-```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogIntervalSeconds":30}}}}'
-```
-
-##### Audit Log File Destination
-
-By default, audit logs go to your standard output in JSON lines format. You can send them to a file instead.
-
-1. Configure the Volume Mount
-   First, tell the security profiles operator where to store the log file on the node. You'll update the `security-profiles-operator-profile` ConfigMap with two keys:
-   - `json-enricher-log-volume-source.json`: Defines the type of volume (e.g., host path, empty directory) where logs will be stored. This must be a JSON string representing a `corev1.VolumeSource` object, which holds the volume type fields of a [Volume](https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/volume/) without its `name`.
-   - `json-enricher-log-volume-mount-path`: Specifies the directory path where the log file will be generated.
-
-   Here's an example to set up a host path volume at `/tmp/logs`:
-
-   ```json
-   {
-     "data": {
-       "json-enricher-log-volume-mount-path": "/tmp/logs",
-       "json-enricher-log-volume-source.json": "{\"hostPath\": {\"path\": \"/tmp/logs\",\"type\": \"DirectoryOrCreate\"}}"
-     }
-   }
-   ```
-
-   One of the ways to update the config map is to save this JSON in a file(`patch-volume-source.json`) and update the config map:
-
-   ```sh
-   kubectl patch configmap security-profiles-operator-profile -n security-profiles-operator --patch-file patch-volume-source.json
-   ```
-
-   The operator watches this ConfigMap, so no restart is needed. While the JSON enricher is enabled, a change of the
-   ConfigMap rolls out the `spod` DaemonSet with the new volume.
-
-2. Set the Audit Log File Path
-
-   Tell the JSON log enricher the full path to your audit log file (including the filename).
-
-   ```sh
-   kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log"}}}}'
-   ```
-
-###### Audit Log File Fine-Tuning (Rotation)
-
-For audit logging to a file, you can manage their size and how long they're kept. These options are similar to [Kubernetes API server log settings](https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/).
-
-- `auditLogMaxSize`: The maximum size (in megabytes) a log file can reach before it's rotated (a new file is started).
-  The default is 100 MB.
-- `auditLogMaxBackups`: The maximum number of older, rotated log files to keep. If neither `auditLogMaxBackups` nor
-  `auditLogMaxAge` is set, or both are 0, the enricher keeps 10 rotated files. With `auditLogMaxAge` set, 0 or
-  no value keeps any number of files within that age.
-- `auditLogMaxAge`: The maximum number of days to keep old log files. By default, old files are not removed based on
-  their age.
-
-You configure these by patching the JSON log enricher options:
-
-```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}}}}'
-```
-
-###### Verbosity (Debugging Logs)
-
-Increase the logging level for the JSON log enricher container to help with debugging.
-
-- 0: Minimal logs (default).
-- 1: More detailed logs, for example every audit line the enricher processes.
-- 2: Additionally every exec event the enricher receives from BPF.
-
-See [Set logging verbosity](installation.md#set-logging-verbosity) for all levels.
-
-```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true}, "verbosity": 1}}'
-```
-
-#### How to Monitor Audit Logs for a Specific Pod
-
-To enable audit logging for a single pod, follow these steps:
-
-1. **Create a Seccomp profile:**
-
-   Create a file (e.g., profile1.yaml) with the following content:
-
-   ```yaml
-   apiVersion: security-profiles-operator.x-k8s.io/v1
-   kind: SeccompProfile
-   metadata:
-     name: profile1
-   spec:
-     defaultAction: SCMP_ACT_ALLOW
-     syscalls:
-     - action: SCMP_ACT_LOG
-       names:
-         - execve
-         - clone
-         - getpid
-   ```
-
-   - This profile allows all normal actions (defaultAction: SCMP_ACT_ALLOW).
-   - It specifically tells the system to log when a process tries to run a new program
-     (execve), create a new process (clone), or get its own process ID (getpid).
-     These actions often indicate user interaction within a pod.
-
-2. **Apply the Seccomp Profile:**
-
-   Use the kubectl apply command to create this profile in your cluster:
-
-   ```shell
-   kubectl apply -f profile1.yaml
-   ```
-
-3. **Create a Pod Using the Profile:**
-
-   ```shell
-   apiVersion: v1
-   kind: Pod
-   metadata:
-     name: my-pod
-     labels:
-       app: my-app
-   spec:
-     securityContext:
-       seccompProfile:
-         type: Localhost
-         localhostProfile: operator/profile1.json
-     containers:
-       - name: nginx
-         image: quay.io/security-profiles-operator/test-nginx:1.19.1
-   ```
-
-   - type: `Localhost` means you're using a profile you've defined in the cluster.
-   - localhostProfile: `operator/profile1.json` tells the pod to use the `profile1` you created. The operator/ part
-     indicates where the Security Profiles Operator stores these profiles.
-
-4. **Apply the Pod Definition:**
-
-   Create the pod using kubectl apply:
-
-   ```shell
-   kubectl apply -f my-pod.yaml
-   ```
-
-5. **Monitor the Audit Logs:**
-
-   There are two ways to monitor audit logs generated by the json-enricher container:
-
-   a. To monitor the audit log tail:
-
-   ```shell
-   kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c json-enricher --max-log-requests 6 -f
-   ```
-
-   b. To monitor the audit log file:
-
-   The audit log file specified in the auditLogPath is written to the node's file system where the pod is running. To monitor or inspect the audit logs, you must access the node directly and check the file at the specified path (e.g., `/tmp/logs/audit1.log`).
-
-   To monitor or inspect the audit logs, you need to:
-   1. Identify the node on which the pod is scheduled:
-
-   ```shell
-   kubectl get pod my-pod -o wide
-   ```
-
-   2. SSH to a node and view the audit log:
-
-   ```shell
-   sudo ssh core@<node-name>
-   cat /tmp/logs/audit1.log
-   ```
-
-   By following above steps, you can enable and monitor audit logs in JSON lines format for your Kubernetes pods,
-   giving you better visibility into their activities.
-
-#### Correlating with API Server Audit Log
-
-By default, when you use `kubectl exec` to access a pod or container, Kubernetes doesn't pass the user's authentication
-details into that session's environment. This means JSON Log Enricher can't include "who did what" information
-for exec commands. The `uid`, `gid` recorded will map to the system user which in most cases would be the root user.
-
-To address this, the JSON Log Enricher relies on mutating webhooks (`execmetadata.spo.io` and
-`nodedebuggingpod.spo.io`). This webhook injects the exec request UID as an environment variable into the exec session.
-Now, when the administrator enables audit logging on the API server, the webhooks will add an audit annotation,
-`SPO_EXEC_REQUEST_UID`. The API server audit log will contain this information. This request ID will also be available
-in the JSON lines produced by the JSON Log Enricher, specifically within the `requestUID` field.
-
-Both webhooks get deployed together with the JSON Log Enricher. By default, `execmetadata.spo.io` applies to all
-namespaces except `kube-system`, `kube-public`, `kube-node-lease` and the operator namespace, and
-`nodedebuggingpod.spo.io` to the debug pods of all namespaces.
-
-`spec.enricher.enableExecMetadata` controls both webhooks (default `true`). The exec metadata webhook rewrites every
-`kubectl exec` into these namespaces to run through the
-`env` binary of the container image, so that the JSON enricher can attribute the syscalls of an exec session to the
-request that started it. Images without an `env` binary then fail to exec. Disable the webhook for such clusters:
-
-```shell
-kubectl -n security-profiles-operator patch spod spod --type merge \
-  -p '{"spec":{"enricher":{"enableExecMetadata":false}}}'
-```
-
-The setting has no effect while the JSON enricher is disabled.
-
-To reduce the scope of this webhook you can disable it for certain namespaces.
-
-Edit the spod configuration:
-
-```shell
-kubectl edit spod spod -n security-profiles-operator
-```
-
-Add `webhook.options` to the spec:
-
-Locate the `spec:` section and add the following webhook options block. This will tell the webhook to apply to
-specific namespaces:
-
-```yaml
-# ... (rest of your spod configuration)
-spec:
-  webhook:
-    options:
-      - name: execmetadata.spo.io # or nodedebuggingpod.spo.io
-        namespaceSelector:
-        #...add rules
-# ...
-```
-
-After saving your changes, the operator will reconfigure the mutating webhook, allowing request
-details to be passed into `kubectl exec` sessions cluster-wide.
-
-NOTE: This webhook injects the environment variable `SPO_EXEC_REQUEST_UID` into your exec request. If a container in your Pod
-already defines an environment variable with this exact name, the webhook's injected value will override it for this
-exec session.
-
-The exec attribution is best effort and not audit evidence. The JSON enricher reads `SPO_EXEC_REQUEST_UID` from the
-environment of the process (or from its `env SPO_EXEC_REQUEST_UID=...` command line), and the workload controls both:
-a pod author can set the variable on a container, so that its processes carry a made-up request UID, and a process in
-an exec session can unset or change it before it starts other programs, so that their activity is not attributed to
-the exec request. Use the API server audit log as the record of who started an exec session or a debug pod, and the
-`requestUID` in the JSON lines only to correlate the node activity with it.
-
-When you use `kubectl debug node/<node-name>`, the `nodedebuggingpod.spo.io` webhook automatically injects the
-`SPO_EXEC_REQUEST_UID` environment variable into the debug pod.
-
-This webhook primarily identifies kubectl debug pods by the label `app.kubernetes.io/managed-by: "kubectl-debug"`,
-which is added by the kubectl client.
-
-Because this label might vary across different Kubernetes client implementations
-(e.g., oc debug in OpenShift uses `debug.openshift.io/managed-by: "oc-debug"`),
-you may need to change the `objectSelector` of the webhook in its `webhook.options` entry. There is one entry per
-webhook, and its `objectSelector` replaces the default one. A label selector requires all of its labels, so the
-webhook then catches the pods of the new selector instead of the ones of `kubectl debug`.
-
-For example, to catch `oc debug` pods instead:
-
-```yaml
-# ... (rest of your spod configuration)
-spec:
-  webhook:
-    options:
-      - name: nodedebuggingpod.spo.io
-        objectSelector:
-          matchLabels: # Use matchLabels for exact matching
-            debug.openshift.io/managed-by: "oc-debug"
-```
-
-Reference: For more details on the label, see <https://github.com/kubernetes/kubernetes/pull/131791>.
-
-### AppArmor Profile
-
-Ensure that the spod daemon has AppArmor enabled:
-
-```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
-securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
-```
-
-The operator never overwrites an AppArmor profile it does not own. Ownership is
-recorded as a marker comment in the first line of the policy file it installs
-under `/etc/apparmor.d`, so an `AppArmorProfile` named after a profile the
-distribution ships (`crun`, `busybox`, ...) is rejected with `profile exists`
-rather than replacing the host's profile, and deleting such a custom resource
-leaves the host's profile alone.
-
-Profiles installed by an operator version older than the one that introduced the
-marker do not carry it. They are adopted automatically: the node status already
-records them as installed on that node, which is what proves they are the
-operator's, and the first reconcile after the upgrade rewrites them with the
-marker.
-
-#### Record AppArmor profile
-
-The operator is able to record AppArmor profiles for a workload only using the built-in eBPF recorder.
-
-To use the eBPF recorder, enable it by patching the `spod` configuration:
-
-```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
-securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
-```
-
-Alternatively, make sure the operator deployment sets the `ENABLE_BPF_RECORDER`
-environment variable to `true`. This method can be easier to set up during
-installation than patching the `spod`.
-
-We can verify that the recorder is up and running after the spod rollout has
-been finished:
-
-```
-> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder --tail=-1
-…
-bpf-recorder "msg"="Setting up caches" "expiry"="1h0m0s"
-bpf-recorder "msg"="Starting ebpf recorder on node" "node"="ip-10-0-228-234.us-east-2.compute.internal"
-bpf-recorder "msg"="Connecting to metrics server"
-bpf-recorder "msg"="Got system mount namespace: 4026531840"
-bpf-recorder "msg"="Loading BPF program"
-bpf-recorder "msg"="Loading bpf module..."
-bpf-recorder "msg"="Using system btf file"
-bpf-recorder "msg"="Loading bpf object from module"
-bpf-recorder "msg"="Excluding mount namespace" "mntns"=4026531840
-bpf-recorder "msg"="Getting syscalls map"
-bpf-recorder "msg"="BPF module successfully loaded."
-bpf-recorder "msg"="Doing BPF start/stop self-test..."
-…
-bpf-recorder "msg"="BPF start/stop self-test successful."
-bpf-recorder "msg"="Starting GRPC API server"
-```
-
-Record the workload in its own namespace, not in the privileged operator
-namespace, and enable recording in it as described in
-[Create and Install Security Profiles](#create-and-install-security-profiles):
-
-```
-kubectl create ns spo-test
-kubectl label ns spo-test spo.x-k8s.io/enable-recording=
-```
-
-You can now set up an AppArmor profile recording for `nginx` container by creating the following configuration:
-
-```
-kubectl apply -f - <<EOF
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: ProfileRecording
-metadata:
-  name: nginx-recording
-  namespace: spo-test
-spec:
-  kind: AppArmorProfile
-  recorder: Bpf
-  podSelector:
-    matchLabels:
-      app: nginx
-EOF
-
-```
-
-Now, an nginx container can be started. The operator will record an AppArmor profile for it in the background.
-
-```
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx-pod
-  namespace: spo-test
-  labels:
-    app: nginx
-spec:
-  containers:
-    - name: nginx-container
-      image: nginx
-EOF
-```
-
-We can now let the container run for at least a few minutes to make sure that the required system resources are collected.
-
-Stop the nginx pod, this will make the operator save and install the AppArmor profile in the cluster.
-
-```
-kubectl delete pod -n spo-test nginx-pod
-```
-
-We can check now that the profile was properly installed:
-
-```
-kubectl get apparmorprofile
-
-# Output should show the AppArmor profile.
-
-NAME                              STATUS      AGE
-nginx-recording-nginx-container   Installed   42h
-
-# The content of the profile can be inspected.
-
-kubectl get apparmorprofile -o yaml
-```
-
-_Known limitations:_
-
-- Restrictive profiles may block sub processes to be created, or a container from
-  successfully loading. To work around the issue, set the AppArmor profile to
-  complain mode by setting `.spec.mode` to `Complain`.
-
-#### Use AppArmor profile
-
-The recorded AppArmor profile can be used now to harden an nginx container. The profile should be referenced in the security context as follows:
-
-```
-# Create a dedicated namespace where the hardened container will be deployed.
-
-kubectl create ns test-spo
-
-# Deploy an nginx container with the custom AppArmor profile.
-
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx-pod
-  namespace: test-spo
-  labels:
-    app: nginx
-spec:
-  containers:
-    - name: nginx-container
-      image: nginx
-      securityContext:
-        appArmorProfile:
-          type: Localhost
-          localhostProfile: nginx-recording-nginx-container
-EOF
-
-# Check if the container is running properly.
-
-kubectl get pod -n test-spo
-
-# Output should show that the container is successfully running with AppArmor profile.
-
-NAME        READY   STATUS    RESTARTS   AGE
-nginx-pod   1/1     Running   0          8s
-```
-
-Note that in case of AppArmor, unlike seccomp, only the name of the profile is required in the security context of the container and not the path. You can see more details in the [official documentation](https://kubernetes.io/docs/tutorials/security/apparmor/).
-
-### SELinux profile
-
-Ensure that the running daemon has SELinux enabled. If `spec.selinux.enable` is not set, SELinux support is enabled
-on OpenShift and disabled everywhere else:
-
-```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinux":{"enable":true}}}'
-securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
-```
-
-There are two kinds that can be used to define a SELinux profile - `SelinuxProfile` and `RawSelinuxProfile`.
-
-The default one and the one created during workload recording is `SelinuxProfile`. It is more readable
-and has several features that allow for better security hardening and better readability. The `RawSelinuxProfile`
-kind should be used mostly when there's an already existing SELinux policy (perhaps created with udica)
-that you wish to use in your cluster.
-
-In particular, the `SelinuxProfile` kind:
-
-- restricts the profiles to inherit from to other `SelinuxProfile` objects or a system-wide profile. Because there
-  are typically many profiles installed on the system, but only a subset should be used by cluster workloads,
-  the inheritable system profiles are listed in the `spod` instance in `spec.selinux.options.allowedSystemProfiles`,
-  which defaults to `["container"]`. Depending on what distribution your nodes run, the base profile might vary, on RHEL-based systems, you might
-  want to look at what profiles are shipped in the `container-selinux` RPM package.
-- performs basic validation of the permissions, classes and labels
-- allows to restrict the SELinux types, classes and permissions which can be used in the profiles by
-  `spec.selinux.options.deniedTypes`, `deniedClasses` and `deniedPermissions` of the `spod` instance. The
-  operator also denies some of them by default, for example the `transition` and `dyntransition` permissions
-  which would let a container switch into another domain, and `allowedTypes`, `allowedClasses` and
-  `allowedPermissions` remove entries from that built-in denylist. Use the latter with care, because they relax
-  a safe default for every profile. The lists are compared by name, so the CIL keywords `all`, `and`, `not`,
-  `or`, `range` and `xor` are rejected as permissions. An allow rule on a type attribute like `file_type` is not
-  rejected either, although the attribute contains denied types, and grants access to them. To stop that, add
-  the attribute to `deniedTypes`, which denies attributes by their name as well.
-
-  The kernel memory types `memory_device_t` of `/dev/mem`, `/dev/kmem` and `/dev/port` and `proc_kcore_t` of
-  `/proc/kcore` are not denied by default, which would break existing profiles. They are recommended
-  `deniedTypes`, together with the `device_node` attribute, which contains `memory_device_t`:
-
-  ```yaml
-  spec:
-    selinux:
-      options:
-        deniedTypes:
-          - device_node
-          - memory_device_t
-          - proc_kcore_t
-  ```
-- adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
-  workloads and namespaces easily, as the "usage" of the policy (see below) is based on the profile name.
-
-A `RawSelinuxProfile` can only inherit the container templates of udica, for example with
-`(blockinherit container)`, and must not use statements which change the policy of the whole node, like
-`typepermissive`.
-
-Below is an example of a policy that can be used with a non-privileged nginx workload:
-
-```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: SelinuxProfile
-metadata:
-  name: nginx-secure
-spec:
-  allow:
-    "@self":
-      tcp_socket:
-        - listen
-    http_cache_port_t:
-      tcp_socket:
-        - name_bind
-    node_t:
-      tcp_socket:
-        - node_bind
-  inherit:
-    - kind: System
-      name: container
-```
-
-After the policy is created, we can wait for selinuxd to install it:
-
-```bash
-$ kubectl wait --for=condition=ready selinuxprofile nginx-secure
-selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
-```
-
-The CIL-formatted policies are placed into an `emptyDir` owned by the SPO where you can view
-the resulting CIL policy:
-
-```shell
-$ kubectl -n security-profiles-operator exec -it -c selinuxd spod-fm55x -- sh
-sh-4.4# cat /etc/selinux.d/nginx-secure.cil
-(block nginx-secure
-(blockinherit container)
-(allow process nginx-secure.process ( tcp_socket ( listen )))
-(allow process http_cache_port_t ( tcp_socket ( name_bind )))
-(allow process node_t ( tcp_socket ( node_bind )))
-)
-```
-
-However, the binary policies are installed into the system policy store on the nodes, so you can verify
-that a policy has been installed:
-
-```shell
-# semodule -l | grep nginx-secure
-```
-
-A node reports a SELinux profile as `Installed` once the kernel policy got reloaded with it, which a
-`selinux-policy-reload-` Job on the node does in the operator namespace. While that Job runs, the profile
-is `InProgress`. If the Job fails, exceeds its deadline or cannot be created, for example because an
-admission policy rejects its pod or its image cannot be pulled, the node reports `Error` with the reason
-in the status message of the `SecurityProfileNodeStatus`. The reload is retried with a growing delay, and
-the profile turns `Installed` once a reload succeeded. A failed Job gets deleted together with its pods
-right away, so the reason is in the status message of the node status and the events of the profile. The
-pods of a retried Job which is still running show why they do not start:
-
-```shell
-kubectl get securityprofilenodestatuses -l spo.x-k8s.io/profile-id=SelinuxProfile-<name> \
-  -o custom-columns=NODE:.spec.nodeName,STATUS:.status.status,MESSAGE:.status.message
-kubectl -n security-profiles-operator get pods -l app=selinux-policy-reload
-```
-
-_Make a SELinux profile permissive:_
-Similarly to how a `SeccompProfile` might have a default action `SCMP_ACT_LOG`
-which would merely log violations of the policy, but not actually block the
-container from executing, a `SelinuxProfile` can be marked as permissive
-by setting `.spec.mode` to `Permissive`. This mode might be useful e.g. when
-the policy is known or suspected to be incomplete and you'd prefer to just
-watch for subsequent AVC denials after deploying the policy.
-
-A permissive domain gets every access it asks for, including the types, classes and permissions which the
-`spod` instance denies. To keep the profiles from bypassing the denylist this way, reject permissive profiles:
-
-```shell
-kubectl -n security-profiles-operator patch spod spod --type=merge \
-  -p '{"spec":{"selinux":{"options":{"allowPermissiveProfiles":false}}}}'
-```
-
-A permissive profile and every profile which inherits from it then fail validation and report an error, so they
-are neither installed nor updated. A policy which a node loaded already stays loaded until the profile is deleted.
-
-#### Record SELinux profile
-
-The SELinux profiles can be recorded using the log enricher. You should make sure that it is enabled:
-
-```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true}}}'
-securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
-```
-
-Alternatively, make sure the operator deployment sets the `ENABLE_LOG_ENRICHER` variable,
-to `true`, either by setting the environment variable in the deployment or by enabling
-the variable through a `Subscription` resource, when installing the operator using OLM.
-See [Constrain spod scheduling](installation.md#constrain-spod-scheduling) for an example of
-setting `tolerations` and `affinity` on the SPOD.
-
-Now the operator will take care of re-deploying the `spod` DaemonSet and the
-enricher should be listening for new changes to the audit logs:
-
-```
-> kubectl -n security-profiles-operator logs -f ds/spod log-enricher
-…
-log-enricher "msg"="Starting log-enricher on node" "node"="127.0.0.1"
-log-enricher "msg"="Connecting to local GRPC server"
-log-enricher "msg"="Starting GRPC server API"
-```
-
-Record the workload in its own namespace, not in the privileged operator
-namespace, and enable recording in it as described in
-[Create and Install Security Profiles](#create-and-install-security-profiles).
-Only the `privileged` Pod Security Standard allows a custom SELinux type, so
-the namespace has to run on it if the cluster enforces
-[Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/).
-On OpenShift, the workload also needs an SCC which allows the custom type, see
-[Notes on OpenShift and SCCs](troubleshooting.md#notes-on-openshift-and-sccs).
-
-```
-kubectl create ns spo-selinux
-kubectl label ns spo-selinux spo.x-k8s.io/enable-recording= \
-  pod-security.kubernetes.io/enforce=privileged
-```
-
-To record by using the log enricher, create a `ProfileRecording` which is using
-`recorder: Logs`. You can now record a SELinux profile for `nginx` container by
-creating the following `ProfileRecording` configuration:
-
-```
-kubectl apply -f - <<EOF
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: ProfileRecording
-metadata:
-  name: nginx-recording
-  namespace: spo-selinux
-spec:
-  kind: SelinuxProfile
-  recorder: Logs
-  podSelector:
-    matchLabels:
-      app: nginx
-EOF
-```
-
-Now, an nginx container can be started. The recording webhook sets the SELinux type `selinuxrecording.process` in
-the security context of its containers, which makes them run permissive and log their AVC denials. The operator will
-record a SELinux profile for it in the background.
-
-```
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx-pod
-  namespace: spo-selinux
-  labels:
-    app: nginx
-spec:
-  containers:
-    - name: nginx-container
-      image: nginx
-EOF
-```
-
-We can now let the container run for at least a few minutes to make sure that the required system resources are collected.
-
-Stop the nginx pod, this will make the operator save and install the SELinux profile in the cluster.
-
-```
-kubectl delete pod -n spo-selinux nginx-pod
-```
-
-We can check now that the profile was properly installed:
-
-```
-kubectl get selinuxprofile
-
-# Output should show the selinux profile.
-
-NAME                              USAGE                                     STATUS
-nginx-recording-nginx-container   nginx-recording-nginx-container.process   Installed
-
-# The content of the profile can be inspected.
-
-kubectl get selinuxprofile -o yaml
-```
-
-#### Use SELinux profile
-
-SELinux profiles are referenced based on their `USAGE` type name, which is `<ProfileName>.process`.
-
-Use this SELinux type in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx-secure
-  namespace: spo-selinux
-spec:
-  containers:
-    - image: nginxinc/nginx-unprivileged:1.21
-      name: nginx
-      securityContext:
-        seLinuxOptions:
-          # NOTE: This uses an appropriate SELinux type
-          type: nginx-recording-nginx-container.process
-```
-
-The pod should properly start and run.
-
-### Filtering Logs
-
-The Security Profiles Operator Daemon (SPOD) supports advanced filtering of emitted logs through its enrichers,
-allowing users to focus on relevant events.
-Log filtering is managed by a list of filter rules configured directly on the SPOD resource. The rules are provided as
-a JSON-encoded string containing an array of filter objects. Two distinct fields are available in `spec.enricher`, each
-controlling a different enricher:
-
-- `jsonEnricherFilters`: Applies filtering to the Audit JSON Log Enricher.
-- `logEnricherFilters`: Applies filtering to the Log Enricher.
-
-Example: Enabling Log Enricher and providing an empty filter list (no custom filtering)
-
-```shell
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherFilters":"[]"}}}'
-```
-
-Each object within the JSON array encoded in `jsonEnricherFilters` or `logEnricherFilters` conforms to the following structure:
-
-| Field       | Type          | Description                                                                                                                                                                                                                                                                                                                 | Example Value                 |
-| ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| priority    | integer       | Required. Defines the order of rule application. Rules with lower priority numbers are evaluated first (higher priority).                                                                                                                                                                                                   | 10, 100                       |
-| level       | string        | Required. Determines the action to take if this rule matches a log line: <br/>- "Metadata": The log line is emitted (logged). <br/>- "None": The log line is dropped (not logged).                                                                                                                                          | "Metadata", "None"            |
-| matchKeys   | array<string> | Required. An array of log statement keys (field names). The rule can match if any of them is present in the incoming log line. A key with a `/` names a nested field of the JSON enricher, see below.                                                                                                                       | ["namespace"], ["resource/namespace"], ["requestUID"] |
-| matchValues | array<string> | Optional. An array of values. If provided, the values associated with any of the matchKeys (that were found in the log line) must match at least one of these matchValues. <br/>If matchValues is an empty array ([]) or omitted, the mere presence of any of the matchKeys is sufficient for a match, regardless of their values. | ["default"], ["test"]         |
-
-#### Rule Evaluation Logic
-
-When the enrichers start, all configured filter rules are parsed and loaded. For each incoming log statement:
-
-- Rules are evaluated strictly in ascending order of their priority (lower numbers are evaluated first).
-- The first rule that a log statement matches determines its fate. No subsequent rules will be evaluated for that particular log line.
-- A log statement is considered a match for a rule if:
-  - Any keys specified in matchKeys are present in the log statement. The log enricher emits flat
-    fields like `namespace`, `pod` and `container`. The JSON enricher nests them below `resource`
-    and the node name below `node`, which a key selects with a `/`, like `resource/namespace`,
-    `resource/pod`, `resource/container` or `node/name`. A plain `namespace` key never matches a
-    line of the JSON enricher.
-  - AND (if matchValues is provided and not empty): At least one of the values associated with the matched matchKeys in the log statement matches at least one string in the rule's matchValues.
-  - Also note that int values although provided as string will be converted to int
-  - A value which is a list, like the `syscalls` of the JSON enricher, matches if any of its
-    elements does, and the level of the rule then applies to the whole log line
-- Action Based on level:
-  - If the matching rule's level is "Metadata", the log line is emitted.
-  - If the matching rule's level is "None", the log line is dropped.
-- Default Behavior: If no rule in the filter array matches the log statement, a default behavior of "Metadata" (log the line) will be applied.
-
-#### Examples
-
-1. Filtering JSON Audit Logs for Specific User Activity:
-
-This example demonstrates logging only audit events associated with a requestUID, while filtering everything else. This is helpful for a JSON Audit log enricher to investigate the user activity like exec into a pod or end-user running some script inside a container.
-
-The following JSON filter configuration can be used with the command below:
-
-```json
-[
-  {
-    "priority": 100,
-    "level": "Metadata",
-    "matchKeys": ["requestUID"]
-  },
-  {
-    "priority": 999,
-    "level": "None",
-    "matchKeys": ["version"],
-    "matchValues": ["spo/v1_alpha"]
-  }
-]
-```
-
-```
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher": true, "jsonEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}}'
-```
-
-2. Filtering Logs for a Specific Kubernetes Namespace:
-
-This example logs log-enricher entries only from the default namespace and drops any other log lines for seccomp profile.
-
-```
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher": true, "logEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"namespace\"],\"matchValues\":[\"default\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"type\"],\"matchValues\":[\"seccomp\"]}]"}}}'
-```
-
-### General Considerations
-
-#### Base syscalls for a container runtime
-
-An example of the minimum required syscalls for a runtime such as
-[runc](https://github.com/opencontainers/runc) to launch a container can be
-found in [the examples](../examples/baseprofile-runc.yaml). It is named after
-the runc version it was recorded with. You can use this example as a starting
-point for creating custom profiles for your application. You can also
-programmatically combine it with your custom profiles in order to build
-application-specific profiles that only specify syscalls that are required on
-top of the base calls needed for the container runtime. The operator does not
-ship the base profiles, so apply the example first, then refer to it by its
-name. For example:
+A security profile that is in use by existing pods cannot be deleted until the
+pods exit or are removed, the profile deletion is protected by finalizers.
+Completed pods, like the ones of a finished Job, do not count as using the
+profile. The `status.activeWorkloads` of a profile lists the first 1000 pods
+using it and `status.activeWorkloadsCount` counts all of them.
+
+To apply a profile without changing the workload, use a
+[ProfileBinding](#bind-workloads-to-profiles).
+
+## Base profiles
+
+### Base syscalls for a container runtime
+
+A container runtime like [runc](https://github.com/opencontainers/runc) needs
+a few syscalls to start a container, before the process of the container
+runs. [The examples](../examples/baseprofile-runc.yaml) hold a profile with
+these syscalls, named after the runc version it was recorded with. A profile
+which sets it as `baseProfileName` gets its syscalls merged in, so that the
+profile only has to list the syscalls of the application. The operator does
+not ship the base profiles, so apply the example first, then refer to it by
+its name. For example:
 
 ```shell
 kubectl apply -f examples/baseprofile-runc.yaml
@@ -1251,56 +163,31 @@ spec:
         - exit_group
 ```
 
-If you're not using runc but the alternative
-[crun](https://github.com/containers/crun), then you can do the same by using
-the [corresponding example profile](../examples/baseprofile-crun.yaml).
+For [crun](https://github.com/containers/crun), use the
+[corresponding example profile](../examples/baseprofile-crun.yaml).
 
-#### Recording profiles without applying them
+A base profile may set a `baseProfileName` itself, the operator resolves up to
+15 stacked profiles. Because the resulting syscalls are not visible in the
+profile, the operator annotates the profile with them:
 
-In some cases, it might be desirable to record security profiles, but not install them.
-Use-cases might include recording profiles in a CI system where the profiles would be
-deployed in a subsequent verify run or recording profiles as part of a build process where the
-profile would be deployed by the end-user.
+```console
+$ kubectl describe seccompprofile profile1
+Name:         profile1
+Labels:       spo.x-k8s.io/profile-id=SeccompProfile-profile1
+Annotations:  syscalls:
+                [{"names":["arch_prctl","brk","capget","capset","chdir","clone","close","dup3","epoll_create1","epoll_ctl","epoll_pwait","execve","exit_gr...
+API Version:  security-profiles-operator.x-k8s.io/v1
+```
 
-To record profiles without installing them, set the `disableProfileAfterRecording`
-attribute to `true` in the `ProfileRecording` CR. This option defaults to `false`, which
-is the default behavior of the operator to install the profiles. When `disableProfileAfterRecording`
-is set to `true`, the operator will not reconcile the profiles and will not install them. Partial
-disabled profiles can still be merged and the resulting merged profile will be disabled.
+If an `oci://` base profile is involved, each node pulls it for its own
+architecture, so the result can differ between architectures. The annotation
+is then named after the architecture of the node, for example `syscalls-amd64`
+and `syscalls-arm64`.
 
-On the profile level, this functionality is controlled by the `.spec.state` field. It is also
-possible to create profile CRs in the `Disabled` state, although this functionality is probably
-less interesting to end users and is mostly used for testing purposes. The `state` field defaults
-to `Enabled`. Profiles that are disabled, either explicitly or by the `disableProfileAfterRecording`
-flag, can be enabled by setting `.spec.state` to `Enabled` in the profile CR.
+### Base profiles from OCI registries
 
-#### Disable profile recording
-
-Profile recorder controller along with the corresponding sidecar container is disabled
-when none of `enableBpfRecorder`, `enableLogEnricher` and `enableJsonEnricher` is set in the SPOD
-configuration, and automatically enabled when any of them is on, which also runs the daemon
-pods with `hostPID`. The same applies when the BPF recorder, the log enricher or the JSON
-enricher are enabled using the environment variables `ENABLE_BPF_RECORDER`,
-`ENABLE_LOG_ENRICHER` or `ENABLE_JSON_ENRICHER` respectively.
-
-Also, when running the daemon in standalone mode is possible to switch on the profile recorder
-controller by providing the `with-recording` command line argument or setting the `ENABLE_RECORDING`
-environment variable.
-
-#### OCI Artifact support for base profiles
-
-The operator supports pulling base profiles from container registries supporting
-OCI artifacts, which are right now:
-
-- [CNCF Distribution](https://github.com/distribution/distribution)
-- [Azure Container Registry](https://aka.ms/acr)
-- [Amazon Elastic Container Registry](https://aws.amazon.com/ecr)
-- [Google Artifact Registry](https://cloud.google.com/artifact-registry)
-- [GitHub Packages container registry](https://docs.github.com/en/packages/guides/about-github-container-registry)
-- [Docker Hub](https://hub.docker.com)
-- [Zot Registry](https://zotregistry.io)
-
-To use that feature, just prefix the `baseProfileName` with `oci://`, like:
+The operator pulls base profiles from container registries which support OCI
+artifacts. Prefix the `baseProfileName` with `oci://` to use one:
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -1312,14 +199,23 @@ spec:
   baseProfileName: oci://registry.k8s.io/security-profiles-operator/base/runc:v1.5.2
 ```
 
-The resulting profile `profile1` will then contain all base syscalls from the
-remote `runc` profile. It is also possible to reference the base profile by its
-SHA256, like `oci://registry.k8s.io/security-profiles-operator/base/runc@sha256:380…`. Please note
-that all profiles must be signed using [sigstore (cosign)](https://github.com/sigstore/cosign)
-signatures, otherwise the Security Profiles Operator will reject them. The OCI
-artifact profiles also support different architectures, where the operator
-always tries to select the correct one via `runtime.GOOS`/`runtime.GOARCH` but
-also allows to fallback to a default profile.
+The resulting profile `profile1` then contains all syscalls of the remote
+`runc` profile. A base profile can also be referenced by its digest, like
+`oci://registry.k8s.io/security-profiles-operator/base/runc@sha256:380…`. The
+artifacts have to be signed with [sigstore (cosign)](https://github.com/sigstore/cosign),
+otherwise the operator rejects them, see
+[Verify the signatures of OCI base profiles](#verify-the-signatures-of-oci-base-profiles).
+An artifact can hold profiles for several architectures, the operator selects
+the one of the node and falls back to a default profile.
+
+The project publishes the base profiles of [the examples](../examples) as
+signed OCI artifacts at `registry.k8s.io/security-profiles-operator/base/<runtime>`,
+tagged with the runtime version they were recorded against.
+`crane ls registry.k8s.io/security-profiles-operator/base/crun` lists the
+published versions, see [base profiles](release-baseprofiles.md) for how they
+are recorded and published and
+[verifying the released artifacts](verification.md#security-profiles) for
+their signatures.
 
 Base profiles can also be runtime format artifacts as defined by
 [KEP-6061](https://github.com/kubernetes/enhancements/issues/6061): a single
@@ -1331,27 +227,28 @@ them like profile CRD artifacts, which means only `spec.syscalls` of the base
 profile gets unioned into the referencing profile. All other fields are
 ignored, including the ones the CRD cannot express such as `defaultErrnoRet`.
 
-The operator internally caches pulled artifacts up to 24 hours for 1000
-profiles, means that they will be refreshed after that time period, if the stack
-is full or the operator daemon gets restarted. Using a cached profile does not
-extend its cache time, so a base profile referenced by tag picks up a new
-version within 24 hours no matter how often it is used. Reference the base
-profile by digest to pin the exact content. It is also possible to define
-additional `baseProfileName` for existing base profiles, so the operator will
-recursively resolve them up to a level of 15 stacked profiles.
+The daemon caches pulled artifacts for up to 24 hours and up to 1000 profiles.
+It pulls them again after that time, when the cache is full or when the daemon
+restarts. Using a cached profile does not extend its cache time, so a base
+profile referenced by tag picks up a new version within 24 hours no matter how
+often it is used. Reference the base profile by digest to pin the exact
+content.
 
 A few limits apply to base profiles pulled by the operator:
 
-- The pull is anonymous. The operator daemon has no registry credentials, so
-  the artifact and its signature have to be publicly readable.
+- The pull is anonymous. The daemon has no registry credentials, so the
+  artifact and its signature have to be publicly readable.
 - Every blob of the artifact has to be at most 1 MiB, the size limit container
   runtimes apply to seccomp profile artifacts. Bigger blobs fail the pull
   before they are fetched.
-- Signature verification accepts any valid signature by default, see the
-  [security model](security-model.md#oci-artifact-signature-verification) for
-  how to constrain it to the signers you trust. Disabling verification via
-  `disableOciArtifactSignatureVerification` makes the operator use whatever the
-  registry serves.
+- Signature verification accepts any valid signature by default, see
+  [Verify the signatures of OCI base profiles](#verify-the-signatures-of-oci-base-profiles)
+  and the [security model](security-model.md#oci-artifact-signature-verification)
+  for how to constrain it to the signers you trust. Disabling verification via
+  `spec.security.disableOciArtifactSignatureVerification` makes the operator
+  use whatever the registry serves.
+
+### Verify the signatures of OCI base profiles
 
 By default, the signatures of OCI base profiles are verified keyless against
 `spec.security.allowedIdentityRegexp` and `allowedOidcIssuerRegexp` of the
@@ -1419,56 +316,527 @@ spec:
         key: cosign.pub
 ```
 
-Because the resulting syscalls may be hidden from the user, we additionally annotate
-the seccomp profile with the final results:
+## AppArmor profiles
 
-```console
-> kubectl describe seccompprofile profile1
-Name:         profile1
-Labels:       spo.x-k8s.io/profile-id=SeccompProfile-profile1
-Annotations:  syscalls:
-                [{"names":["arch_prctl","brk","capget","capset","chdir","clone","close","dup3","epoll_create1","epoll_ctl","epoll_pwait","execve","exit_gr...
-API Version:  security-profiles-operator.x-k8s.io/v1
+### Enable AppArmor
+
+AppArmor support is disabled by default. Enable it in the SPOD:
+
+```shell
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
 ```
 
-If an `oci://` base profile is involved, each node pulls it for its own
-architecture, so the result can differ between architectures. The annotation
-is then named after the architecture of the node, for example `syscalls-amd64`
-and `syscalls-arm64`.
+The daemon then runs privileged in the host PID namespace and enters the host
+mount namespace to install the profiles, see the
+[security model](security-model.md).
 
-We provide the base profiles of [the examples](../examples) as signed OCI
-artifacts at `registry.k8s.io/security-profiles-operator/base/<runtime>`, tagged
-with the runtime version they were recorded against.
-`crane ls registry.k8s.io/security-profiles-operator/base/crun` lists the
-published versions, see [base profiles](release-baseprofiles.md) for how they
-are recorded and published and
-[verifying the released artifacts](verification.md#security-profiles) for
-their signatures.
+### Create an AppArmor profile
 
-#### Bind workloads to profiles with ProfileBindings
+An `AppArmorProfile` describes the allowed executables, files, network access,
+capabilities and ptrace access, which the daemon translates into an AppArmor
+policy and loads on each node, see [AppArmorProfile](#apparmorprofile) for the
+fields. [`apparmorprofile.yaml`](../examples/apparmorprofile.yaml) holds an
+example which denies all file and network access:
 
-If you do not want to directly modify the SecurityContext of a Pod, for instance
-if you are deploying a public application, you can use the ProfileBinding
-resource to bind a security profile to a container's securityContext.
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+metadata:
+  name: test-profile
+spec:
+  abstract:
+    filesystem:
+      readOnlyPaths: []
+      writeOnlyPaths: []
+      readWritePaths: []
+    network:
+      allowRaw: false
+      allowedProtocols:
+        allowTcp: false
+        allowUdp: false
+```
+
+To get a profile which fits a workload, record it with the BPF recorder, see
+[Record an AppArmor profile](recording.md#record-an-apparmor-profile).
+
+The operator never overwrites an AppArmor profile it does not own. Ownership is
+recorded as a marker comment in the first line of the policy file it installs
+under `/etc/apparmor.d`, so an `AppArmorProfile` named after a profile the
+distribution ships (`crun`, `busybox`, ...) is rejected with `profile exists`
+rather than replacing the host's profile, and deleting such a custom resource
+leaves the host's profile alone. A policy file without the marker which the
+node status of the profile records as installed on that node was written by
+an operator release without the marker, so the operator adopts it and rewrites
+it with the marker.
+
+### Use an AppArmor profile
+
+Reference the profile by its name in the security context of the container,
+like [`pod-apparmor.yaml`](../examples/pod-apparmor.yaml) does for the profile
+above. For a profile `nginx-recording-nginx-container`, recorded as described
+in [Record an AppArmor profile](recording.md#record-an-apparmor-profile),
+use it in a namespace without a recording, since `AppArmorProfile` objects are
+cluster scoped:
+
+```shell
+kubectl create ns apparmor-test
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod
+  namespace: apparmor-test
+  labels:
+    app: nginx
+spec:
+  containers:
+    - name: nginx-container
+      image: nginx
+      securityContext:
+        appArmorProfile:
+          type: Localhost
+          localhostProfile: nginx-recording-nginx-container
+EOF
+```
+
+The container should run with the profile:
+
+```console
+$ kubectl get pod -n apparmor-test
+NAME        READY   STATUS    RESTARTS   AGE
+nginx-pod   1/1     Running   0          8s
+```
+
+Unlike seccomp, AppArmor only needs the name of the profile in the security
+context of the container, not a path. See the
+[Kubernetes documentation](https://kubernetes.io/docs/tutorials/security/apparmor/)
+for more details.
+
+## SELinux profiles
+
+### Enable SELinux
+
+Ensure that the daemon has SELinux enabled. If `spec.selinux.enable` is not
+set, SELinux support is enabled on OpenShift and disabled everywhere else:
+
+```shell
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinux":{"enable":true}}}'
+```
+
+The daemon installs the SELinux policies through `selinuxd`, see
+[Configure SELinux support](configuration.md#configure-selinux-support) for its
+image and options.
+
+### SelinuxProfile and RawSelinuxProfile
+
+There are two kinds that can be used to define a SELinux profile:
+`SelinuxProfile` and `RawSelinuxProfile`.
+
+`SelinuxProfile` is the default one and the one created by recording. It is
+more readable and validates more. Use `RawSelinuxProfile` for an existing
+policy in [CIL](https://github.com/SELinuxProject/selinux/blob/main/secilc/docs/README.md),
+for example one created with [udica](https://github.com/containers/udica), see
+[Create a raw SELinux profile](#create-a-raw-selinux-profile).
+
+In particular, the `SelinuxProfile` kind:
+
+- restricts the profiles to inherit from to other `SelinuxProfile` objects or a
+  system-wide profile. Because there are typically many profiles installed on
+  the system, but only a subset should be used by cluster workloads, the
+  inheritable system profiles are listed in the SPOD in
+  `spec.selinux.options.allowedSystemProfiles`, which defaults to
+  `["container"]`. Depending on what distribution your nodes run, the base
+  profile might vary, on RHEL-based systems, you might want to look at what
+  profiles are shipped in the `container-selinux` RPM package.
+- performs basic validation of the permissions, classes and labels.
+- rejects the types, classes and permissions of a denylist, see
+  [Denied types, classes and permissions](#denied-types-classes-and-permissions).
+- adds a new keyword `@self` that describes the process using the policy. This
+  allows to reuse a policy between workloads and namespaces easily, as the
+  "usage" of the policy (see below) is based on the profile name.
+
+### Denied types, classes and permissions
+
+A `SelinuxProfile` which allows one of the denied types, classes or
+permissions fails validation: it reports an `Error` status naming the rule and
+is not installed. The operator denies these by default, because they would let
+a container take over the node or other containers:
+
+- the types `kernel_t`, `kmem_t`, `security_t` and `shadow_t`.
+- the classes `capability`, `capability2`, `security` and `system`.
+- the permissions `dyntransition`, `load_policy`, `mac_admin`, `mounton`,
+  `relabelfrom`, `relabelto`, `setbool`, `setenforce`, `setsecparam` and
+  `transition`. `transition` and `dyntransition` would let a container switch
+  into another domain.
+
+`spec.selinux.options.deniedTypes`, `deniedClasses` and `deniedPermissions` of
+the SPOD deny more of them. `allowedTypes`, `allowedClasses` and
+`allowedPermissions` remove entries from the built-in denylist. Use the latter
+with care, because they relax a safe default for every profile. Recording does
+not leave out the denied entries, so a recorded profile with, for example, a
+`capability` rule fails validation until the rule is removed or allowed.
+
+The lists are compared by name, so the CIL keywords `all`, `and`, `not`, `or`,
+`range` and `xor` are rejected as permissions. An allow rule on a type
+attribute like `file_type` is not rejected either, although the attribute
+contains denied types, and grants access to them. To stop that, add the
+attribute to `deniedTypes`, which denies attributes by their name as well.
+
+The kernel memory types `memory_device_t` of `/dev/mem`, `/dev/kmem` and
+`/dev/port` and `proc_kcore_t` of `/proc/kcore` are not denied by default,
+which would break existing profiles. They are recommended `deniedTypes`,
+together with the `device_node` attribute, which contains `memory_device_t`:
+
+```yaml
+spec:
+  selinux:
+    options:
+      deniedTypes:
+        - device_node
+        - memory_device_t
+        - proc_kcore_t
+```
+
+### Create a SELinux profile
+
+Below is an example of a policy that can be used with a non-privileged nginx
+workload:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SelinuxProfile
+metadata:
+  name: nginx-secure
+spec:
+  allow:
+    "@self":
+      tcp_socket:
+        - listen
+    http_cache_port_t:
+      tcp_socket:
+        - name_bind
+    node_t:
+      tcp_socket:
+        - node_bind
+  inherit:
+    - kind: System
+      name: container
+```
+
+[`selinuxprofile.yaml`](../examples/selinuxprofile.yaml) holds another example,
+which allows writing to `/var/log`. After the policy is created, wait for
+`selinuxd` to install it:
+
+```console
+$ kubectl wait --for=condition=ready selinuxprofile nginx-secure
+selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
+```
+
+The CIL policies are placed into an `emptyDir` of the daemon, where you can
+view the resulting CIL policy:
+
+```console
+$ kubectl -n security-profiles-operator exec -it -c selinuxd spod-fm55x -- sh
+sh-4.4# cat /etc/selinux.d/nginx-secure.cil
+(block nginx-secure
+(blockinherit container)
+(allow process nginx-secure.process ( tcp_socket ( listen )))
+(allow process http_cache_port_t ( tcp_socket ( name_bind )))
+(allow process node_t ( tcp_socket ( node_bind )))
+)
+```
+
+The binary policies are installed into the system policy store on the nodes,
+so you can verify on a node that a policy has been installed:
+
+```console
+$ sudo semodule -l | grep nginx-secure
+nginx-secure
+```
+
+A node reports a SELinux profile as `Installed` once the kernel policy got
+reloaded with it, which a `selinux-policy-reload-` Job on the node does in the
+operator namespace. While that Job runs, the profile is `InProgress`. If the
+Job fails, exceeds its deadline or cannot be created, for example because an
+admission policy rejects its pod or its image cannot be pulled, the node
+reports `Error` with the reason in the status message of the
+`SecurityProfileNodeStatus`. The reload is retried with a growing delay, and
+the profile turns `Installed` once a reload succeeded. A failed Job gets
+deleted together with its pods right away, so the reason is in the status
+message of the node status and the events of the profile. The pods of a
+retried Job which is still running show why they do not start:
+
+```shell
+kubectl get securityprofilenodestatuses -l spo.x-k8s.io/profile-id=SelinuxProfile-<name> \
+  -o custom-columns=NODE:.spec.nodeName,STATUS:.status.status,MESSAGE:.status.message
+kubectl -n security-profiles-operator get pods -l app=selinux-policy-reload
+```
+
+### Create a raw SELinux profile
+
+A `RawSelinuxProfile` holds a CIL policy in `spec.policy`, like
+[`rawselinuxprofile.yaml`](../examples/rawselinuxprofile.yaml):
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: RawSelinuxProfile
+metadata:
+  name: raw-errorlogger
+spec:
+  policy: |
+    (blockinherit container)
+    (allow process var_log_t ( dir ( open read getattr lock search ioctl add_name remove_name write )))
+    (allow process var_log_t ( file ( getattr read write append ioctl lock map open create )))
+```
+
+The daemon places the policy into a CIL block named after the profile, so the
+policy does not declare a block itself and its process type is
+`<profile name>.process`, like the one of a `SelinuxProfile`. Policies which
+udica generates come wrapped in a `(block <name> ...)`: remove that outer
+block and keep its content.
+
+A raw policy may only inherit the container templates of udica, for example
+with `(blockinherit container)` or `(blockinherit net_container)`. Statements
+which change the policy of the whole node are rejected, among them `block`,
+`blockstart`, `optional`, `typepermissive`, `booleanif`, `tunable`, the
+labeling statements like `filecon`, `portcon` and `genfscon`, and the
+declarations of classes, roles, users, sensitivities and categories. The
+`rawselinuxprofile-validation.spo.io` webhook rejects such policies when they
+are created or updated, and the daemon checks them again before it installs
+them.
+
+The statements may still refer to global types, attributes and blocks: allow
+rules for global types like `container_t`, `typeattributeset` and `in`
+statements can affect other workloads. A raw policy is also not checked
+against the denylist of the `SelinuxProfile`. Only cluster admins should be
+allowed to write raw SELinux profiles, and `selinux.enableRawSelinuxProfiles:
+false` of the SPOD turns them off, see
+[Configure SELinux support](configuration.md#configure-selinux-support).
+
+### Make a SELinux profile permissive
+
+Similarly to how a `SeccompProfile` might have a default action `SCMP_ACT_LOG`
+which would merely log violations of the policy, but not actually block the
+container from executing, a `SelinuxProfile` can be marked as permissive by
+setting `.spec.mode` to `Permissive`. This mode might be useful when the policy
+is known or suspected to be incomplete and you'd prefer to just watch for
+subsequent AVC denials after deploying the policy.
+
+A permissive domain gets every access it asks for, including the types, classes
+and permissions which the SPOD denies. To keep the profiles from bypassing the
+denylist this way, reject permissive profiles:
+
+```shell
+kubectl -n security-profiles-operator patch spod spod --type=merge \
+  -p '{"spec":{"selinux":{"options":{"allowPermissiveProfiles":false}}}}'
+```
+
+A permissive profile and every profile which inherits from it then fail
+validation and report an error, so they are neither installed nor updated. A
+policy which a node loaded already stays loaded until the profile is deleted.
+
+### Use a SELinux profile
+
+SELinux profiles are referenced based on their `USAGE` type name, which is
+`<profile name>.process`. For the profile `nginx-recording-nginx-container`,
+recorded as described in
+[Record a SELinux profile](recording.md#record-a-selinux-profile):
+
+```console
+$ kubectl get selinuxprofile
+NAME                              USAGE                                     STATUS      AGE
+nginx-recording-nginx-container   nginx-recording-nginx-container.process   Installed   2m
+```
+
+Use this SELinux type in the `.spec.containers[].securityContext.seLinuxOptions`
+attribute of the workload, which runs the image the profile was recorded from:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-secure
+  namespace: spo-selinux
+spec:
+  containers:
+    - name: nginx-container
+      image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+      securityContext:
+        seLinuxOptions:
+          type: nginx-recording-nginx-container.process
+```
+
+The pod should start and run. Only the `privileged`
+[Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/#privileged)
+allows a custom SELinux type, so the namespace has to run on it if the cluster
+enforces [Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/),
+like the `spo-selinux` namespace of the recording. In contrast, even the
+`restricted` Pod Security Standard allows `Localhost` seccomp profiles.
+
+### Use a SELinux profile on OpenShift
+
+On OpenShift, the security context constraints (SCCs) decide which SELinux
+types a pod may use. The default `restricted-v2` SCC sets the SELinux context
+of the pods itself and rejects a custom type. The pods of a replicating
+controller like a Deployment are created with the identity of their service
+account, not the one of the user who creates the Deployment, so they get the
+SCCs of the service account.
+
+An SCC with `seLinuxContext: RunAsAny`, like the `privileged` SCC, allows any
+type, but it is safer to allow the workload only the type of its profile. This
+SCC is based on `restricted-v2` and sets the type of the profile
+`nginx-recording-nginx-container` from [Use a SELinux profile](#use-a-selinux-profile):
+
+```yaml
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: nginx-secure
+  annotations:
+    kubernetes.io/description: restricted-v2 with the SELinux type of the nginx-recording-nginx-container profile
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
+allowedCapabilities:
+  - NET_BIND_SERVICE
+defaultAddCapabilities: null
+fsGroup:
+  type: MustRunAs
+groups: []
+priority: 10
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+  - ALL
+runAsUser:
+  type: MustRunAsRange
+seLinuxContext:
+  type: MustRunAs
+  seLinuxOptions:
+    type: nginx-recording-nginx-container.process
+seccompProfiles:
+  - runtime/default
+supplementalGroups:
+  type: RunAsAny
+users: []
+volumes:
+  - configMap
+  - csi
+  - downwardAPI
+  - emptyDir
+  - ephemeral
+  - persistentVolumeClaim
+  - projected
+  - secret
+```
+
+Allow only the service account of the workload to use the SCC. A common
+mistake is to grant a custom SCC to a wide range of users, for example through
+the `groups` field or a binding to the `system:authenticated` group, see the
+[OpenShift documentation on managing SCCs](https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/authentication_and_authorization/managing-pod-security-policies).
+The service account `nginx-sa` of the namespace `nginx-secure` gets the SCC
+through a Role and a RoleBinding:
+
+```shell
+kubectl create namespace nginx-secure
+```
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-sa
+  namespace: nginx-secure
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: use-nginx-secure-scc
+  namespace: nginx-secure
+rules:
+  - apiGroups:
+      - security.openshift.io
+    resources:
+      - securitycontextconstraints
+    resourceNames:
+      - nginx-secure
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: use-nginx-secure-scc
+  namespace: nginx-secure
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: use-nginx-secure-scc
+subjects:
+  - kind: ServiceAccount
+    name: nginx-sa
+    namespace: nginx-secure
+```
+
+The Deployment selects the service account and does not set the SELinux type,
+the SCC sets it:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-secure
+  namespace: nginx-secure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      serviceAccountName: nginx-sa
+      containers:
+        - name: nginx-container
+          image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+```
+
+The SCC has a `priority`, so that admission prefers it over `restricted-v2`,
+which the service account can use as well. Without one, admission picks
+between SCCs of the same priority by their restrictiveness and then by name.
+The `openshift.io/scc` annotation of the pods names the SCC they got admitted
+with, which should be `nginx-secure`.
+
+## Bind workloads to profiles
+
+If you do not want to directly modify the security context of a pod, for
+instance if you are deploying a public application, you can use the
+`ProfileBinding` resource to bind a security profile to the containers of the
+pods of a namespace.
 
 You need to enable the profile binding for a namespace by applying the label
 `spo.x-k8s.io/enable-binding`, as following for the `default` namespace of the
 examples below:
 
-```sh
-$ kubectl label ns default spo.x-k8s.io/enable-binding=
+```shell
+kubectl label ns default spo.x-k8s.io/enable-binding=
 ```
 
-To bind a Pod that uses an `nginx:1.23.2` image to the `profile-complain-unsafe`
+To bind a pod that uses an `nginx:1.23.2` image to the `profile-complain-unsafe`
 seccomp profile of [the examples](../examples/seccompprofile.yaml), create a
-ProfileBinding in the same namespace as the Pod (seccomp profiles are
-cluster-scoped):
+`ProfileBinding` in the same namespace as the pod (seccomp profiles are
+cluster scoped), like [`profilebinding.yaml`](../examples/profilebinding.yaml):
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
-  name: nginx-binding
+  name: profile-binding
 spec:
   profileRef:
     kind: SeccompProfile
@@ -1487,15 +855,16 @@ the tag points to, so it does not match a reference by digest like
 digest, so only a binding for the digest matches it. Use a `"*"` binding to
 enforce a profile independent of the image reference.
 
-You can enable a default profile binding by using the string "\*" as the image name.
-It applies to every container of the pod which no image binding of the same profile kind binds,
-see [the precedence of the bindings](#binding-precedence-and-status).
+You can enable a default profile binding by using the string `"*"` as the image
+name. It applies to every container of the pod which no image binding of the
+same profile kind binds, see
+[the precedence of the bindings](#binding-precedence-and-status).
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
-  name: nginx-binding
+  name: profile-binding
 spec:
   profileRef:
     kind: SeccompProfile
@@ -1514,7 +883,7 @@ selector (in addition to the image match).
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
-  name: nginx-binding
+  name: profile-binding
 spec:
   profileRef:
     kind: SeccompProfile
@@ -1525,21 +894,21 @@ spec:
       app: nginx
 ```
 
-If the Pod is already running, it will need to be restarted in order to pick up
-the profile binding. Once the binding is created and the Pod is created or
-recreated, the SeccompProfile should be applied to the container whose image
-name matches the binding:
+If the pod is already running, it needs to be recreated to pick up the profile
+binding. Once the binding is created and the pod is created or recreated, the
+seccomp profile should be applied to the container whose image matches the
+binding:
 
-```sh
+```console
 $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.seccompProfile}'
 {"localhostProfile":"operator/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
 Binding a SELinux or AppArmor profile works in the same way, except you'd use
-the `SelinuxProfile` or `AppArmorProfile` kind. `RawSelinuxProfiles` are
-currently not supported.
+the `SelinuxProfile` or `AppArmorProfile` kind. Bindings to a
+`RawSelinuxProfile` are not supported.
 
-##### Binding precedence and status
+### Binding precedence and status
 
 The binding webhook applies the bindings of the pod's namespace when a pod is
 created and when ephemeral containers, for example of `kubectl debug`, are
@@ -1587,25 +956,26 @@ security context of a pod cannot be changed after its creation.
   matches the old or the new image, independent of its `podSelector`. The
   `binding-image.spo.io` validating webhook rejects such updates, recreate the
   pod instead. It follows the `webhook.options` of `binding.spo.io` in the SPOD
-  configuration and only gets the pod updates which change an image.
+  and only gets the pod updates which change an image.
 - The names of recorded profiles only consist of the recording and container
   names, so a recording in any namespace can produce the profile a binding
   expects. A binding to a profile recorded in another namespace than the one
   of the pod still applies, because profiles can be shared across namespaces,
   but the pod is admitted with an admission warning and the binding gets a
   `ProfileRecordedInOtherNamespace` event.
-- Bindings to a profile which does not exist are skipped, so that a binding
-  cannot block all pods of a namespace. A pod is rejected while the referenced
-  profile exists but has no status yet, which means that no node installed it,
-  unless the profile kind is disabled in the SPOD configuration. Then the
-  binding is skipped and gets a `ProfileWithoutStatus` event. A pod bound to a
-  profile with the `Partial` status of a recording which is not merged yet is
-  rejected as well, because the nodes never install partial profiles. So is a
-  pod bound to a profile which is being deleted and which no pod uses, because
-  the nodes remove it. A pod bound to a disabled profile which no pod uses is
-  admitted with an admission warning and the binding gets a `ProfileDisabled`
-  event, because the nodes do not install it and the containers cannot start
-  until the profile gets enabled again.
+- Bindings to a profile which does not exist are skipped and get a
+  `ProfileNotFound` event, so that a binding cannot block all pods of a
+  namespace. A pod is rejected while the referenced profile exists but has no
+  status yet, which means that no node installed it, unless the profile kind
+  is disabled in the SPOD. Then the binding is skipped and gets a
+  `ProfileWithoutStatus` event. A pod bound to a profile with the `Partial`
+  status of a recording which is not merged yet is rejected as well, because
+  the nodes never install partial profiles. So is a pod bound to a profile
+  which is being deleted and which no pod uses, because the nodes remove it. A
+  pod bound to a disabled profile which no pod uses is admitted with an
+  admission warning and the binding gets a `ProfileDisabled` event, because
+  the nodes do not install it and the containers cannot start until the
+  profile gets enabled again.
 - Image bindings of images which no container of the pod uses do not get
   their profile looked up, so they neither reject nor delay the pod.
 - A binding which is being deleted does not apply to new pods or ephemeral
@@ -1619,202 +989,31 @@ The names of the bindings applied to a pod are listed in its
 using a binding in its `status.activeWorkloads`. The `Ready` condition of a
 binding reports whether the referenced profile exists and is installed:
 
-```sh
-$ kubectl get profilebinding nginx-binding -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
+```console
+$ kubectl get profilebinding profile-binding -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
 {"lastTransitionTime":"…","message":"SeccompProfile profile-complain-unsafe not found","reason":"Unavailable","status":"False","type":"Ready"}
 ```
 
 The reason `ProfileNotInstalled` tells that the profile exists, but is not
 installed, along with its status, `ProfileKindDisabled` that the profile has
-no status because its kind is disabled in the SPOD configuration, and
-`InvalidPodSelector` that the `podSelector` cannot be parsed, so that the
-binding is not applied to any pod.
-
-#### Merging per-container profile instances
-
-By default, each container instance will be recorded into a separate
-profile. This is mostly visible when recording pods managed by a replicating
-controller (Deployment, DaemonSet, etc.). A realistic example might
-be a workload being recorded in a test environment where the recorded
-Deployment consists of several replicas, only one of which is receiving
-the test traffic. After the recording is complete, only the container that
-was receiving the traffic would have contained all the syscalls that were
-actually used.
-
-In this case, it might be useful to merge the per-container profiles
-into a single profile. This can be done by setting the `mergeStrategy`
-attribute to `Containers` in the `ProfileRecording`. Note that the following
-example uses a `SeccompProfile` as the `kind` but the same applies to
-`SelinuxProfile` as well, and to `AppArmorProfile`, which is recorded with
-`recorder: Bpf` instead.
-
-```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: ProfileRecording
-metadata:
-  # Each recorded container results in a `SeccompProfile` named
-  # `<recording name>-<container name>`. Profiles are cluster scoped, so use a
-  # recording name which is unique across all namespaces.
-  name: test-recording
-spec:
-  kind: SeccompProfile
-  recorder: Logs
-  mergeStrategy: Containers
-  podSelector:
-    matchLabels:
-      app: sp-record
-```
-
-Create your workload:
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-deploy
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: sp-record
-  template:
-    metadata:
-      labels:
-        app: sp-record
-    spec:
-      containers:
-        - name: nginx-record
-          image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
-          ports:
-            - containerPort: 8080
-```
-
-You'll see that the deployment spawns three replicas. To test the merging feature, you
-can perform an action in one of the pods, for example:
-
-```bash
-> kubectl exec nginx-deploy-65bcbb956f-gmbrj -- bash -c "mknod /tmp/foo p"
-```
-
-Note that this is a silly example, but shows the feature in action.
-
-To record the individual profiles, delete the deployment:
-
-```bash
-> kubectl delete deployment nginx-deploy
-```
-
-The profiles will be reconciled, one per container. Note that the profiles are marked as
-"partial" and the spod daemon instances do not reconcile the profiles.
-
-```bash
-> kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
-NAME                                STATUS    AGE     LABELS
-test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-gmbrj,spo.x-k8s.io/recording-id=test-recording,spo.x-k8s.io/recording-namespace=default
-test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-lclnb,spo.x-k8s.io/recording-id=test-recording,spo.x-k8s.io/recording-namespace=default
-test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-wdv2r,spo.x-k8s.io/recording-id=test-recording,spo.x-k8s.io/recording-namespace=default
-```
-
-Inspecting the first partial profile, which corresponds to the pod where we ran the extra command
-shows that mknod is allowed:
-
-```bash
-> kubectl get sp test-recording-nginx-record-gmbrj -o yaml | grep mknod
-  - mknod
-```
-
-On the other hand the others do not:
-
-```bash
-> kubectl get sp test-recording-nginx-record-lclnb -o yaml | grep mknod
-> kubectl get sp test-recording-nginx-record-wdv2r -o yaml | grep mknod
-```
-
-To merge the profiles, delete the profile recording to indicate that
-you are finished with recording the workload. This would trigger the
-merge operation done by the controller and the resulting profile will be
-reconciled by the controller as seen from the `Installed` state:
-
-```bash
-> kubectl delete profilerecording test-recording
-profilerecording.security-profiles-operator.x-k8s.io "test-recording" deleted
-> kubectl get sp -lspo.x-k8s.io/recording-id=test-recording
-NAME                          STATUS      AGE
-test-recording-nginx-record   Installed   17m
-```
-
-The resulting profile will contain all the syscalls that were used by any of the containers,
-including the `mknod` syscall:
-
-```bash
-> kubectl get sp test-recording-nginx-record -o yaml | grep mknod
-  - mknod
-```
-
-Profiles are cluster scoped, so the merged profile `<recording>-<container>` may exist already and
-belong to a recording with the same name in another namespace, or not be recorded at all. The
-partial profiles of that container are then kept, and the recording stays `Terminating` with a
-`MergedProfileConflict` event, until that profile is deleted or labeled with the
-`spo.x-k8s.io/recording-id` and `spo.x-k8s.io/recording-namespace` of the recording. The
-`ProfileConflict` condition of the recording names such profiles while it records, see
-[ProfileRecording](#profilerecording).
-
-**Syscall coverage annotation**
-
-When a `SeccompProfile` is produced by a merge (`mergeStrategy: Containers`), the resulting profile
-carries an informational annotation, `spo.x-k8s.io/syscall-coverage`, that records how the merged
-allowlist was assembled from the individual partial profiles. Its value is a small JSON document:
-
-```json
-{
-  "version": "v1",
-  "total": 3,
-  "syscalls": {
-    "mknod": 1,
-    "read": 3,
-    "write": 3
-  }
-}
-```
-
-The semantics are literal, per syscall: `total` is **M**, the number of partial profiles that were
-collected and included in the merge, and each entry under `syscalls` is **N**, the number of those
-partial profiles that contained that syscall. A syscall that appears more than once inside a single
-partial profile still counts once for that profile. In the example above, `read` and `write` were
-observed in all three recorded containers, while `mknod` was observed in only one.
-
-A merge adds the partial profiles to the syscalls the profile already holds from earlier merges of
-the same recording, for example of partial profiles which showed up after the first merge, and the
-counts of the annotation add up the same way. A profile which was created before the recording
-belongs to an earlier recording with the same name and gets replaced, together with its counts.
-Syscalls which got into the profile without a merge are not counted: the ones a node records
-straight into the profile of a recording which is already being deleted, and the ones of a profile
-which was merged before the annotation existed. The `spo.x-k8s.io/syscall-coverage-partials`
-annotation lists the UIDs of the partial profiles of the last merge, so that merging them again, for
-example after deleting them failed, does not count them twice.
-
-This is **observation coverage, not confidence or probability**, and it does not measure how many
-times a syscall was invoked. `total` counts the partial profiles that were actually collected, which
-is not necessarily the number of executions that occurred (for example, a recording can be lost if
-the operator restarts mid-recording). Recorded replicas usually run identical images and are
-therefore correlated rather than independent samples, so the counts should not be read as a
-statistical measure.
-
-The annotation is purely informational: it never changes the generated seccomp allowlist, and the
-enforced profile is exactly what the merge produces regardless of these counts. Treat it as a review
-aid only. **Do not remove syscalls from a generated profile based solely on a low coverage count**,
-since a syscall observed in only one replica may still be required on a code path the other replicas
-did not exercise.
+no status because its kind is disabled in the SPOD, and `InvalidPodSelector`
+that the `podSelector` cannot be parsed, so that the binding is not applied to
+any pod.
 
 ## Profile reference
 
-This section lists the spec fields of the profile and recording kinds which the sections above do not
-cover in detail. `kubectl explain <kind>.spec` prints the complete schema of the installed CRDs, for
-example `kubectl explain seccompprofile.spec.syscalls`.
+This section lists the spec fields of the profile and binding kinds which the
+sections above do not cover in detail. The fields of `ProfileRecording` are
+described in the [ProfileRecording reference](recording.md#profilerecording-reference).
+`kubectl explain <kind>.spec` prints the complete schema of the installed
+CRDs, for example `kubectl explain seccompprofile.spec.syscalls`.
 
-All profile kinds (`SeccompProfile`, `AppArmorProfile`, `SelinuxProfile` and `RawSelinuxProfile`) share
-the field `spec.state`, which is `Enabled` (default) or `Disabled`. The operator skips disabled profiles,
-see [Recording profiles without applying them](#recording-profiles-without-applying-them).
+### Common fields
+
+All profile kinds (`SeccompProfile`, `AppArmorProfile`, `SelinuxProfile` and
+`RawSelinuxProfile`) share the field `spec.state`, which is `Enabled`
+(default) or `Disabled`. The daemon does not install disabled profiles, see
+[Record profiles without applying them](recording.md#record-profiles-without-applying-them).
 
 ### SeccompProfile
 
@@ -1822,27 +1021,28 @@ The fields follow the seccomp section of the
 [OCI runtime specification](https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md#seccomp),
 the daemon writes them to the profile file on each node.
 
-| Field              | Description                                                                                                                                                                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Field              | Description |
+| ------------------ | ----------- |
 | `defaultAction`    | Required. The action for syscalls which no rule matches: `SCMP_ACT_KILL`, `SCMP_ACT_KILL_PROCESS`, `SCMP_ACT_KILL_THREAD`, `SCMP_ACT_TRAP`, `SCMP_ACT_ERRNO`, `SCMP_ACT_TRACE`, `SCMP_ACT_ALLOW` or `SCMP_ACT_LOG`. `SCMP_ACT_NOTIFY` is rejected. |
-| `baseProfileName`  | A `SeccompProfile` or an `oci://` reference whose syscalls get merged into this profile, see [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime) and [OCI Artifact support for base profiles](#oci-artifact-support-for-base-profiles). |
-| `architectures`    | The architectures of the syscalls, like `SCMP_ARCH_X86_64` or `SCMP_ARCH_AARCH64`.                                                                                                                                                         |
-| `syscalls`         | The rules, see below.                                                                                                                                                                                                                        |
-| `flags`            | Flags for seccomp(2): `SECCOMP_FILTER_FLAG_TSYNC`, `SECCOMP_FILTER_FLAG_LOG`, `SECCOMP_FILTER_FLAG_SPEC_ALLOW` and `SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV`.                                                                               |
-| `listenerPath`     | The UNIX domain socket of a seccomp agent, which receives the syscalls of rules with the `SCMP_ACT_NOTIFY` action. It has to be below `/var/run/security-profiles-operator/` and at most 107 characters long.                            |
-| `listenerMetadata` | Opaque data which the container runtime passes to the seccomp agent of `listenerPath`.                                                                                                                                                      |
+| `baseProfileName`  | A `SeccompProfile` or an `oci://` reference whose syscalls get merged into this profile, see [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime) and [Base profiles from OCI registries](#base-profiles-from-oci-registries). |
+| `architectures`    | The architectures of the syscalls, like `SCMP_ARCH_X86_64` or `SCMP_ARCH_AARCH64`. |
+| `syscalls`         | The rules, see below. |
+| `flags`            | Flags for seccomp(2): `SECCOMP_FILTER_FLAG_TSYNC`, `SECCOMP_FILTER_FLAG_LOG`, `SECCOMP_FILTER_FLAG_SPEC_ALLOW` and `SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV`. |
+| `listenerPath`     | The UNIX domain socket of a seccomp agent, which receives the syscalls of rules with the `SCMP_ACT_NOTIFY` action. It has to be below `/var/run/security-profiles-operator/` and at most 107 characters long. |
+| `listenerMetadata` | Opaque data which the container runtime passes to the seccomp agent of `listenerPath`. |
 
 Each entry of `syscalls` has these fields:
 
-| Field      | Description                                                                                                                                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `names`    | Required. The names of the syscalls, at least one.                                                                                                                                                                  |
-| `action`   | Required. The action for these syscalls, one of the `defaultAction` values or `SCMP_ACT_NOTIFY`.                                                                                                                    |
-| `errnoRet` | The errno which `SCMP_ACT_ERRNO` and `SCMP_ACT_TRACE` return, from 0 to 4095. 0 behaves like an unset value, the container runtime then returns `EPERM`.                                                          |
+| Field      | Description |
+| ---------- | ----------- |
+| `names`    | Required. The names of the syscalls, at least one. |
+| `action`   | Required. The action for these syscalls, one of the `defaultAction` values or `SCMP_ACT_NOTIFY`. |
+| `errnoRet` | The errno which `SCMP_ACT_ERRNO` and `SCMP_ACT_TRACE` return, from 0 to 4095. 0 behaves like an unset value, the container runtime then returns `EPERM`. |
 | `args`     | Up to 6 conditions on the syscall arguments, which all have to match. `index` (required, 0 to 5) selects the argument, `op` (required) is one of `SCMP_CMP_NE`, `SCMP_CMP_LT`, `SCMP_CMP_LE`, `SCMP_CMP_EQ`, `SCMP_CMP_GE`, `SCMP_CMP_GT` and `SCMP_CMP_MASKED_EQ`, `value` is the value to compare with, and `valueTwo` the second value of `SCMP_CMP_MASKED_EQ`, which compares `argument & value` with `valueTwo`. |
 
-For example, this profile makes `clone3` fail with `ENOSYS` (38 on most architectures), so that the C
-library falls back to `clone`, and only allows `personality` with the argument `0`:
+For example, this profile makes `clone3` fail with `ENOSYS` (38 on most
+architectures), so that the C library falls back to `clone`, and only allows
+`personality` with the argument `0`:
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -1867,38 +1067,51 @@ spec:
 
 ### AppArmorProfile
 
-`spec.mode` is `Enforce` (default) or `Complain`, which logs violations instead of denying them.
-`spec.abstract` describes the profile, which the daemon translates into an AppArmor policy. Its fields
-are:
+`spec.mode` is `Enforce` (default) or `Complain`, which logs violations instead
+of denying them. `spec.abstract` describes the profile, which the daemon
+translates into an AppArmor policy. Its fields are:
 
-| Field                                           | Description                                                                                                                                                                                                       |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `executable.allowedExecutables`                 | Absolute paths of the programs which may be executed (`ixr`).                                                                                                                                                     |
-| `executable.allowedLibraries`                   | Absolute paths of the libraries which may be mapped and read (`mr`).                                                                                                                                              |
-| `filesystem.readOnlyPaths`                      | Paths which may be read (`r`). In `Enforce` mode, writing, linking and locking them is denied.                                                                                                                    |
-| `filesystem.writeOnlyPaths`                     | Paths which may be written, linked and locked (`wlk`). In `Enforce` mode, reading them is denied.                                                                                                                 |
-| `filesystem.readWritePaths`                     | Paths which may be read, written, linked and locked (`rwlk`).                                                                                                                                                     |
-| `network.allowRaw`                              | Allows raw sockets. If `network` is set without it, raw sockets are denied in `Enforce` mode.                                                                                                                     |
-| `network.allowedProtocols.allowTcp`, `allowUdp` | Allow TCP and UDP sockets.                                                                                                                                                                                        |
-| `capability.allowedCapabilities`                | Linux capabilities in lower case without the `CAP_` prefix, like `net_bind_service`. `sys_rawio` additionally allows `mount`, `remount`, `umount` and running `fsck`.                                              |
-| `ptrace.allowedAccess`                          | Required if `ptrace` is set. One to four of `read`, `readby`, `trace` and `tracedby`, rendered as a single `ptrace (...)` rule.                                                                                   |
-| `ptrace.peer`                                   | Limits the ptrace rule to processes confined by matching profiles, for example `@{profile_name}` for the profile itself. Without it, the rule applies to every process.                                           |
+| Field                                           | Description |
+| ----------------------------------------------- | ----------- |
+| `executable.allowedExecutables`                 | Absolute paths of the programs which may be executed (`ixr`). |
+| `executable.allowedLibraries`                   | Absolute paths of the libraries which may be mapped and read (`mr`). |
+| `filesystem.readOnlyPaths`                      | Paths which may be read (`r`). In `Enforce` mode, writing, linking and locking them is denied. |
+| `filesystem.writeOnlyPaths`                     | Paths which may be written, linked and locked (`wlk`). In `Enforce` mode, reading them is denied. |
+| `filesystem.readWritePaths`                     | Paths which may be read, written, linked and locked (`rwlk`). |
+| `network.allowRaw`                              | Allows raw sockets. If `network` is set without it, raw sockets are denied in `Enforce` mode. |
+| `network.allowedProtocols.allowTcp`, `allowUdp` | Allow TCP and UDP sockets. |
+| `capability.allowedCapabilities`                | Linux capabilities in lower case without the `CAP_` prefix, like `net_bind_service`. `sys_rawio` additionally allows `mount`, `remount`, `umount` and running `fsck`. |
+| `ptrace.allowedAccess`                          | Required if `ptrace` is set. One to four of `read`, `readby`, `trace` and `tracedby`, rendered as a single `ptrace (...)` rule. |
+| `ptrace.peer`                                   | Limits the ptrace rule to processes confined by matching profiles, for example `@{profile_name}` for the profile itself. Without it, the rule applies to every process. |
 
-The paths are absolute and may use the AppArmor globs `*`, `**` and `?` as well as variables like
-`@{pid}`. Apart from variables, they may only contain letters, digits, spaces and the characters
-`_`, `.`, `/`, `*`, `?`, `+`, `@` and `-`. Other characters, like commas, quotes, braces, `:`, `=` or
-the AppArmor character classes in `[]`, are rejected. AppArmor denies everything which the policy
-does not allow, apart from the `abstractions/base` rules that every generated policy includes.
+The paths are absolute and may use the AppArmor globs `*`, `**` and `?` as well
+as variables like `@{pid}`. Apart from variables, they may only contain
+letters, digits, spaces and the characters `_`, `.`, `/`, `*`, `?`, `+`, `@`
+and `-`. Other characters, like commas, quotes, braces, `:`, `=` or the
+AppArmor character classes in `[]`, are rejected. AppArmor denies everything
+which the policy does not allow, apart from the `abstractions/base` rules that
+every generated policy includes.
 
-In `Enforce` mode, the deny rules of `readOnlyPaths` and `writeOnlyPaths` win over every rule which
-allows the same files. With `readOnlyPaths: [/etc/**]` and `readWritePaths: [/etc/app/state]`,
-`/etc/app/state` cannot be written, and an executable or library below a `writeOnlyPaths` entry
-cannot be read. The daemon logs a warning once per profile generation for a path which falls under
-the glob of a conflicting one, which does not catch every overlap of two globs.
+In `Enforce` mode, every generated policy also denies writing to the files
+directly in `/proc`, to the subdirectories of `/proc` other than the process
+directories and `/proc/sys`, to `/proc/sys` apart from
+`/proc/sys/kernel/shm*`, as well as any access to
+`/proc/sysrq-trigger`, `/proc/mem`, `/proc/kmem`, `/proc/kcore` and
+`/sys/firmware/efi/efivars`. These deny rules win over `readWritePaths` and
+`writeOnlyPaths` entries for the same files.
 
-Entries of the form `ptrace (read),` in the path lists of `filesystem` or `executable` are deprecated
-and will be removed in a future API version. They are still accepted and rendered as ptrace rules
-for every peer, and the daemon logs a warning for them. Use `ptrace` instead:
+The deny rules of `readOnlyPaths` and `writeOnlyPaths` win over every rule
+which allows the same files as well. With `readOnlyPaths: [/etc/**]` and
+`readWritePaths: [/etc/app/state]`, `/etc/app/state` cannot be written, and an
+executable or library below a `writeOnlyPaths` entry cannot be read. The
+daemon logs a warning once per profile generation for a path which falls under
+the glob of a conflicting one, which does not catch every overlap of two
+globs.
+
+Entries of the form `ptrace (read),` in the path lists of `filesystem` or
+`executable` are deprecated and will be removed in a future API version. They
+are still accepted and rendered as ptrace rules for every peer, and the daemon
+logs a warning for them. Use `ptrace` instead:
 
 ```yaml
 spec:
@@ -1909,55 +1122,36 @@ spec:
       peer: "@{profile_name}"
 ```
 
-### ProfileRecording
+### SelinuxProfile
 
-| Field                          | Description                                                                                                                                                                                                                               |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`                         | Required. The profile kind to record: `SeccompProfile`, `SelinuxProfile` or `AppArmorProfile`.                                                                                                                                            |
-| `recorder`                     | Required. `Logs` or `Bpf`. `SelinuxProfile` recordings require `Logs` and `AppArmorProfile` recordings require `Bpf`.                                                                                                                     |
-| `podSelector`                  | Required. The label selector of the pods to record in the namespace of the recording. An empty selector matches all pods.                                                                                                                 |
-| `containers`                   | The names of the containers to record. Without it, all containers of the selected pods get recorded. See [`profilerecording-seccomp-bpf-specific-container.yaml`](../examples/profilerecording-seccomp-bpf-specific-container.yaml). |
-| `mergeStrategy`                | `None` (default) or `Containers`, see [Merging per-container profile instances](#merging-per-container-profile-instances).                                                                                                               |
-| `disableProfileAfterRecording` | Creates the recorded profiles in the `Disabled` state, see [Recording profiles without applying them](#recording-profiles-without-applying-them).                                                                                        |
+The name of a `SelinuxProfile` becomes the name of a CIL block, so it has to
+start with a letter and may only contain lowercase alphanumeric characters and
+`-`. The `status.usage` holds the SELinux type to use in the workload,
+`<name>.process`.
 
-For example, to record only the `nginx` container of the selected pods:
+| Field     | Description |
+| --------- | ----------- |
+| `inherit` | The policies the profile inherits from. Each entry has a `name` and a `kind`, which is `System` (default) for a system policy listed in `spec.selinux.options.allowedSystemProfiles` of the SPOD, or `SelinuxProfile` for another profile. Defaults to the system policy `container`. |
+| `mode`    | `Enforcing` (default) or `Permissive`, see [Make a SELinux profile permissive](#make-a-selinux-profile-permissive). |
+| `allow`   | The allow rules. It maps SELinux types, or `@self` for the type of the profile itself, to object classes and these to their permissions. Up to 1024 types and up to 256 classes per type. The names may only contain alphanumeric characters, `.`, `-` and `_`. Denied entries fail validation, see [Denied types, classes and permissions](#denied-types-classes-and-permissions). |
 
-```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1
-kind: ProfileRecording
-metadata:
-  name: test-recording
-spec:
-  kind: SeccompProfile
-  recorder: Bpf
-  podSelector:
-    matchLabels:
-      app: alpine
-  containers:
-    - nginx
-```
+### RawSelinuxProfile
 
-The status of a `ProfileRecording` carries two conditions:
+The name of a `RawSelinuxProfile` follows the same rules as the one of a
+`SelinuxProfile`. `spec.policy` holds the CIL policy, at most 500000
+characters, see [Create a raw SELinux profile](#create-a-raw-selinux-profile).
 
-- `Ready` is `True` if the recording can record. Otherwise its reason tells why not: `Unavailable`
-  if `kind` and `recorder` cannot be combined, `RecorderDisabled` if no
-  `SecurityProfilesOperatorDaemon` enables the recorder (`spec.enricher.enableLogEnricher` for
-  `Logs`, `spec.enricher.enableBpfRecorder` for `Bpf`), and `NamespaceNotEnabled` if the recording
-  webhook does not select the namespace, by default because it lacks the
-  `spo.x-k8s.io/enable-recording` label. `InvalidPodSelector` tells that the `podSelector` cannot be
-  parsed, `NoContainersSelected` that `containers` is an empty list, which records no container
-  (leave it unset to record all of them), and `SelinuxDisabled` that a `SelinuxProfile` recording
-  cannot record because the SPOD configuration does not enable SELinux (`spec.selinux.enable`).
-- `ProfileConflict` is `True` with the reason `ProfileOwnedByOther` if profiles which the recording
-  would write exist already, but were recorded by a recording in another namespace or not recorded
-  at all. The recorded data for them gets dropped. The check is best effort: it covers the
-  containers of the pods the recording tracks, the merged profiles of its partial profiles, and
-  with `mergeStrategy: Containers` the merged profiles of `containers`.
+### ProfileBinding
+
+| Field             | Description |
+| ----------------- | ----------- |
+| `profileRef.kind` | Required. `SeccompProfile`, `SelinuxProfile` or `AppArmorProfile`. |
+| `profileRef.name` | Required. The name of the cluster scoped profile. |
+| `image`           | Required. The container image to bind the profile to, or `"*"` for all containers, see [Bind workloads to profiles](#bind-workloads-to-profiles). |
+| `podSelector`     | Limits the binding to the pods of the namespace whose labels match. Without it, the binding applies to all pods of the namespace. |
 
 ### SecurityProfilesOperatorDaemon
 
-The SPOD configures the operator and its daemon. Its fields are described in
-[Configure Operator](installation.md#configure-operator), for example
-[`enricher.logEnricherSource`](installation.md#select-the-log-enricher-source) and
-[`webhook.tolerations`](installation.md#constrain-spod-scheduling).
-
+The SPOD configures the operator and its daemon. [SPOD fields](configuration.md#spod-fields)
+lists its `spec` fields and the sections which describe them, and
+`kubectl explain spod.spec` prints all fields with their defaults.

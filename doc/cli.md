@@ -1,28 +1,26 @@
-[Documentation](README.md) | [Installation](installation.md) | [Profiles](profiles.md) | **CLI** | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
+# Command line interface (CLI)
+
+[Documentation](README.md) | [Installation](installation.md) | [Configuration](configuration.md) | [Profiles](profiles.md) | [Recording](recording.md) | **CLI** | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
 
 <!-- toc -->
-- [Command Line Interface (CLI)](#command-line-interface-cli)
-  - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
-  - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
-  - [Merge security profiles](#merge-security-profiles)
-  - [Convert profiles to their raw format](#convert-profiles-to-their-raw-format)
-  - [Install and remove AppArmor profiles](#install-and-remove-apparmor-profiles)
-  - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
-  - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
-  - [Pushing profiles for container runtimes](#pushing-profiles-for-container-runtimes)
-    - [Publishing base profiles](#publishing-base-profiles)
-  - [Using multiple platforms](#using-multiple-platforms)
+- [Record profiles for a command](#record-profiles-for-a-command)
+- [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
+- [Merge security profiles](#merge-security-profiles)
+- [Convert profiles to their raw format](#convert-profiles-to-their-raw-format)
+- [Install and remove AppArmor profiles](#install-and-remove-apparmor-profiles)
+- [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
+- [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
+- [Pushing profiles for container runtimes](#pushing-profiles-for-container-runtimes)
+  - [Push a profile in the runtime format](#push-a-profile-in-the-runtime-format)
+- [Using multiple platforms](#using-multiple-platforms)
 <!-- /toc -->
-
-## Command Line Interface (CLI)
 
 The Security Profiles Operator CLI `spoc` aims to support use cases where
 Kubernetes is not available at all (for example in edge scenarios). It targets
 to provide re-used functionality from the operator itself, especially for
-development and testing environments. In the future, we plan to extend the CLI
-to interact with the operator itself.
+development and testing environments.
 
-For now, the CLI is able to:
+The CLI is able to:
 
 - Record seccomp and AppArmor profiles for a command in YAML (CRD) and raw
   format.
@@ -42,8 +40,8 @@ OCI artifact `registry.k8s.io/security-profiles-operator/spoc` (see
 [verification](verification.md#oci-artifacts-on-registryk8sio)), or by
 running it within the official container images:
 
-```console
-> podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v${VERSION} spoc --help
+```shell
+podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v${VERSION} spoc --help
 ```
 
 where `VERSION` is the version of a [release][releases] without the `v` prefix.
@@ -63,13 +61,13 @@ the commands.
 
 [releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
 
-### Record seccomp profiles for a command
+## Record profiles for a command
 
 To record a seccomp profile via `spoc`, run the corresponding subcommand
 followed by any command and arguments:
 
 ```console
-> sudo spoc record echo test
+$ sudo spoc record echo test
 10:09:09.182417 Loading bpf module...
 …
 10:09:13.551802 Adding base syscalls: capget, capset, chdir, …
@@ -78,8 +76,8 @@ followed by any command and arguments:
 
 Now the seccomp profile should be written in the CRD format:
 
-```console
-> cat profile.yaml
+```shell
+cat profile.yaml
 ```
 
 ```yaml
@@ -115,7 +113,7 @@ raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
 be split into one file per profile for them:
 
 ```console
-> sudo spoc record -t raw-seccomp echo test
+$ sudo spoc record -t raw-seccomp echo test
 …
 10:15:17.309114 Wrote profile to: profile.json
 ```
@@ -123,8 +121,8 @@ be split into one file per profile for them:
 Without `-o/--output-file`, `raw-seccomp` writes to `profile.json` and
 `raw-apparmor` writes to `profile.apparmor` instead of `profile.yaml`.
 
-```console
-> jq . profile.json
+```shell
+jq . profile.json
 ```
 
 ```json
@@ -140,8 +138,16 @@ Without `-o/--output-file`, `raw-seccomp` writes to `profile.json` and
 }
 ```
 
+The AppArmor types `apparmor`, `raw-apparmor` and `all` record through the BPF
+LSM, so the kernel has to run with `bpf` in its `lsm=` parameter, otherwise
+`spoc record` fails right away. They also compare the files the command maps
+with the absolute path of its executable, so the command has to resolve to an
+executable file, like a path or a name on the `PATH`.
+
 All commands are interruptible by using Ctrl^C, while `spoc record` will still
-write the resulting seccomp profile after process terminating.
+write the resulting profile after the process terminated. The profile is
+written even if the command fails, and `spoc record` exits with `0` then, so
+that a crashing workload can still be profiled.
 
 The command reads the standard input of `spoc`. When `spoc` drops the
 privileges of `sudo`, as described below, the command keeps the supplementary
@@ -159,27 +165,29 @@ but records all processes matching the command name until it receives
 `SIGINT` (Ctrl^C), `SIGTERM`, `SIGHUP` or `SIGQUIT`. This is useful for
 processes which are started by another tool, like a service manager:
 
-```console
-> sudo spoc record --no-proc-start my-daemon
+```shell
+sudo spoc record --no-proc-start my-daemon
 ```
 
-### Run commands with seccomp profiles
+## Run commands with seccomp profiles
 
 If we now want to test the resulting profile, then `spoc` is able to run any
 command by using seccomp profiles via `spoc run`:
 
 ```console
-> sudo spoc run -p profile.json echo test
-2023/03/10 10:20:00 Reading file profile.json
-2023/03/10 10:20:00 Setting up seccomp
-2023/03/10 10:20:00 Running command with PID: 567625
+$ sudo spoc run -p profile.json echo test
+10:20:00.104512 Reading file profile.json
+10:20:00.104931 Setting up seccomp
+10:20:00.105217 Starting audit log enricher
+10:20:00.105406 Enricher reading from file /var/log/audit/audit.log
+10:20:00.107863 Running command with PID: 567625
 test
 ```
 
 If we now modify the profile, for example by forbidding `chmod`:
 
-```console
-> jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' profile.json > profile-chmod.json
+```shell
+jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' profile.json > profile-chmod.json
 ```
 
 `spoc run` reads `SeccompProfile` CRDs, in YAML or JSON, and raw JSON
@@ -193,62 +201,73 @@ is loaded in the process of the command right before it gets executed, so
 forwarded to the command, and `spoc run` exits with the exit code of the
 command. While the command runs and shortly after it exits, `spoc run` prints
 the seccomp, SELinux and AppArmor audit log lines of the process it started
-and of the processes it forks, like the syscalls their profile denies or logs.
+and of the processes it forks.
+
+The kernel only writes a seccomp audit log line for a syscall which the
+profile logs or kills the process for, like with `SCMP_ACT_LOG`, unless the
+profile sets the `SECCOMP_FILTER_FLAG_LOG` flag in its `flags`. A syscall
+which the default action `SCMP_ACT_ERRNO` denies therefore leaves no line. To
+see which syscalls a profile denies, use `SCMP_ACT_LOG` as the default action
+while testing it, or add the flag.
 
 Then running `chmod` via `spoc run` will now throw an error, because the syscall
 is not allowed any more:
 
 ```console
-> sudo spoc run -p profile-chmod.json chmod +x profile-chmod.json
+$ sudo spoc run -p profile-chmod.json chmod +x profile-chmod.json
 10:25:38.020716 Reading file profile-chmod.json
 10:25:38.021093 Setting up seccomp
+10:25:38.021307 Starting audit log enricher
+10:25:38.021482 Enricher reading from file /var/log/audit/audit.log
 10:25:38.023481 Running command with PID: 594242
 chmod: changing permissions of 'profile-chmod.json': Operation not permitted
 10:25:38.025217 Command failed: wait for command: exit status 1
 ```
 
-### Merge security profiles
+## Merge security profiles
 
 `spoc merge` combines multiple seccomp, SELinux or AppArmor profile CRDs of the
 same kind into one profile. Permissions are additive, and for AppArmor the
 first profile may additionally contain glob paths:
 
-```console
-> spoc merge -o /tmp/merged.yaml /tmp/profile-a.yaml /tmp/profile-b.yaml
+```shell
+spoc merge -o /tmp/merged.yaml /tmp/profile-a.yaml /tmp/profile-b.yaml
 ```
 
 The output defaults to `profile.yaml`. With `--check` / `-c`, no output
 file is written. Instead, `spoc merge` exits with code `1` if the first profile
 is not a superset of all others, which is useful to check whether a base
-profile is up to date. Other failures, like an unreadable input file, exit with
-code `1` as well. The log tells both apart: an outdated base profile logs
-`Base profile needs an update.`, a failure logs `Unable to run: …`.
+profile is up to date, and prints the merged profile to the standard error, so
+that it can be compared with the base profile. Other failures, like an
+unreadable input file, exit with code `1` as well. The log tells both apart:
+an outdated base profile logs `Base profile needs an update.`, a failure logs
+`Unable to run: …`.
 
-### Convert profiles to their raw format
+## Convert profiles to their raw format
 
 `spoc convert` turns a `SeccompProfile` CRD into a raw OCI runtime-spec seccomp
 profile in JSON, and an `AppArmorProfile` CRD into a raw AppArmor profile. The
 result is written to stdout unless `--output-file` / `-o` is set:
 
-```console
-> spoc convert -o profile.json profile.yaml
+```shell
+spoc convert -o profile.json profile.yaml
 ```
 
-Fields which are specific to the operator, like the base profile name and the
-listener fields, are dropped from seccomp profiles. For AppArmor,
+Fields which are specific to the operator, the `state`, the base profile name
+and the listener fields, are dropped from seccomp profiles. For AppArmor,
 `--program-name` / `-p` sets the path of the confined program. Without it, an
 unattached profile named after the CRD is created.
 
-### Install and remove AppArmor profiles
+## Install and remove AppArmor profiles
 
 `spoc install` loads an `AppArmorProfile` CRD into the kernel of the local
 machine, and `spoc remove` unloads it again. Both take the profile file
 (default `profile.yaml`) and optionally the path of the executable which
 should be confined, which is used as the profile name:
 
-```console
-> sudo spoc install profile.yaml /usr/bin/my-app
-> sudo spoc remove profile.yaml /usr/bin/my-app
+```shell
+sudo spoc install profile.yaml /usr/bin/my-app
+sudo spoc remove profile.yaml /usr/bin/my-app
 ```
 
 The executable is a path, a bare name is taken relative to the working
@@ -264,7 +283,7 @@ executable, as earlier releases did, gets removed as well. If nothing was
 unloaded, `spoc remove` logs a warning naming the tried names and still exits
 with 0; pass the path the profile got installed with to remove it then.
 
-### Pull security profiles from OCI registries
+## Pull security profiles from OCI registries
 
 The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`, here for a
@@ -273,7 +292,7 @@ tags that `crane ls registry.k8s.io/security-profiles-operator/base/runc`
 lists:
 
 ```console
-> spoc pull registry.k8s.io/security-profiles-operator/base/runc:<version>
+$ spoc pull registry.k8s.io/security-profiles-operator/base/runc:<version>
 16:32:29.795597 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:<version>
 16:32:29.795610 Resolving digest of image (image=registry.k8s.io/security-profiles-operator/base/runc:<version>)
 16:32:30.106241 Verifying signature (identityRegexp=…, oidcIssuerRegexp=^https://accounts\.google\.com$, …)
@@ -294,11 +313,12 @@ profile is followed by more YAML documents are rejected, since they would be
 saved along with it. New files are created with the permissions `0644` minus
 the umask, an existing file keeps its permissions. If username and password
 authentication is required, either use the `--username`, `-u` flag or export
-the `SPOC_USERNAME` environment variable. To set the password, export the `SPOC_PASSWORD` environment variable
-or pass it on stdin with `--password-stdin`. Giving only one of both is an
-error. Without any of them, the credentials of the docker config (for example
-from `docker login`) are used. The former `USERNAME` and `PASSWORD` environment
-variables still work, but print a deprecation warning.
+the `SPOC_USERNAME` environment variable. To set the password, export the
+`SPOC_PASSWORD` environment variable or pass it on stdin with
+`--password-stdin`. Giving only one of both is an error. Without any of them,
+the credentials of the docker config (for example from `docker login`) are
+used. The former `USERNAME` and `PASSWORD` environment variables still work,
+but print a deprecation warning.
 
 `spoc pull` verifies the signature of the artifact. The signer can be
 restricted with `--allowed-identity-regexp` / `-i` (or the
@@ -336,6 +356,12 @@ Sigstore infrastructure:
   looked up online. With an empty cache, pass `--trusted-root` or run
   `spoc pull` once without `--offline` to populate it.
 
+The TUF client is configured like the one of cosign: `TUF_ROOT` sets its cache
+directory, by default `.sigstore/root` below the home directory, `TUF_MIRROR`
+another mirror than the public Sigstore one, and `TUF_ROOT_JSON` the trust
+anchor of that mirror. A mirror set up with `cosign initialize` is used as
+well.
+
 The official repositories are verified against the official signers as long
 as the identity and issuer regexps are left at their default `.*` and `--key`
 is not set. `--certificate-identity` alone replaces only the official
@@ -347,15 +373,15 @@ Sigstore instance. A warning is logged whenever the verification accepts any
 identity or any issuer, because a signature then only proves that somebody
 signed the artifact, not somebody trusted.
 
-### Push security profiles to OCI registries
+## Push security profiles to OCI registries
 
 The `spoc` client is also able to push security profiles to OCI artifact
 compatible registries. To do that, just run `spoc push`:
 
-```
-> export SPOC_USERNAME=my-user
-> export SPOC_PASSWORD=my-pass
-> spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:test
+```console
+$ export SPOC_USERNAME=my-user
+$ export SPOC_PASSWORD=my-pass
+$ spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:test
 16:35:43.899886 Pushing profiles to: registry.example.com/profiles/crun:test
 16:35:43.899939 Creating file store (dir=/tmp/push-3618165827)
 16:35:43.899943 Reading profiles (count=1)
@@ -369,7 +395,6 @@ compatible registries. To do that, just run `spoc push`:
 Your browser will now be opened to:
 https://oauth2.sigstore.dev/auth/auth?access_type=…
 …
-16:35:52.900282 Verifying reference (ref=registry.example.com/profiles/crun:test)
 16:35:52.900310 Using tag (tag=test)
 16:35:52.900313 Creating repository (ref=registry.example.com/profiles/crun)
 16:35:52.900319 Using username and password
@@ -424,10 +449,10 @@ their name. Pushing identical content again therefore yields the same digest
 instead of a new, untagged manifest.
 
 `spoc pull` refuses to fetch any artifact blob larger than 16 MiB, so a
-registry cannot make the client read arbitrary amounts of data. The
-credentials given via `--username` and `$SPOC_PASSWORD` are used for the registry
-access of the signature as well, both when signing on push and when verifying
-on pull.
+registry cannot make the client read arbitrary amounts of data. The registry
+credentials, whether they come from the flags, the environment, stdin or the
+docker config, are used for the registry access of the signature as well, both
+when signing on push and when verifying on pull.
 
 `--plain-http` on `spoc push`, `spoc pull` and `spoc sign` reaches the
 registry over HTTP instead of HTTPS, for local registries in tests and other
@@ -440,11 +465,11 @@ by digest. The artifact stays in the registry unsigned, and `spoc sign` signs
 it once the cause is fixed, with the same registry and signing flags as
 `spoc push`. A tag is resolved to its digest, which the signature is about:
 
-```console
-> spoc sign registry.example.com/profiles/crun@sha256:…
+```shell
+spoc sign registry.example.com/profiles/crun@sha256:…
 ```
 
-### Pushing profiles for container runtimes
+## Pushing profiles for container runtimes
 
 Container runtimes consume seccomp profiles from OCI artifacts in the format
 defined by [KEP-6061](https://github.com/kubernetes/enhancements/issues/6061):
@@ -453,7 +478,8 @@ by the media type `application/vnd.cncf.seccomp-profile.config.v1+json`. This
 differs from the profile CRD artifacts above, which keep the generic
 `application/vnd.unknown.config.v1+json` artifact type together with the empty
 OCI config descriptor. The operator accepts either as an `oci://` base
-profile.
+profile. The [base profiles](release-baseprofiles.md) of this project are
+published in this format, so one artifact serves both.
 
 The profiles the Kubernetes end-to-end tests for KEP-6061 consume are pushed
 from this repository by `make push-test-artifacts`. The staging build pushes
@@ -465,45 +491,22 @@ attestations: their staging tags point to digests that were pushed again with
 another manifest, and only those get attested, see
 [staging attestations](release.md#staging-attestations).
 
-The recorded base profiles are published by `make push-base-profiles` in the
-runtime format, one artifact per runtime with the recorded runtime version as
-the tag. Container runtimes consume them for `type: OCI` profiles, and the
-operator reads the same artifacts for `oci://` base profiles because it
-recognizes the format by media type, so one artifact serves both.
-
-The staging build publishes them to
-`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/<runtime>:<version>`, which is where the
-end-to-end tests read them from, and they are promoted to
-`registry.k8s.io/security-profiles-operator/base/<runtime>:<version>`, which is
-what to reference from a cluster. The profile object keeps the name of the last
-path segment, so an artifact at `base/runc` is pulled as a `SeccompProfile`
-called `runc`.
-
-Promotion pins a digest per tag and tags in `registry.k8s.io` can never be
-repointed, so a profile re-recorded against the same runtime version needs a
-new tag.
-
-#### Publishing base profiles
-
-The recorded base profiles are published by `make push-base-profiles`, one
-artifact per runtime with the recorded runtime version as the tag. How they are
-recorded, updated, published and promoted is described in
-[Base profiles](release-baseprofiles.md).
+### Push a profile in the runtime format
 
 `spoc push` produces the runtime format automatically when the input file is a
 raw runtime-spec seccomp profile in JSON, for example the output of
 `spoc convert`, which writes the profile spec without the fields that are
 specific to the operator (`state`, `baseProfileName` and the listener fields):
 
-```
-> spoc push -f ./profile.json registry.example.com/profiles/runc:<version>
+```shell
+spoc push -f ./profile.json registry.example.com/profiles/runc:<version>
 ```
 
 The media type is set on the manifest config as well as on `artifactType`, and
 the single layer is not platform qualified:
 
-```
-> skopeo inspect --raw docker://registry.example.com/profiles/runc:<version> | jq .
+```console
+$ skopeo inspect --raw docker://registry.example.com/profiles/runc:<version> | jq .
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -558,7 +561,7 @@ cannot express, such as `defaultErrnoRet`. `spoc pull` writes the artifact
 content unchanged, so a runtime format artifact is saved as runtime-spec JSON
 and the default output file switches to a `.json` extension.
 
-### Using multiple platforms
+## Using multiple platforms
 
 `spoc push` supports specifying the target platforms for the profiles to be
 pushed. This can be done by using the `--platforms` / `-p` together with the
@@ -566,8 +569,8 @@ pushed. This can be done by using the `--platforms` / `-p` together with the
 and `--platforms` as spelling of the flag. For example, to push two profiles
 into one artifact:
 
-```
-> spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 registry.example.com/profiles/test:latest
+```console
+$ spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 registry.example.com/profiles/test:latest
 10:59:17.887884 Pushing profiles to: registry.example.com/profiles/test:latest
 10:59:17.887970 Creating file store (dir=/tmp/push-2265359353)
 10:59:17.887989 Reading profiles (count=2)
@@ -579,8 +582,8 @@ into one artifact:
 
 The pushed artifact now contains both profiles, separated by their platform:
 
-```
-> skopeo inspect --raw docker://registry.example.com/profiles/test:latest | jq .
+```console
+$ skopeo inspect --raw docker://registry.example.com/profiles/test:latest | jq .
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -593,7 +596,7 @@ The pushed artifact now contains both profiles, separated by their platform:
   "layers": [
     {
       "mediaType": "application/vnd.oci.image.layer.v1.tar",
-      "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
+      "digest": "sha256:403404ceea003345bc9746431ba5bbf38535dda50f5a96951a182b3944a044b3",
       "size": 1167,
       "annotations": {
         "org.opencontainers.image.title": "profile-linux-amd64.yaml"
@@ -605,8 +608,8 @@ The pushed artifact now contains both profiles, separated by their platform:
     },
     {
       "mediaType": "application/vnd.oci.image.layer.v1.tar",
-      "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
-      "size": 1167,
+      "digest": "sha256:71141e0d72cdf2bdaf177e31b852e0528c46622acc5daf1fdbc3a16ef862dce2",
+      "size": 1171,
       "annotations": {
         "org.opencontainers.image.title": "profile-linux-arm64.yaml"
       },
@@ -644,8 +647,8 @@ downloaded, and artifacts with more than 128 layers are rejected. `spoc pull`
 behaves in the same way, for example if a profile does not support any
 platform:
 
-```
-> spoc pull registry.example.com/profiles/test:latest
+```console
+$ spoc pull registry.example.com/profiles/test:latest
 11:07:14.788840 Pulling profile from: registry.example.com/profiles/test:latest
 11:07:14.788852 Resolving digest of image (image=registry.example.com/profiles/test:latest)
 11:07:14.911204 Verifying signature (…)
@@ -663,8 +666,8 @@ We can see from the logs that `spoc` reads the layer of the local platform,
 `profile.yaml` layer if that did not exist. We can also directly specify which
 platform to pull:
 
-```
-> spoc pull -p linux/arm64 registry.example.com/profiles/test:latest
+```console
+$ spoc pull -p linux/arm64 registry.example.com/profiles/test:latest
 11:08:53.355689 Pulling profile from: registry.example.com/profiles/test:latest
 …
 11:08:57.311964 Reading profile layer (title=profile-linux-arm64.yaml, runtimeFormat=false)

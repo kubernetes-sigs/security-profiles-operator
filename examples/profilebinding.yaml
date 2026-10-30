@@ -6,5 +6,5 @@ metadata:
 spec:
   profileRef:
     kind: SeccompProfile
-    name: profile-allow-unsafe
+    name: profile-complain-unsafe
   image: nginx:1.23.2

@@ -25,25 +25,26 @@ Every artifact of a release is signed with [Sigstore][sigstore] keyless
 signing and carries [SLSA][slsa] build provenance. This page collects the
 verification commands for all of them, so a release only has to link here.
 
-The commands need [cosign][cosign] v3 or later, because the signatures use the
-Sigstore bundle format that cosign v2 cannot read. The provenance checks of the
+The commands need a [cosign][cosign] release which reads the signatures and
+attestations in the Sigstore bundle format by default, older ones need extra
+flags or cannot read them at all. The provenance checks of the
 release assets use the [GitHub CLI][gh], and the digest lookups
 [crane][crane].
 
 Every release links to this page at its own tag, so the page describes the
 release it is read at. Set `VERSION` to that tag, the [release][releases] to
-verify:
+verify, with the `v` prefix, unlike the installation guide:
 
-```console
-> export VERSION=vx.y.z
+```shell
+export VERSION=vx.y.z
 ```
 
 On `main` the page follows the development of the next release and may
 describe what no release has yet. To verify the latest release, read the page
 at its tag, which this command sets:
 
-```console
-> export VERSION=$(gh release view -R kubernetes-sigs/security-profiles-operator --json tagName -q .tagName)
+```shell
+export VERSION=$(gh release view -R kubernetes-sigs/security-profiles-operator --json tagName -q .tagName)
 ```
 
 v1.1.0 and the releases before it were built in another way and provide less,
@@ -105,8 +106,8 @@ Everything on `registry.k8s.io` gets there from the staging registry
 `cosign tree` lists the signatures and attestations of a digest, which shows
 what a promoted artifact carries:
 
-```console
-> cosign tree registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION
+```shell
+cosign tree registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION
 ```
 
 The staging registry deletes images 90 days after their push. Until then, the
@@ -174,11 +175,11 @@ like Cloud Build and GitHub Actions (the build image is only published for
 it), and Go, which installs `crane` for the throwaway registry the catalog
 gets rendered from:
 
-```console
-> git checkout $COMMIT
-> PUSH=false hack/image-cross.sh
-> cat build/image-digests
-> STAGING_WAIT=0 hack/ci/compare-staging-images.sh
+```shell
+git checkout $COMMIT
+PUSH=false hack/image-cross.sh
+cat build/image-digests
+STAGING_WAIT=0 hack/ci/compare-staging-images.sh
 ```
 
 ## Container image
@@ -186,11 +187,11 @@ gets rendered from:
 The images on `registry.k8s.io` are promoted by the Kubernetes image promoter,
 which signs them as `krel-trust`:
 
-```console
-> cosign verify \
-    --certificate-identity krel-trust@k8s-releng-prod.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
+```shell
+cosign verify \
+  --certificate-identity krel-trust@k8s-releng-prod.iam.gserviceaccount.com \
+  --certificate-oidc-issuer https://accounts.google.com \
+  registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
 ```
 
 The same command works for the operator bundle, the catalog, the Helm chart
@@ -203,12 +204,12 @@ result are in the per-arch repositories, signed by the staging build, except
 for v1.1.0 and [older releases](#older-releases). Verify them by predicate
 type, here the provenance of the `amd64` image:
 
-```console
-> cosign verify-attestation \
-    --type https://slsa.dev/provenance/v1 \
-    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION
+```shell
+cosign verify-attestation \
+  --type https://slsa.dev/provenance/v1 \
+  --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
+  --certificate-oidc-issuer https://accounts.google.com \
+  registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION
 ```
 
 [Staging attestations](release.md#staging-attestations) lists the other
@@ -220,11 +221,11 @@ The platform images of the manifest list are the per-arch images, with the
 same digests, so the attested image is the one a node pulls. The last two
 commands print the same digest:
 
-```console
-> DIGEST=$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION)
-> echo $DIGEST
-> crane digest --platform linux/amd64 \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
+```shell
+DIGEST=$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION)
+echo $DIGEST
+crane digest --platform linux/amd64 \
+  registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
 ```
 
 The repository of the manifest list,
@@ -252,12 +253,12 @@ otherwise, see [per-arch images](release.md#per-arch-images). Verify the
 per-arch image of your architecture with the GitHub attestation store, or with
 `--bundle images.intoto.jsonl` from the release page:
 
-```console
-> gh attestation verify oci://registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
-    --source-ref refs/tags/$VERSION \
-    --deny-self-hosted-runners
+```shell
+gh attestation verify oci://registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION \
+  --repo kubernetes-sigs/security-profiles-operator \
+  --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+  --source-ref refs/tags/$VERSION \
+  --deny-self-hosted-runners
 ```
 
 The bundle and the catalog of a release are subjects of `images.intoto.jsonl`
@@ -277,16 +278,16 @@ the image promoter carries it to the per-arch repositories on
 `registry.k8s.io`. cosign verifies it with the GitHub identity, and the
 provenance names the workflow that built the images:
 
-```console
-> cosign verify-attestation \
-    --type https://slsa.dev/provenance/v1 \
-    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-github-workflow-repository kubernetes-sigs/security-profiles-operator \
-    --certificate-github-workflow-ref refs/tags/$VERSION \
-    --certificate-github-workflow-trigger release \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64@$DIGEST |
-    jq -r '.payload | @base64d | fromjson | .predicate.buildDefinition.externalParameters.workflow.path'
+```shell
+cosign verify-attestation \
+  --type https://slsa.dev/provenance/v1 \
+  --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-repository kubernetes-sigs/security-profiles-operator \
+  --certificate-github-workflow-ref refs/tags/$VERSION \
+  --certificate-github-workflow-trigger release \
+  registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64@$DIGEST |
+  jq -r '.payload | @base64d | fromjson | .predicate.buildDefinition.externalParameters.workflow.path'
 ```
 
 It prints `.github/workflows/image-reproducible.yml`. The identity alone is not
@@ -316,13 +317,13 @@ their images.
 To print the summary of the manifest list of a release, verify it with its
 signer and decode the statement:
 
-```console
-> cosign verify-attestation \
-    --type https://slsa.dev/verification_summary/v1 \
-    --certificate-identity promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION |
-    jq '.payload | @base64d | fromjson | .predicate'
+```shell
+cosign verify-attestation \
+  --type https://slsa.dev/verification_summary/v1 \
+  --certificate-identity promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com \
+  --certificate-oidc-issuer https://accounts.google.com \
+  registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION |
+  jq '.payload | @base64d | fromjson | .predicate'
 ```
 
 It looks like this, without its input attestations:
@@ -370,7 +371,7 @@ that identity, and check that the promoter is its verifier, that it passed
 and at which level:
 
 ```console
-> cosign verify-attestation \
+$ cosign verify-attestation \
     --type https://slsa.dev/verification_summary/v1 \
     --certificate-identity promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com \
     --certificate-oidc-issuer https://accounts.google.com \
@@ -391,15 +392,15 @@ any level, require `SLSA_BUILD_LEVEL_3` instead where only level 3 will do.
 The [SLSA verifier][slsa-verifier] checks the same on a downloaded summary,
 here at level 3, bound to the digest:
 
-```console
-> cosign download attestation \
-    --predicate-type https://slsa.dev/verification_summary/v1 \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION >vsa.sigstore.json
-> slsa-verifier vsa \
-    --verifier 'https://k8s.io/promo-tools/verifier/v1=sigstore::https://accounts.google.com::promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com' \
-    --level SLSA_BUILD_LEVEL_3 \
-    --subject "$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION)" \
-    vsa.sigstore.json
+```shell
+cosign download attestation \
+  --predicate-type https://slsa.dev/verification_summary/v1 \
+  registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION >vsa.sigstore.json
+slsa-verifier vsa \
+  --verifier 'https://k8s.io/promo-tools/verifier/v1=sigstore::https://accounts.google.com::promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com' \
+  --level SLSA_BUILD_LEVEL_3 \
+  --subject "$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION)" \
+  vsa.sigstore.json
 ```
 
 ### Levels
@@ -419,7 +420,7 @@ manifests:
 The bundles, catalogs and profiles promoted before they got the GitHub
 provenance only reach level 1, see [older releases](#older-releases), because
 a digest keeps the summary of its first promotion. The promoter doesn't
-evaluate them again, so the level 3 that the policy requires now leaves those
+evaluate them again, so the level 3 that the policy requires leaves those
 summaries as they are.
 
 ### Missing and failed summaries
@@ -436,65 +437,47 @@ A cluster policy that requires a passed summary rejects both.
 
 ## Enforcing the verification in a cluster
 
-The commands of this page verify by hand. The
-[nri-supply-chain][nri-supply-chain] plugin enforces the same on the nodes: it
-is an [NRI][nri] plugin for CRI-O and containerd that verifies the signatures
-and attestations of an image before the runtime creates a container from it.
-For images on `registry.k8s.io` it can rely on the verification summary of the
-image promoter instead of evaluating the attestations of every build. A policy
-rule for the images of this project trusts the promoter as verifier, bound to
-the identity that signs its summaries, and requires a summary:
+The commands of this page verify by hand. A cluster can enforce the same
+before a container starts from an image, with an admission controller which
+verifies the images of a pod when the pod is created, or on the nodes, with a
+verifier which checks an image before the container runtime creates a
+container from it, for example an [NRI][nri] plugin for CRI-O and containerd.
+For images on `registry.k8s.io`, a policy can rely on the verification summary
+of the image promoter instead of evaluating the attestations of every build.
+Whatever enforces it, a policy for the images of this project, matched by
+`registry.k8s.io/security-profiles-operator/**`, has to:
 
-```json
-{
-  "rules": [
-    {
-      "images": ["registry.k8s.io/security-profiles-operator/**"],
-      "trust": {
-        "issuers": ["https://accounts.google.com"],
-        "sanPatterns": [
-          "krel-trust@k8s-releng-prod.iam.gserviceaccount.com",
-          "promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com"
-        ],
-        "verifiers": [
-          {
-            "id": "https://k8s.io/promo-tools/verifier/v1",
-            "identities": [
-              {
-                "issuer": "https://accounts.google.com",
-                "sanPattern": "promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com"
-              }
-            ]
-          }
-        ]
-      },
-      "vsa": { "missingPolicy": "deny", "minimumLevel": 1 }
-    }
-  ]
-}
-```
+- require a verification summary of the digest of the image with the predicate type
+  `https://slsa.dev/verification_summary/v1`, signed as
+  `promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com` with the issuer
+  `https://accounts.google.com`, whose `verifier.id` is
+  `https://k8s.io/promo-tools/verifier/v1`. Pin both the signer and the
+  verifier ID, see [verify a summary](#verify-a-summary).
+- require the `PASSED` result and one of the numbered SLSA build levels,
+  which rejects summaries that claim no level, see
+  [what a summary says](#what-a-summary-says).
+- read the summary from the repository the image is pulled from, which is
+  where the promoter writes the summaries of the manifest list and its
+  platform manifests.
+- trust the `krel-trust@k8s-releng-prod.iam.gserviceaccount.com` signature of
+  the promoter, if it verifies signatures as well.
 
-The plugin reads the summary from the repository the image is pulled from,
-which is where the promoter writes the summaries of the manifest list and its
-platform manifests. `vsa.missingPolicy: deny` rejects every digest without a
-passed summary of the promoter, which includes the
-[older releases](#older-releases), so roll the rule out in the `warn` mode of
-the plugin first, which only logs. `vsa.minimumLevel: 1` rejects summaries
-that claim no level, see [levels](#levels). The rule matches the operator
-bundle and catalog too, which OLM runs on the nodes and which only reach
-level 3 if they were promoted with the GitHub provenance, see
-[older releases](#older-releases), so require level 3 in a rule for the
-operator image only as long as older bundles and catalogs are in use. An
-`exclude` pattern that matches the images, like `registry.k8s.io/**`, skips
-the rule. The policy documentation of the plugin explains the rule and its
-options in
-[images promoted to registry.k8s.io][nri-supply-chain-promoted], and its
-[deployment documentation][nri-supply-chain-deployment] how to install the
-plugin and which system images to exclude.
+A policy which requires a passed summary rejects every digest without one,
+which includes the [older releases](#older-releases) and the
+[missing summaries](#missing-and-failed-summaries), so roll it out in a mode
+of the policy engine which only reports violations first. The policy also
+matches the operator bundle and catalog, which OLM runs on the nodes and which
+only reach level 3 if they were promoted with the GitHub provenance, see
+[older releases](#older-releases). So require `SLSA_BUILD_LEVEL_3` in a policy
+for the operator image only, as long as older bundles and catalogs are in use.
+Exclude the system images of the cluster from a policy which runs on the
+nodes, as its documentation describes, but not with a pattern like
+`registry.k8s.io/**`, which matches the images of this project too and so
+skips the policy for them.
 
-Other verifiers work as well, as long as they pin both the verifier ID and the
-signer of the summary, for example `slsa-verifier vsa`, see
-[verify a summary](#verify-a-summary).
+`slsa-verifier vsa` in [verify a summary](#verify-a-summary) checks the same
+conditions for a single digest. Any other verifier works as well, as long as
+it pins both the verifier ID and the signer of the summary.
 
 ## Command line binaries
 
@@ -503,18 +486,18 @@ workflow for `amd64`, `arm64`, `ppc64le` and `s390x`. Download the binary, its
 signature and the provenance from the [release page][releases], then verify
 both, here for `amd64`:
 
-```console
-> cosign verify-blob \
-    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/$VERSION \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --bundle spoc.amd64.sigstore.json \
-    spoc.amd64
-> gh attestation verify spoc.amd64 \
-    --bundle spoc.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
-    --source-ref refs/tags/$VERSION \
-    --deny-self-hosted-runners
+```shell
+cosign verify-blob \
+  --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/$VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle spoc.amd64.sigstore.json \
+  spoc.amd64
+gh attestation verify spoc.amd64 \
+  --bundle spoc.intoto.jsonl \
+  --repo kubernetes-sigs/security-profiles-operator \
+  --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+  --source-ref refs/tags/$VERSION \
+  --deny-self-hosted-runners
 ```
 
 The release also carries a `.sha512` sum per binary.
@@ -526,18 +509,18 @@ covered by the same provenance. So is `spoc-native.spdx.json`, the SBOM of the
 C libraries the binaries link statically, like libseccomp and libbpf, whose
 versions come from the nix build. Verify it with the same commands:
 
-```console
-> cosign verify-blob \
-    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/$VERSION \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --bundle spoc.spdx.json.sigstore.json \
-    spoc.spdx.json
-> gh attestation verify spoc.spdx.json \
-    --bundle spoc.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
-    --source-ref refs/tags/$VERSION \
-    --deny-self-hosted-runners
+```shell
+cosign verify-blob \
+  --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/$VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle spoc.spdx.json.sigstore.json \
+  spoc.spdx.json
+gh attestation verify spoc.spdx.json \
+  --bundle spoc.intoto.jsonl \
+  --repo kubernetes-sigs/security-profiles-operator \
+  --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+  --source-ref refs/tags/$VERSION \
+  --deny-self-hosted-runners
 ```
 
 ## Helm chart
@@ -545,18 +528,18 @@ versions come from the nix build. Verify it with the same commands:
 The chart archive attached to the release is signed by the
 [`helm-chart-package`](../.github/workflows/helm-chart-package.yaml) workflow:
 
-```console
-> cosign verify-blob \
-    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml@refs/tags/$VERSION \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --bundle security-profiles-operator-${VERSION#v}.tgz.sigstore.json \
-    security-profiles-operator-${VERSION#v}.tgz
-> gh attestation verify security-profiles-operator-${VERSION#v}.tgz \
-    --bundle security-profiles-operator-${VERSION#v}.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
-    --source-ref refs/tags/$VERSION \
-    --deny-self-hosted-runners
+```shell
+cosign verify-blob \
+  --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml@refs/tags/$VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle security-profiles-operator-${VERSION#v}.tgz.sigstore.json \
+  security-profiles-operator-${VERSION#v}.tgz
+gh attestation verify security-profiles-operator-${VERSION#v}.tgz \
+  --bundle security-profiles-operator-${VERSION#v}.intoto.jsonl \
+  --repo kubernetes-sigs/security-profiles-operator \
+  --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+  --source-ref refs/tags/$VERSION \
+  --deny-self-hosted-runners
 ```
 
 The chart is also published as an OCI artifact to `registry.k8s.io`, which
@@ -577,25 +560,25 @@ chart manifest are subjects of the provenance of the release assets, so the
 same command verifies them, with the GitHub attestation store or with
 `--bundle` and the provenance of the release page:
 
-```console
-> gh attestation verify oci://registry.k8s.io/security-profiles-operator/spoc:$VERSION \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
-    --source-ref refs/tags/$VERSION \
-    --deny-self-hosted-runners
-> gh attestation verify oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator:${VERSION#v} \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
-    --source-ref refs/tags/$VERSION \
-    --deny-self-hosted-runners
+```shell
+gh attestation verify oci://registry.k8s.io/security-profiles-operator/spoc:$VERSION \
+  --repo kubernetes-sigs/security-profiles-operator \
+  --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+  --source-ref refs/tags/$VERSION \
+  --deny-self-hosted-runners
+gh attestation verify oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator:${VERSION#v} \
+  --repo kubernetes-sigs/security-profiles-operator \
+  --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+  --source-ref refs/tags/$VERSION \
+  --deny-self-hosted-runners
 ```
 
 The layer digests are the sha256 sums of the files, so a binary can also be
 downloaded by digest and checked like a file of the release page, for
 example with [oras](https://oras.land):
 
-```console
-> oras pull --platform linux/amd64 registry.k8s.io/security-profiles-operator/spoc:$VERSION
+```shell
+oras pull --platform linux/amd64 registry.k8s.io/security-profiles-operator/spoc:$VERSION
 ```
 
 The provenance is also attached as OCI referrer to the `spoc` index and the
@@ -605,22 +588,22 @@ build attests for them: for `spoc` the `spoc.spdx.json` and
 chart archive and the files in it. The `spoc` SBOM is a few hundred kilobytes,
 so the second command only prints the names of the SBOMs:
 
-```console
-> cosign verify-attestation \
-    --type https://slsa.dev/provenance/v1 \
-    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-github-workflow-repository kubernetes-sigs/security-profiles-operator \
-    --certificate-github-workflow-ref refs/tags/$VERSION \
-    --certificate-github-workflow-trigger release \
-    registry.k8s.io/security-profiles-operator/spoc:$VERSION
-> cosign verify-attestation \
-    --type https://spdx.dev/Document/v3 \
-    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    registry.k8s.io/security-profiles-operator/spoc:$VERSION |
-    jq -r '.payload | @base64d | fromjson | .predicate
-      | .name // (."@graph"[]? | select(.type == "SpdxDocument") | .name)'
+```shell
+cosign verify-attestation \
+  --type https://slsa.dev/provenance/v1 \
+  --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-repository kubernetes-sigs/security-profiles-operator \
+  --certificate-github-workflow-ref refs/tags/$VERSION \
+  --certificate-github-workflow-trigger release \
+  registry.k8s.io/security-profiles-operator/spoc:$VERSION
+cosign verify-attestation \
+  --type https://spdx.dev/Document/v3 \
+  --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
+  --certificate-oidc-issuer https://accounts.google.com \
+  registry.k8s.io/security-profiles-operator/spoc:$VERSION |
+  jq -r '.payload | @base64d | fromjson | .predicate
+    | .name // (."@graph"[]? | select(.type == "SpdxDocument") | .name)'
 ```
 
 The platform manifests of `spoc` only have their referrers in the staging
@@ -637,8 +620,8 @@ The base profiles are published as
 against as the tag, see [base profiles](release-baseprofiles.md). List the
 published versions of a runtime with:
 
-```console
-> crane ls registry.k8s.io/security-profiles-operator/base/runc
+```shell
+crane ls registry.k8s.io/security-profiles-operator/base/runc
 ```
 
 `spoc pull` and base profiles referenced with the `oci://` prefix verify the
@@ -664,11 +647,11 @@ registries are verified against the configured regexps, and with the default
 the profile. `spoc pull` and the daemon log a warning then. To verify the
 official profiles explicitly:
 
-```console
-> spoc pull \
-    --allowed-identity-regexp '^(krel-trust@k8s-releng-prod|sp-operator-sa@k8s-staging-images)\.iam\.gserviceaccount\.com$' \
-    --allowed-oidc-issuer-regexp '^https://accounts\.google\.com$' \
-    registry.k8s.io/security-profiles-operator/base/runc:<version>
+```shell
+spoc pull \
+  --allowed-identity-regexp '^(krel-trust@k8s-releng-prod|sp-operator-sa@k8s-staging-images)\.iam\.gserviceaccount\.com$' \
+  --allowed-oidc-issuer-regexp '^https://accounts\.google\.com$' \
+  registry.k8s.io/security-profiles-operator/base/runc:<version>
 ```
 
 The provenance and the SBOM of a promoted profile verify like the ones of the
@@ -738,9 +721,6 @@ v1.1.0 and the releases before it predate most of this page:
 [crane]: https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md
 [gh]: https://cli.github.com
 [nri]: https://github.com/containerd/nri
-[nri-supply-chain]: https://github.com/saschagrunert/nri-supply-chain
-[nri-supply-chain-deployment]: https://github.com/saschagrunert/nri-supply-chain/blob/main/docs/deployment.md
-[nri-supply-chain-promoted]: https://github.com/saschagrunert/nri-supply-chain/blob/main/docs/policy.md#images-promoted-to-registryk8sio
 [promoter]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md
 [promoter-carry]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#carrying-staging-attestations
 [promoter-policies]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#provenance-policies

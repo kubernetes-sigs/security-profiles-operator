@@ -1,20 +1,35 @@
-# Security Model
+# Security model
 
-This security model aims to clarify the project's current security position against industry 
-recommendations and general security best practices. The information provided here should make 
+This security model aims to clarify the project's current security position against industry
+recommendations and general security best practices. The information provided here should make
 it easier for security teams from highly regulated sectors to assess and use SPO for their workloads.
 
-The SPO project strives to maintain the [least privilege principle], by trying to run with 
+The SPO project strives to maintain the [least privilege principle], by trying to run with
 the bare minimum privileges for the least amount of time possible. This approach decreases
 the attack surface and the window of opportunity in which it can be abused.
 
 Note that this is an on-going effort, and may change over time as new features are developed.
 
-## Host Isolation (a.k.a. Pod Security / Security Context)
+<!-- toc -->
+- [Host isolation (pod security and security context)](#host-isolation-pod-security-and-security-context)
+  - [Initialization](#initialization)
+  - [Running mode](#running-mode)
+    - [Host paths](#host-paths)
+    - [Metrics](#metrics)
+  - [Profile generation mode (auto-generating security profiles)](#profile-generation-mode-auto-generating-security-profiles)
+- [Control plane RBAC](#control-plane-rbac)
+  - [security-profiles-operator](#security-profiles-operator)
+  - [spod](#spod)
+  - [spo-webhook](#spo-webhook)
+- [Admission webhooks](#admission-webhooks)
+- [OCI artifact signature verification](#oci-artifact-signature-verification)
+<!-- /toc -->
 
-Details the security requirements to run SPO from a host isolation perspective. 
+## Host isolation (pod security and security context)
 
-### Initialisation
+Details the security requirements to run SPO from a host isolation perspective.
+
+### Initialization
 
 Seccomp leverages the `non-root-enabler` init container to setup an initial symlink as `root`, so
 the daemon can then operate as a non-root user.
@@ -46,16 +61,17 @@ directories mounted on all nodes.
 
 When AppArmor is enabled, the profiles are installed through the host mount namespace, which
 requires a privileged init container and `HostPID` instead of a host path mount of
-`/etc/apparmor.d`. The daemon then runs privileged as well.
+`/etc/apparmor.d`. The daemon then runs privileged as well. Both the daemon and the
+`non-root-enabler` then run as root (UID and GID 0) with a writable root filesystem and
+privilege escalation allowed.
 
 The pod does not mount the service account token automatically. Only the containers which talk
 to the API server (the `non-root-enabler`, the daemon, the enrichers and the bpf recorder) get
 a projected token.
 
+### Running mode
 
-### Running Mode
-
-The running permissions for the three core technologies supported: 
+The running permissions for the three core technologies supported:
 
 |                                  | Seccomp     | SELinux     | AppArmor    |
 |----------------------------------|:-----------:|:-----------:|:-----------:|
@@ -63,7 +79,7 @@ The running permissions for the three core technologies supported:
 |                 Requires HostPID | No          | No          | Yes         |
 |  Requires "privileged container" | No          | Yes (1)     | Yes (4)     |
 |     Requires SSH Access to nodes | No          | No          | No          |
-| Access to host's mount namespace | No          | Yes         | On Demand   |
+| Access to host's mount namespace | No          | No          | Yes (5)     |
 |                 AppArmor Profile | `default`   | `default`   | `spo-apparmor` |
 |                     SELinux type | `spc_t`     | `spc_t` (2) | `spc_t`     |
 |                  Seccomp Profile | `security-profiles-operator.json` (3) | same (3) | none (4) |
@@ -75,18 +91,24 @@ The running permissions for the three core technologies supported:
    `selinuxd.cil`, only applies while AppArmor is enabled. To reload the policy after a SELinux
    profile changed, the daemon creates a Job in the operator namespace, pinned to its node: a
    privileged pod with the `spc_t` type, which runs `semodule -R` in the `selinuxd` image as the
-   `spod` service account without a service account token and tolerates every taint.
+   `spod` service account without a service account token and tolerates every taint. SELinux
+   only needs host path mounts, see [host paths](#host-paths), not the host mount namespace.
 2. The type of every container and init container, including `selinuxd`, can be changed through
-   `spec.selinux.typeTag` of the `spod` resource, for example to `unconfined_t` on Flatcar Linux.
+   `spec.selinux.typeTag` of the SPOD, for example to `unconfined_t` on Flatcar Linux.
    It is ignored while AppArmor is enabled, the containers then keep the types of the base
    manifest.
 3. The daemon container runs with the Localhost seccomp profile `security-profiles-operator.json`,
    which the operator ships in the `security-profiles-operator-profile` ConfigMap and the
-   `non-root-enabler` copies into the `seccomp` directory of the kubelet. The pod level default
-   is `RuntimeDefault`.
+   `non-root-enabler` copies into the `seccomp` directory of the kubelet. The other containers,
+   like `selinuxd` and the `non-root-enabler`, get the `RuntimeDefault` default of the pod. The
+   container runtime applies no seccomp profile to the privileged
+   `selinux-shared-policies-copier` and the privileged SELinux policy reload Job.
 4. With AppArmor enabled the daemon and the `non-root-enabler` run privileged, see
-   [Initialisation](#initialisation), so the container runtime does not apply a seccomp profile,
+   [Initialization](#initialization), so the container runtime does not apply a seccomp profile,
    and CRI-O no AppArmor profile either.
+5. The daemon enters the host mount namespace through `HostPID` to install, remove and check
+   the AppArmor profiles of the node, and the `non-root-enabler` to install the AppArmor
+   profiles of the daemon and the bpf recorder.
 
 The operator and webhook deployments run as non-root with a read-only root filesystem, all
 capabilities dropped, privilege escalation disabled and the `RuntimeDefault` seccomp profile.
@@ -94,8 +116,7 @@ On OpenShift they are pinned to the `restricted-v2` SCC through the
 `openshift.io/required-scc` annotation. Only the pods of the `spod` service account (the `spod`
 DaemonSet and the SELinux policy reload Job) use the `privileged` SCC.
 
-
-#### Host Paths
+#### Host paths
 
 Throughout their operation they require read and write permissions into host paths:
 
@@ -106,13 +127,20 @@ Throughout their operation they require read and write permissions into host pat
 - `/etc/apparmor.d` (only when AppArmor is enabled, through the host mount namespace)
 
 Host paths of optional features are only mounted when the feature is enabled, and read-only
-unless noted otherwise: the audit and syslog directories for the JSON enricher and the log
-enricher with the default `auditd` source, `/sys/kernel/debug` and `/sys/kernel/tracing` for the
-JSON enricher, and `/sys/kernel/debug`, `/sys/kernel/security`, `/sys/kernel/tracing` and
-`/sys/fs/cgroup` for the bpf recorder. A custom `spec.hostProcVolumePath` gets mounted read-only
-over `/proc` for the log enricher, the JSON enricher and the bpf recorder. The optional log volume
-of the JSON enricher, configured through the `json-enricher-log-volume-source.json` key of the
-operator ConfigMap, is mounted writable, also when its source is a host path.
+unless noted otherwise:
+
+- `/var/log/audit` and the whole `/var/log` directory of the host, for the syslog fallback, for
+  the JSON enricher and for the log enricher with the default `auditd` source. `/var/log` also
+  holds the logs of all pods of the node, below `/var/log/pods` and `/var/log/containers`, which
+  these containers can therefore read.
+- `/sys/kernel/debug` and `/sys/kernel/tracing` for the JSON enricher.
+- `/sys/kernel/debug`, `/sys/kernel/security`, `/sys/kernel/tracing` and `/sys/fs/cgroup` for
+  the bpf recorder.
+
+A custom `spec.hostProcVolumePath` gets mounted read-only over `/proc` for the log enricher, the
+JSON enricher and the bpf recorder. The optional log volume of the JSON enricher, configured
+through the `json-enricher-log-volume-source.json` key of the operator ConfigMap, is mounted
+writable, also when its source is a host path.
 
 #### Metrics
 
@@ -120,7 +148,7 @@ The metrics endpoints of the operator, the webhook and the daemon are served via
 require a client which is authenticated and authorized through a `TokenReview` and a
 `SubjectAccessReview`, for example with the `spo-metrics-client` ClusterRole. The operator and
 the webhook serve them on port 8443. Only the daemon endpoint can be opened up through
-`spec.enableInsecureMetricsAccess` of the `spod` resource.
+`spec.enableInsecureMetricsAccess` of the SPOD.
 
 The `spo-metrics-client` ClusterRole only allows reading the metrics paths. It is bound to the
 dedicated `spo-metrics-client` ServiceAccount of the operator namespace, which does not mount
@@ -137,13 +165,13 @@ monitoring, it grants this read access to whoever creates the `openshift-monitor
 and its `prometheus-k8s` ServiceAccount, which needs the permission to create namespaces.
 Delete the RoleBinding there if that is a concern.
 
-### Profile Generation Mode (auto-generating security profiles)
+### Profile generation mode (auto-generating security profiles)
 
-Profile generation features are optional and are not intended to be executed at production environments. 
-Ideally such features would be used as part of your software development lifecycle, so you can detect and 
+Profile generation features are optional and are not intended to be executed at production environments.
+Ideally such features would be used as part of your software development lifecycle, so you can detect and
 respond to change in profiles, which can _later_ be enforced once deployed in production.
 
-During the execution in profile generation mode, the observed applications may run less restricted than it 
+During the execution in profile generation mode, the observed applications may run less restricted than it
 would otherwise, to allow for their operations to be observed and recorded. Keep this in mind when using it
 against workloads you may not trust.
 
@@ -175,6 +203,12 @@ Each recorder and enricher runs in a container of its own:
 `HostPID` is set for the whole `spod` pod while a recorder or enricher is enabled, to map the
 processes to their containers.
 
+Although none of these containers is privileged, root together with `HostPID`, `SYS_PTRACE`
+and `DAC_READ_SEARCH` and the `spc_t` SELinux type lets them read any file of the node
+through `/proc/<pid>/root` of a host process, including the files and secret volumes of other
+pods, and the environment of every process on the node. Assess them like a privileged
+container with read-only access to the node.
+
 The log based recording applies the `operator/log-enricher-trace.json` seccomp profile, which
 logs instead of blocking syscalls, and the permissive `selinuxrecording.process` SELinux type to
 the recorded containers. Both are installed on every node, and the restricted pod security
@@ -198,10 +232,13 @@ with that name, which then sets the label, but the operator does not merge into 
 recordings with that name exist in several namespaces. Set the label on such profiles to keep
 other namespaces from recording into them.
 
-## Control Plane RBAC
+## Control plane RBAC
 
-The project's RBAC requirements are managed in an automated manner based on `+kubebuilder:rbac:` tags. 
-To map what code requires which permissions, [search this repo](https://github.com/kubernetes-sigs/security-profiles-operator/search?q=%22%2Bkubebuilder%3Arbac%3A%22&type=code) for it.
+The project's RBAC requirements are managed in an automated manner based on `+kubebuilder:rbac:`
+tags. To map what code requires which permissions,
+[search this repo](https://github.com/kubernetes-sigs/security-profiles-operator/search?q=%22%2Bkubebuilder%3Arbac%3A%22&type=code)
+for it. For the complete and up to date rules, refer to the generated
+[role.yaml](../deploy/base/role.yaml).
 
 At control plane level the [least privilege principle] should also be observed.
 A high-level summary of the permissions besides the operator's own API, with the API groups
@@ -220,20 +257,21 @@ API groups of its role.
   `spo-validating-webhook-configuration`.
 - ValidatingAdmissionPolicies and their bindings (`admissionregistration.k8s.io`): create, and
   read and update only for `spo-recording-profiles` and the four `spo-spod-*` policies below.
-- Operator namespace only: the `spod` resource, daemonsets and deployments (`apps`), the
+- Operator namespace only: the SPOD, daemonsets and deployments (`apps`), the
   PodDisruptionBudget of the webhook (`policy`), services, servicemonitors
   (`monitoring.coreos.com`, create and patch only), cert-manager issuers and certificates
   (`cert-manager.io`), the `security-profiles-operator-profile` ConfigMap (read), leases
-  (`coordination.k8s.io`), and the `restricted-v2` SCC (`security.openshift.io`). Only the webhook deployment gets updated,
-  the other operands are created and merge patched. The `spod` resource is created and merge
-  patched, to record the allow lists the operator enforced, and its status is only updated.
-- Own API: delete on seccomp profiles, to remove the ones which the allow lists of the `spod`
-  resource reject once for the cluster, see
-  [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles),
+  (`coordination.k8s.io`), and the `restricted-v2` SCC (`security.openshift.io`). Only the
+  webhook deployment gets updated, the other operands are created and merge patched. The SPOD
+  is created and merge patched, to record the allow lists the operator enforced, and its status
+  is only updated.
+- Own API: delete on seccomp profiles, to remove the ones which the allow lists of the SPOD
+  reject once for the cluster, see
+  [Restrict the allowed syscalls](configuration.md#restrict-the-allowed-syscalls-in-seccomp-profiles),
   and on SELinux and AppArmor profiles, to remove the partial profiles of a recording once they
   are merged. Create on the seccomp, SELinux and AppArmor profiles which the operator ships or
-  merges from recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is the one of
-  the `spod` resource, which owns the operands, limited to update, which the owner references
+  merges from recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is
+  the one of the SPOD, which owns the operands, limited to update, which the owner references
   of the operands need to block its deletion. Delete on node statuses, to remove the ones of
   nodes which are gone, since their daemons cannot remove them any more.
 
@@ -245,10 +283,10 @@ API groups of its role.
   (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
   OpenShift apiservers and clusteroperators (`config.openshift.io`, read), for the TLS profile
   of the metrics endpoint.
-- Operator namespace only: the `spod` resource (read), jobs (`batch`) to reload SELinux
+- Operator namespace only: the SPOD (read), jobs (`batch`) to reload SELinux
   policies, get on secrets and configmaps for the public keys and the Sigstore trusted roots of
   the [signature verification](#oci-artifact-signature-verification) of OCI base profiles, and the
-  `privileged` SCC (`security.openshift.io`). The `spod` resource names these secrets and
+  `privileged` SCC (`security.openshift.io`). The SPOD names these secrets and
   configmaps, so the role cannot be limited to them and allows reading all secrets and
   configmaps of the operator namespace, like the `spo-metrics-client-token` Secret and the
   TLS certificates of the webhook and the metrics endpoints. Do not store other secrets in the
@@ -276,11 +314,15 @@ ValidatingAdmissionPolicies limit the writes of the `spod` service account:
   recording, so a compromised node can also create a profile under any name which is not
   taken yet, for example one which a profile binding or a pod refers to before the profile
   exists. The daemons of all nodes install it, and the pods using it run with it.
-- `spo-spod-jobs`: jobs have to be the SELinux policy reload job, running as `spod` on the
-  node of the requesting daemon. The node is taken from the node name which Kubernetes adds to
-  projected service account tokens, by default since 1.30 through the
-  `ServiceAccountTokenPodNodeInfo` feature gate. Without it the jobs are denied, so SELinux
-  policies cannot be reloaded.
+- `spo-spod-jobs`: jobs have the shape of the SELinux policy reload Job: they run as `spod` on
+  the node of the requesting daemon, use no host namespaces, run a single container without
+  environment variables from secrets or configmaps, and only mount the SELinux host paths. The
+  policy does not check the image, the command or the privileges of the container, so a
+  compromised node can run any privileged container on its own node this way, but not on
+  other nodes or as another service account. The node is taken from the node name which
+  Kubernetes adds to projected service account tokens through the
+  `ServiceAccountTokenPodNodeInfo` feature, which the Kubernetes versions the operator supports
+  enable by default. Without it the jobs are denied, so SELinux policies cannot be reloaded.
 - `spo-spod-recordings`: profile recordings may not be created, and updates may only add the
   `spo.x-k8s.io/has-unmerged-profiles` finalizer, which keeps a recording until its partial
   profiles are merged. Otherwise a compromised node could change the pod selector of a
@@ -293,9 +335,9 @@ ValidatingAdmissionPolicies limit the writes of the `spod` service account:
   into a DNS label, so that a node cannot take the name of the status of another node. Node
   statuses written by old releases without the node name in their spec are attributed to a
   node by that label, or by their name, which ends with the node name, if they have no label,
-  so that the daemons can repair or remove them. Without the claim no write can be attributed to a node, and
-  denying them would keep the daemons from installing profiles, so the writes are not
-  restricted then.
+  so that the daemons can repair or remove them. Without the claim no write can be attributed
+  to a node, and denying them would keep the daemons from installing profiles, so the writes
+  are not restricted then.
 
 The operator namespace is not known to the policies of the manifests, so they apply to the
 service accounts named `spod` of all namespaces. The OLM bundle cannot ship
@@ -307,7 +349,8 @@ alone, like the ones of the kustomize and Helm manifests. To customize a policy,
 an own copy without that annotation. A deleted policy or binding is created again, so a policy
 cannot be turned off by deleting it, only by replacing it, for example with a binding whose
 `validationActions` are `["Audit"]`. The operator does not watch these policies, it checks them
-again every ten minutes. Like the `spo-recording-profiles` policy, they stay when the operator gets uninstalled.
+again every ten minutes. Like the `spo-recording-profiles` policy, they stay when the operator
+gets uninstalled.
 
 ### spo-webhook
 
@@ -319,7 +362,7 @@ again every ten minutes. Like the `spo-recording-profiles` policy, they stay whe
   SELinux profiles. Only the exec metadata webhook gets single pods: an exec request carries
   the `PodExecOptions`, not the pod, so it reads the target pod to skip Windows pods.
 - Operator namespace only: the `restricted-v2` SCC (`security.openshift.io`), and get on the
-  `spod` resource, which the binding webhook reads from the API server to tell whether it
+  SPOD, which the binding webhook reads from the API server to tell whether it
   enables the kind of a profile which is missing or has no status.
   Every replica serves requests, so the webhook runs without leader election and needs no
   leases.
@@ -329,27 +372,38 @@ again every ten minutes. Like the `spo-recording-profiles` policy, they stay whe
 
 ## Admission webhooks
 
-The binding and recording webhooks use the `Fail` failure policy with a 10 second timeout,
-and only apply to namespaces with the `spo.x-k8s.io/enable-binding` or
-`spo.x-k8s.io/enable-recording` label. The binding webhook never applies to the operator
-namespace, and also binds ephemeral containers, which get added to running pods for example by
-`kubectl debug`. Bindings to profiles which do not exist are skipped. A profile without status
-is not installed yet, so pods bound to it are rejected, unless its kind is disabled
-in the `spod` resource, in which case the binding is skipped with an event. Pods bound to a
-partial profile of a recording are rejected as well, because the daemons never install partial
-profiles, like pods bound to a profile which is being deleted and which no pod uses, because the
-daemons remove it from the nodes. The bindings only
-apply on pod creation, so the `binding-image.spo.io` validating webhook, which selects the same
-namespaces and pods, rejects image changes of running pods while an image binding matches the
-old or the new image. A match condition limits it to the updates which change an image. The
-recording webhook only gets the pod updates which add, remove or change a recording
-annotation, so that other updates, like the ones of the garbage collector, do not depend on it.
+The binding and recording webhooks and the `binding-image.spo.io` and
+`rawselinuxprofile-validation.spo.io` validating webhooks use the `Fail` failure policy with a
+10 second timeout. The binding and recording webhooks only apply to namespaces with the
+`spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording` label. The binding webhook
+never applies to the operator namespace, and also binds ephemeral containers, which get added
+to running pods for example by `kubectl debug`. Bindings to profiles which do not exist are
+skipped. A profile without status is not installed yet, so pods bound to it are rejected,
+unless its kind is disabled in the SPOD, in which case the binding is skipped with an event.
+Pods bound to a partial profile of a recording are rejected as well, because the daemons never
+install partial profiles, like pods bound to a profile which is being deleted and which no pod
+uses, because the daemons remove it from the nodes. The bindings only apply on pod creation,
+so the `binding-image.spo.io` validating webhook, which selects the same namespaces and pods,
+rejects image changes of running pods while an image binding matches the old or the new image.
+A match condition limits it to the updates which change an image. The recording webhook only
+gets the pod updates which add, remove or change a recording annotation, so that other updates,
+like the ones of the garbage collector, do not depend on it.
 
-The exec metadata webhooks use the `Ignore` failure policy. `execmetadata.spo.io` excludes the
-`kube-system`, `kube-public`, `kube-node-lease` and operator namespaces. Other system namespaces,
-like the `openshift-*` ones, can be excluded through `spec.webhook.options` of the `spod`
-resource. `nodedebuggingpod.spo.io` applies to the pods of all namespaces which carry the
-`app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`. The OpenShift
+`spec.webhook.options` of the SPOD can replace the `failurePolicy`, the `namespaceSelector` and
+the `objectSelector` of the mutating webhooks, and the options of `binding.spo.io` apply to
+`binding-image.spo.io` as well. The failure policy `Ignore` gives up the fail closed guarantee:
+while the webhook is unavailable, pods get admitted without their bound profiles or without
+being recorded. An `objectSelector` of the binding webhook exempts the pods it does not select
+from the bindings. The operator reports both for the binding webhook with a warning event on
+the SPOD. A custom `namespaceSelector` of the binding webhook keeps excluding the operator
+namespace.
+
+The exec metadata webhooks use the `Ignore` failure policy. By default, `execmetadata.spo.io`
+excludes the `kube-system`, `kube-public`, `kube-node-lease` and operator namespaces. Other
+system namespaces, like the `openshift-*` ones, can be excluded through `spec.webhook.options`
+of the SPOD. A custom `namespaceSelector` replaces the default one, so it has to exclude these
+namespaces itself. `nodedebuggingpod.spo.io` applies to the pods of all namespaces which carry
+the `app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`. The OpenShift
 manifests default it to the `debug.openshift.io/managed-by: oc-debug` label of `oc debug node`
 instead.
 
@@ -362,15 +416,12 @@ the statements refer to: allow rules for global types like `container_t`, `typea
 and `in` statements can still affect other workloads. Only cluster admins should be able to
 write raw SELinux profiles.
 
-
-For the most up-to-date rbac requirements refer to the materialised [role.yaml](../deploy/base/role.yaml) file.
-
 ## OCI artifact signature verification
 
 Base profiles can be distributed as OCI artifacts and are signature verified on
 pull. Sigstore bundles attached through the OCI referrers API are verified if
 present, and legacy cosign signature tags if none of the bundles is valid or
-there are none. Verification is controlled through the `spod` resource:
+there are none. Verification is controlled through the SPOD:
 
 ```yaml
 spec:
@@ -404,7 +455,12 @@ match the official signers.
 
 The operator logs a warning when it recognises an unconstrained signer pattern,
 such as the shipped default, so an unintentionally permissive configuration is
-visible in the spod logs. That detection is best effort: an arbitrary regexp
+visible in the daemon logs. That detection is best effort: an arbitrary regexp
 which happens to accept everything cannot be recognised as such.
+
+The daemon gets the Sigstore trusted root from the public Sigstore TUF
+repository like `spoc`, unless `trustedRootConfigMapRef` of the signature
+verification settings provides one, see
+[signature verification of OCI base profiles](profiles.md#verify-the-signatures-of-oci-base-profiles).
 
 [least privilege principle]: https://en.wikipedia.org/wiki/Principle_of_least_privilege

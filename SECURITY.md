@@ -1,6 +1,6 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
 If you find a security vulnerability in the Security Profiles Operator,
 please **do not** open a public GitHub issue.

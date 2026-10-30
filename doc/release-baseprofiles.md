@@ -1,7 +1,5 @@
 # Base profiles
 
-[Documentation](README.md) | [Installation](installation.md) | [Profiles](profiles.md) | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
-
 <!-- toc -->
 - [Where they live](#where-they-live)
 - [How a profile is recorded](#how-a-profile-is-recorded)
@@ -89,8 +87,8 @@ attestations.
 The staging build publishes on merge, so this is only needed to bootstrap a new
 registry or when the build cannot run:
 
-```console
-> SPOC_USERNAME=<user> SPOC_PASSWORD=<token> make push-base-profiles
+```shell
+SPOC_USERNAME=<user> SPOC_PASSWORD=<token> make push-base-profiles
 ```
 
 `REGISTRY` selects where to publish, `SIGN=false` skips signing for
@@ -117,8 +115,9 @@ create it, see
 [creating promotion pull requests](https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/promotion-pull-requests.md)
 for its setup:
 
-```console
-> kpromo pr --project sp-operator \
+```shell
+export GITHUB_TOKEN=<YOUR_TOKEN>
+kpromo pr --fork <YOUR_GH_USERNAME> --project sp-operator \
     --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator \
     --image base/<runtime> --tag <version>
 ```
@@ -142,8 +141,8 @@ promoting it, see [security profiles](release.md#security-profiles).
 Once the promotion pull request is merged, check what the promoted version
 carries:
 
-```console
-> cosign tree registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
+```shell
+cosign tree registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
 ```
 
 ## Verifying
@@ -151,10 +150,10 @@ carries:
 Both registries are anonymously readable. List the published versions of a
 runtime, then pull one:
 
-```console
-> crane ls registry.k8s.io/security-profiles-operator/base/<runtime>
-> spoc pull -o /tmp/profile.json registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
-> curl -fsSL -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+```shell
+crane ls registry.k8s.io/security-profiles-operator/base/<runtime>
+spoc pull -o /tmp/profile.json registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
+curl -fsSL -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
     https://us-central1-docker.pkg.dev/v2/k8s-staging-images/sp-operator/base/<runtime>/manifests/latest
 ```
 

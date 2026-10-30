@@ -1,38 +1,45 @@
-[Documentation](README.md) | [Installation](installation.md) | [Profiles](profiles.md) | [CLI](cli.md) | **Metrics** | [Troubleshooting](troubleshooting.md)
+# Metrics
+
+[Documentation](README.md) | [Installation](installation.md) | [Configuration](configuration.md) | [Profiles](profiles.md) | [Recording](recording.md) | [CLI](cli.md) | **Metrics** | [Troubleshooting](troubleshooting.md)
 
 <!-- toc -->
-- [Metrics](#metrics)
-  - [Available metrics](#available-metrics)
-  - [Metric cardinality](#metric-cardinality)
-  - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
+- [Metrics endpoints](#metrics-endpoints)
+  - [Metrics of the operator and webhook pods](#metrics-of-the-operator-and-webhook-pods)
+- [Available metrics](#available-metrics)
+- [Metric cardinality](#metric-cardinality)
+- [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
 <!-- /toc -->
 
-## Metrics
+## Metrics endpoints
 
-The security-profiles-operator provides two metrics endpoints, which are secured
-by default using the [`WithAuthenticationAndAuthorization`](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/metrics/filters#WithAuthenticationAndAuthorization)
-feature of the controller-runtime. All metrics are exposed via the `metrics` service within the
-`security-profiles-operator` namespace:
+The Security Profiles Operator provides metrics endpoints, which are secured by
+default using the [`WithAuthenticationAndAuthorization`](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/metrics/filters#WithAuthenticationAndAuthorization)
+feature of the controller-runtime. The daemon pods serve two endpoints through
+the `metrics` service in the `security-profiles-operator` namespace:
 
-```
-> kubectl get svc/metrics -n security-profiles-operator
+```console
+$ kubectl get svc/metrics -n security-profiles-operator
 NAME      TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
 metrics   ClusterIP   10.0.0.228   <none>        443/TCP   43s
 ```
 
+- `metrics.security-profiles-operator/metrics`: the controller-runtime metrics
+  of the daemon.
+- `metrics.security-profiles-operator/metrics-spod`: the metrics of the
+  daemon, see [available metrics](#available-metrics).
+
+The operator and webhook pods serve their own controller-runtime metrics, see
+[metrics of the operator and webhook pods](#metrics-of-the-operator-and-webhook-pods).
+
 The operator ships the `spo-metrics-client` cluster role, which allows reading
 the metrics, and binds it to the `spo-metrics-client` service account in the
-`security-profiles-operator` namespace. There are two metrics paths available:
+`security-profiles-operator` namespace. The service account does not mount its
+token into pods by default. To retrieve the metrics, request a token for it and
+query the service endpoint with it:
 
-- `metrics.security-profiles-operator/metrics`: for controller runtime metrics
-- `metrics.security-profiles-operator/metrics-spod`: for the operator daemon metrics
-
-The service account does not mount its token into pods by default. To retrieve
-the metrics, request a token for it and query the service endpoint with it:
-
-```
-> TOKEN=$(kubectl create token spo-metrics-client -n security-profiles-operator)
-> kubectl run --rm -i --restart=Never --image=registry.fedoraproject.org/fedora-minimal:latest \
+```console
+$ TOKEN=$(kubectl create token spo-metrics-client -n security-profiles-operator)
+$ kubectl run --rm -i --restart=Never --image=registry.fedoraproject.org/fedora-minimal:latest \
     -n security-profiles-operator metrics-test --env TOKEN="$TOKEN" -- bash -c \
     'curl -ks -H "Authorization: Bearer $TOKEN" https://metrics.security-profiles-operator/metrics-spod'
 …
@@ -54,14 +61,14 @@ If the metrics have to be retrieved with a different service account, add it
 to the `spo-metrics-client` `ClusterRoleBinding` or create a new binding to the
 `spo-metrics-client` cluster role:
 
-```
-> kubectl get clusterrolebinding spo-metrics-client -o wide
+```console
+$ kubectl get clusterrolebinding spo-metrics-client -o wide
 NAME                 ROLE                             AGE   USERS   GROUPS   SERVICEACCOUNTS
 spo-metrics-client   ClusterRole/spo-metrics-client   35m                    security-profiles-operator/spo-metrics-client
 ```
 
-Every metrics server pod from the DaemonSet runs with the same set of certificates
-(secret `metrics-server-cert`: `tls.crt` and `tls.key`) in the
+Every daemon pod serves the metrics with the same certificate (secret
+`metrics-server-cert`: `tls.crt` and `tls.key`) in the
 `security-profiles-operator` namespace. With cert-manager, the secret also
 holds the CA certificate `ca.crt`, so a pod like this one in the same namespace
 can be used to omit the `--insecure/-k` flag. On OpenShift, the service CA
@@ -102,35 +109,39 @@ spec:
         secretName: metrics-server-cert
 ```
 
-The operator and webhook pods serve their own controller-runtime metrics on
-port 8443 via TLS, with a self-signed certificate. These endpoints are not part
-of the `metrics` service and require a bearer token of a service account bound
-to the `spo-metrics-client` cluster role as well:
-
-```
-> TOKEN=$(kubectl create token spo-metrics-client -n security-profiles-operator)
-> curl -ks -H "Authorization: Bearer $TOKEN" https://<pod-ip>:8443/metrics
-```
-
 Access to the metrics endpoints of the daemon can be made unauthenticated by
-setting `enableInsecureMetricsAccess` in the SPOD configuration. This disables
-TLS and authentication for those endpoints, and the automatically deployed
+setting `enableInsecureMetricsAccess` in the SPOD. This disables TLS and
+authentication for those endpoints, and the automatically deployed
 `ServiceMonitor` (see below) then scrapes them via HTTP. Only use this in
 trusted environments:
 
+```shell
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableInsecureMetricsAccess":true}}'
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableInsecureMetricsAccess":true}}'
+
+Setting the environment variable `ENABLE_INSECURE_METRICS_ACCESS=true` of the
+operator, see [environment variables](configuration.md#environment-variables-of-the-operator),
+has the same effect, including the switch of the `ServiceMonitor` to HTTP. It
+applies whatever the SPOD field says.
+
+### Metrics of the operator and webhook pods
+
+The operator and webhook pods serve their own controller-runtime metrics on
+port 8443 via TLS, with a self-signed certificate. These endpoints are not part
+of the `metrics` service and the automatically deployed `ServiceMonitor`, and
+require a bearer token of a service account bound to the `spo-metrics-client`
+cluster role as well:
+
+```shell
+TOKEN=$(kubectl create token spo-metrics-client -n security-profiles-operator)
+curl -ks -H "Authorization: Bearer $TOKEN" https://<pod-ip>:8443/metrics
 ```
 
-Setting the environment variable `ENABLE_INSECURE_METRICS_ACCESS=true` in the
-operator deployment has the same effect, including the switch of the
-`ServiceMonitor` to HTTP. It applies whatever the SPOD field says.
+## Available metrics
 
-### Available metrics
-
-The controller-runtime (`/metrics`) as well as the DaemonSet endpoint
-(`/metrics-spod`) already provide a set of default metrics. Besides that, those
-additional metrics are provided by the daemon, which are always prefixed with
+The controller-runtime endpoints (`/metrics`) as well as the daemon endpoint
+(`/metrics-spod`) provide a set of default metrics. Besides that, the daemon
+provides these metrics on `/metrics-spod`, which are always prefixed with
 `security_profiles_operator_`:
 
 | Metric Key                      | Labels                                                                  | Type    | Purpose                                                                                       |
@@ -194,7 +205,7 @@ The error metrics use these reasons:
   `CannotLoadAppArmorProfile`, `CannotUnloadAppArmorProfile`,
   `CannotUpdateAppArmorProfile` and `CannotUpdateNodeStatus`.
 
-### Metric cardinality
+## Metric cardinality
 
 The `*_audit_total` metrics and `seccomp_profile_bpf_total` are labeled per
 workload. Their label sets contain values which change constantly on a busy
@@ -208,45 +219,45 @@ cluster:
 comes from the audit log as well.
 
 Every observed label combination becomes a distinct Prometheus time series. The
-spod DaemonSet drops a series after one hour without increments, but Prometheus
-keeps the scraped series for its whole retention. On clusters with a lot of pod
+daemon drops a series after one hour without increments, but Prometheus keeps
+the scraped series for its whole retention. On clusters with a lot of pod
 churn, or when the log enricher is enabled cluster wide, this adds up quickly.
 
-The spod DaemonSet can also limit the number of series per metric with
+The daemon can also limit the number of series per metric with
 `--max-metric-series`, see the [command line
 reference](reference/security-profiles-operator.md). It keeps any number by
 default. With a limit, the increments of further series are dropped until idle
 series expire, and are counted in `series_dropped_total`. The
-`MAX_METRIC_SERIES` environment variable of the operator deployment sets the
-limit, which the operator passes on to the daemon, and `0` removes it again:
+`MAX_METRIC_SERIES` environment variable of the operator sets the limit, which
+the operator passes on to the daemon, and `0` removes it again. See
+[environment variables](configuration.md#environment-variables-of-the-operator)
+for how to set it with Helm and OLM. For the release manifests:
 
+```shell
+kubectl -n security-profiles-operator set env deploy/security-profiles-operator MAX_METRIC_SERIES=50000
 ```
-> kubectl -n security-profiles-operator set env deploy/security-profiles-operator MAX_METRIC_SERIES=50000
-```
-
-When installing the operator using OLM, set the variable in the
-`spec.config.env` field of the `Subscription` instead, see [Restricting to a
-Single Namespace when installing using
-OLM](installation.md#restricting-to-a-single-namespace-when-installing-using-olm)
-for an example.
 
 These metrics are most useful while recording or debugging a workload. If you
-scrape them permanently, consider dropping the high cardinality labels in the
-scrape config, for example:
+scrape them permanently, drop them at scrape time, or restrict the log enricher
+to the namespaces you are actively recording via
+`spec.enricher.logEnricherFilters`.
+
+Drop whole metrics instead of their labels: series which only differ in a
+removed label, like `pod`, collide, and Prometheus rejects the duplicate
+samples. The operator owns the
+[automatically deployed `ServiceMonitor`](#automatic-servicemonitor-deployment)
+and replaces its `endpoints` with its own whenever it updates the monitor, so
+changes to its relabelings do not last. Configure the drop in a scrape
+configuration of your own, for example in a Prometheus Operator scrape class:
 
 ```yaml
 metricRelabelings:
   - sourceLabels: [__name__]
-    regex: security_profiles_operator_.*_audit_total
-    targetLabel: pod
-    replacement: ""
-    action: replace
+    regex: security_profiles_operator_(.*_audit_total|seccomp_profile_bpf_total|apparmor_profile_denial_total)
+    action: drop
 ```
 
-Alternatively, restrict the log enricher to the namespaces you are actively
-recording via `spec.enricher.logEnricherFilters`.
-
-### Automatic ServiceMonitor deployment
+## Automatic ServiceMonitor deployment
 
 If the Kubernetes cluster has the [Prometheus
 Operator](https://github.com/prometheus-operator/prometheus-operator) deployed,
@@ -279,38 +290,33 @@ data:
     enableUserWorkload: true
 ```
 
-Note that the above is not needed when deploying the Security Profiles Operator
-on OpenShift from the Red Hat catalog, in that case, the Security Profiles
-Operator should be auto-configured and Prometheus should be able to scrape
-metrics automatically.
+This is not needed when deploying the Security Profiles Operator on OpenShift
+from the Red Hat catalog, which configures the monitoring, so that Prometheus
+scrapes the metrics automatically.
 
 After that, the Security Profiles Operator can be deployed or updated, which
-will reconcile the `ServiceMonitor` into the cluster:
+will reconcile the `ServiceMonitor` into the cluster. An operator which runs
+already retries the creation every few minutes until the `ServiceMonitor` API
+of the Prometheus Operator exists:
 
-```
-> kubectl -n security-profiles-operator logs security-profiles-operator-d7c8cfc86-47qh2 | grep monitor
-spod-config "msg"="Deploying operator service monitor"
-```
-
-```
-> kubectl -n security-profiles-operator get servicemonitor
+```console
+$ kubectl -n security-profiles-operator get servicemonitor
 NAME                                 AGE
 security-profiles-operator-monitor   35m
 ```
 
-We can now verify in the targets of the platform Prometheus that all endpoints
-are serving the metrics. With user workload monitoring, forward the
-`prometheus-user-workload-0` pod of the `openshift-user-workload-monitoring`
-namespace instead:
+The targets of the platform Prometheus then show the two endpoints of every
+daemon pod, `/metrics` and `/metrics-spod`, as up:
 
-```
-> kubectl port-forward -n openshift-monitoring pod/prometheus-k8s-0 9090
+```console
+$ kubectl port-forward -n openshift-monitoring pod/prometheus-k8s-0 9090
 Forwarding from 127.0.0.1:9090 -> 9090
 Forwarding from [::1]:9090 -> 9090
 ```
 
-![prometheus targets](img/prometheus-targets.png)
+With user workload monitoring, forward the `prometheus-user-workload-0` pod
+of the `openshift-user-workload-monitoring` namespace instead.
 
-The OpenShift UI is now able to display the operator metrics, too:
-
-![prometheus targets](img/openshift-metrics.png)
+The metrics page of the OpenShift web console then shows the metrics of the
+operator as well, for example for the query
+`security_profiles_operator_seccomp_profile_total`.

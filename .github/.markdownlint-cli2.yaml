@@ -1,0 +1,5 @@
+# The issue, pull request and release notes templates start with front matter
+# or a comment and use the headings of the body they become, so they have no
+# top-level heading.
+config:
+  MD041: false

@@ -14,4 +14,6 @@ spec:
   podSelector:
     matchLabels:
       app: alpine
+  # Records only the nginx container of the selected pods, for example of a
+  # pod which runs nginx and redis.
   containers: ["nginx"]

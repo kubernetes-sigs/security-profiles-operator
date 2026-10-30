@@ -34,16 +34,17 @@ The operator also provides:
 - Metrics endpoints.
 - A command line interface, `spoc`, for use cases outside of Kubernetes.
 
-> **Upgrading to v1?** See the [Migration Guide](migration-guide-v1.md) for
-> details on API version changes, enum normalization, and the required upgrade
-> path through 1.0.x.
-
 ## Guides
 
-- [Installation and Configuration](installation.md): installing,
-  [upgrading](installation.md#upgrading) and configuring the operator
-- [Security Profiles](profiles.md): creating, recording and using seccomp,
-  AppArmor and SELinux profiles
+- [Installation](installation.md): installing,
+  [upgrading](installation.md#upgrading) and
+  [uninstalling](installation.md#uninstalling) the operator
+- [Configuration](configuration.md): enabling the optional features and
+  configuring the operator through the SPOD
+- [Security Profiles](profiles.md): creating and using seccomp, AppArmor and
+  SELinux profiles, base profiles and profile bindings
+- [Recording](recording.md): recording profiles from workloads with the log
+  enricher or the BPF recorder
 - [Command Line Interface (CLI)](cli.md): using `spoc` for standalone profile
   management
 - [Command Line Reference](reference/security-profiles-operator.md): flags and
@@ -57,14 +58,11 @@ The operator also provides:
 - [Security Model](security-model.md): the permissions each feature requires
 - [Verifying Releases](verification.md): checking signatures, SBOMs and
   provenance of released artifacts
-- [Migration Guide: API v1 Graduation](migration-guide-v1.md)
+- [Migration Guide: API v1 Graduation](migration-guide-v1.md): API version
+  changes, enum normalization and the required upgrade path through 1.0.x
 
 ## Project
 
-- [Architecture](architecture.svg)
-- [RFC](RFC.md)
-- [User Stories](user-stories.md)
-- [Personas](personas.md)
 - [Development](hacking.md)
 - [Release Process](release.md)
 - [Base Profiles Release Process](release-baseprofiles.md)
@@ -72,6 +70,9 @@ The operator also provides:
   below `registry.k8s.io/security-profiles-operator`, see also the
   [staging images](verification.md#staging-images)
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
+- History: the original [RFC](history/RFC.md), [user stories](history/user-stories.md)
+  and [personas](history/personas.md) of the project, kept for reference. They
+  describe the plans at the start of the project, not the current features.
 
 ## Architecture
 
@@ -79,10 +80,12 @@ The operator also provides:
 
 The diagram is generated from its Mermaid source
 [`architecture.mmd`](architecture.mmd) with the
-[Mermaid CLI](https://github.com/mermaid-js/mermaid-cli), update both together:
+[Mermaid CLI](https://github.com/mermaid-js/mermaid-cli), update both together.
+The configuration [`architecture-config.json`](architecture-config.json) keeps
+the font a system font, so that the SVG embeds no web fonts:
 
 ```shell
-mmdc -i doc/architecture.mmd -o doc/architecture.svg -b white
+mmdc -c doc/architecture-config.json -i doc/architecture.mmd -o doc/architecture.svg -b white
 ```
 
 The operator consists of three components, which run in the operator namespace:
@@ -102,7 +105,32 @@ The operator consists of three components, which run in the operator namespace:
   enricher needs for `kubectl exec` and node debugging sessions. It also
   validates `RawSelinuxProfile` objects.
 
-## Tutorials and Demos
+## Glossary
+
+- **SPOD**: the `SecurityProfilesOperatorDaemon` object named `spod` in the
+  operator namespace, which configures the operator, see
+  [Configuration](configuration.md).
+- **Daemon**: the pods of the `spod` DaemonSet, which install the profiles on
+  each node.
+- **Node status**: a `SecurityProfileNodeStatus` object, the state of one
+  profile on one node.
+- **Log enricher**: the `log-enricher` container of the daemon, which adds the
+  pod and container to the audit log lines of the node and records profiles
+  from them.
+- **BPF recorder**: the `bpf-recorder` container of the daemon, which records
+  profiles with eBPF.
+- **JSON enricher**: the `json-enricher` container of the daemon, which writes
+  the audited activity in pods as JSON, see the
+  [audit logging guide](audit-logging-guide.md).
+- **Partial profile**: a profile recorded for one container instance, which the
+  manager merges into the final profile, see [Recording](recording.md).
+- **Base profile**: a profile which another one builds on, like the base
+  profile of a container runtime, see [Security Profiles](profiles.md).
+
+## Tutorials and demos
+
+The talks predate the v1 API, so their manifests may use older API versions
+and field values, see the [Migration Guide](migration-guide-v1.md).
 
 - [Improving Containers Isolation in Kubernetes](https://www.youtube.com/watch?v=Padw5duODy4&list=PLbzoR-pLrL6prBc8UnTQ9wI3BvFYp17Xp&index=8)
   from @ccojocar - May 2023

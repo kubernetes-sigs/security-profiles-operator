@@ -1,27 +1,16 @@
 # Configuration of markdownlint-cli2, see the docs job of the lint workflow.
-#
-# Every rule is enforced except the ones the documentation violated when the
-# check was added. Fix the documents and remove a rule from this list to
-# enforce it, the ones at the top have the fewest violations.
 config:
   default: true
-  MD036: false  # no-emphasis-as-heading
-  MD029: false  # ol-prefix
-  MD012: false  # no-multiple-blanks
-  MD007: false  # ul-indent
-  MD004: false  # ul-style
-  MD041: false  # first-line-heading
-  MD014: false  # commands-show-output
-  MD022: false  # blanks-around-headings
-  MD009: false  # no-trailing-spaces
-  MD026: false  # no-trailing-punctuation
-  MD010: false  # no-hard-tabs
-  MD031: false  # blanks-around-fences
-  MD033: false  # no-inline-html
-  MD060: false  # table-column-style
-  MD040: false  # fenced-code-language
   # Long lines in prose, tables and commands are fine.
   MD013: false  # line-length
+  # Aligning table columns by hand is not worth the churn.
+  MD060: false  # table-column-style
+  # Go code blocks indent with tabs.
+  MD010:
+    code_blocks: false
+  # mdtoc renders the headings with code spans as <code>.
+  MD033:
+    allowed_elements: [code]
 
 globs:
   - "**/*.md"
