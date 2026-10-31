@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
@@ -128,6 +129,19 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	ForceAttemptOAuth2 bool
+
+	// BlockedRealmPrefixes is the denylist of address prefixes a bearer realm
+	// host must not be, or resolve to. A realm is rejected if any of its
+	// addresses falls in a listed prefix.
+	//
+	// nil uses DefaultBlockedRealmPrefixes (loopback, link-local,
+	// unspecified, and cloud metadata). An empty non-nil slice blocks
+	// nothing. A non-empty slice is used exactly, without merging defaults.
+	// The scheme check and the https-to-http downgrade check always apply.
+	// RFC 1918, IPv6 unique-local, and carrier-grade NAT addresses are
+	// allowed by default. Strict mode is
+	// append(DefaultBlockedRealmPrefixes(), PrivateRealmPrefixes()...).
+	BlockedRealmPrefixes []netip.Prefix
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -207,6 +221,39 @@ func sameHTTPOrigin(a, b *url.URL) bool {
 	return canonicalHost(a) == canonicalHost(b)
 }
 
+// isHTTPSUpgrade reports whether a redirect upgrades the same host from
+// standard HTTP to standard HTTPS.
+func isHTTPSUpgrade(from, to *url.URL) bool {
+	return from.Scheme == "http" && to.Scheme == "https" &&
+		strings.EqualFold(from.Hostname(), to.Hostname()) &&
+		(from.Port() == "" || from.Port() == "80") &&
+		(to.Port() == "" || to.Port() == "443")
+}
+
+// safeHTTPSUpgrade checks every redirect hop before accepting an upgraded challenge.
+func safeHTTPSUpgrade(original, last *http.Request) bool {
+	if !isHTTPSUpgrade(original.URL, last.URL) {
+		return false
+	}
+	if original.Host != "" && !strings.EqualFold(original.Host, original.URL.Host) {
+		return false
+	}
+	for req := last; ; {
+		if req.URL.User != nil {
+			return false
+		}
+		if req.Response == nil {
+			return sameHTTPOrigin(original.URL, req.URL)
+		}
+		previous := req.Response.Request
+		if previous == nil ||
+			(!sameHTTPOrigin(previous.URL, req.URL) && !isHTTPSUpgrade(previous.URL, req.URL)) {
+			return false
+		}
+		req = previous
+	}
+}
+
 // canonicalHost returns the lower-cased host of u with the default port for its
 // scheme applied when no explicit port is present.
 func canonicalHost(u *url.URL) string {
@@ -243,17 +290,95 @@ func (c *Client) cache() Cache {
 // that tests can inject a fake resolver.
 var lookupIPAddr = net.DefaultResolver.LookupIPAddr
 
-// cgnatPrefix is the shared address space for carrier-grade NAT (RFC 6598).
-// It is not covered by net.IP.IsPrivate, yet it hosts internal services such as
-// the Alibaba Cloud instance metadata service at 100.100.100.200.
-var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+var (
+	nat64Prefix  = netip.MustParsePrefix("64:ff9b::/96")
+	sixTo4Prefix = netip.MustParsePrefix("2002::/16")
 
-// isInternalAddr reports whether addr is a loopback, link-local, private,
-// unspecified, or carrier-grade NAT address.
-func isInternalAddr(addr netip.Addr) bool {
-	addr = addr.Unmap()
-	return addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
-		addr.IsPrivate() || addr.IsUnspecified() || cgnatPrefix.Contains(addr)
+	defaultBlockedRealmPrefixes = []netip.Prefix{
+		netip.MustParsePrefix("127.0.0.0/8"),
+		netip.MustParsePrefix("::1/128"),
+		netip.MustParsePrefix("169.254.0.0/16"),
+		netip.MustParsePrefix("fe80::/10"),
+		netip.MustParsePrefix("224.0.0.0/24"),
+		netip.MustParsePrefix("ff02::/16"),
+		netip.MustParsePrefix("0.0.0.0/8"),
+		netip.MustParsePrefix("::/128"),
+		netip.MustParsePrefix("100.100.100.200/32"),
+		netip.MustParsePrefix("fd00:ec2::254/128"),
+		netip.MustParsePrefix("fd00:ec2::23/128"),
+		netip.MustParsePrefix("fd20:ce::254/128"),
+		netip.MustParsePrefix("168.63.129.16/32"),
+	}
+
+	privateRealmPrefixes = []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("172.16.0.0/12"),
+		netip.MustParsePrefix("192.168.0.0/16"),
+		netip.MustParsePrefix("fc00::/7"),
+		netip.MustParsePrefix("100.64.0.0/10"),
+	}
+)
+
+// DefaultBlockedRealmPrefixes returns a fresh copy of the default realm
+// address denylist: loopback, link-local (including IMDS), link-local
+// multicast, unspecified, and cloud metadata addresses outside link-local.
+// RFC 1918, IPv6 unique-local, and carrier-grade NAT are not included.
+func DefaultBlockedRealmPrefixes() []netip.Prefix {
+	return slices.Clone(defaultBlockedRealmPrefixes)
+}
+
+// PrivateRealmPrefixes returns a fresh copy of RFC 1918, IPv6 unique-local
+// (fc00::/7), and carrier-grade NAT (100.64.0.0/10) prefixes. Append them to
+// DefaultBlockedRealmPrefixes for a strict denylist.
+func PrivateRealmPrefixes() []netip.Prefix {
+	return slices.Clone(privateRealmPrefixes)
+}
+
+// unwrapRealmAddr returns the IPv4 address embedded in an IPv4-mapped,
+// NAT64, or 6to4 IPv6 address. Other addresses are returned unmapped.
+// The IPv6 zone is stripped so Prefix.Contains can match scoped literals.
+func unwrapRealmAddr(addr netip.Addr) netip.Addr {
+	addr = addr.Unmap().WithZone("")
+	if !addr.Is6() {
+		return addr
+	}
+	b := addr.As16()
+	if nat64Prefix.Contains(addr) {
+		return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+	}
+	if sixTo4Prefix.Contains(addr) {
+		return netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]})
+	}
+	return addr
+}
+
+// blockedPrefix reports whether addr, after unwrapping, falls in any prefix.
+func blockedPrefix(addr netip.Addr, prefixes []netip.Prefix) (netip.Prefix, bool) {
+	check := unwrapRealmAddr(addr)
+	for _, prefix := range prefixes {
+		if prefix.Contains(check) || prefix.Contains(addr) {
+			return prefix, true
+		}
+	}
+	return netip.Prefix{}, false
+}
+
+// resolveBlockedPrefixes returns the denylist to apply. nil means defaults;
+// a non-nil slice (including empty) is used as given.
+func resolveBlockedPrefixes(prefixes []netip.Prefix) []netip.Prefix {
+	if prefixes == nil {
+		return defaultBlockedRealmPrefixes
+	}
+	return prefixes
+}
+
+const apiPrefix = "/v2/"
+
+var endpointSeparators = []string{
+	"/manifests/",
+	"/blobs/",
+	"/tags/list",
+	"/referrers/",
 }
 
 // validateRealm rejects bearer token realm URLs that would have the client
@@ -261,10 +386,8 @@ func isInternalAddr(addr netip.Addr) bool {
 //
 //   - schemes other than http or https,
 //   - http realms when the registry was contacted over https (TLS downgrade),
-//   - hosts that are, or resolve to, loopback, link-local, private,
-//     unspecified, or carrier-grade NAT (100.64.0.0/10) addresses (e.g. cloud
-//     instance metadata services such as 169.254.169.254 or
-//     100.100.100.200).
+//   - hosts that are, or resolve to, an address in prefixes (nil uses
+//     DefaultBlockedRealmPrefixes; an empty non-nil slice blocks nothing).
 //
 // Cross-host realms with a public hostname are permitted, because the
 // distribution spec allows a separate token endpoint (e.g. Docker Hub's
@@ -272,12 +395,15 @@ func isInternalAddr(addr netip.Addr) bool {
 // as the realm, the address check is skipped so loopback and in-cluster
 // deployments continue to work.
 //
+// IPv4-mapped, NAT64, and 6to4 addresses are unwrapped before matching.
+// The scheme and downgrade checks always apply.
+//
 // A realm host that is not an IP literal is resolved with ctx, and the realm
-// is rejected if any of its A or AAAA records is an internal address. If the
+// is rejected if any of its A or AAAA records is in a blocked prefix. If the
 // lookup fails, the realm is allowed: behind an HTTP proxy the client may be
 // unable to resolve names that the proxy can, and a bogus name fails at dial
 // time anyway. The check does not defend against DNS rebinding, where the
-// name resolves to a public address here and to an internal address when the
+// name resolves to a public address here and to a blocked prefix when the
 // request is dialed.
 //
 // validateRealm is also applied to every redirect hop of a token request.
@@ -285,7 +411,7 @@ func isInternalAddr(addr netip.Addr) bool {
 // References:
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func validateRealm(ctx context.Context, realm string, registryURL *url.URL) error {
+func validateRealm(ctx context.Context, realm string, registryURL *url.URL, prefixes []netip.Prefix) error {
 	if realm == "" {
 		return nil
 	}
@@ -307,9 +433,13 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	if registryURL != nil && strings.EqualFold(host, registryURL.Hostname()) {
 		return nil
 	}
+	prefixes = resolveBlockedPrefixes(prefixes)
+	if len(prefixes) == 0 {
+		return nil
+	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		if isInternalAddr(addr) {
-			return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, unspecified, or carrier-grade NAT address", host)
+		if prefix, ok := blockedPrefix(addr, prefixes); ok {
+			return fmt.Errorf("bearer realm host %q is %s, in blocked prefix %s", host, unwrapRealmAddr(addr), prefix)
 		}
 		return nil
 	}
@@ -320,8 +450,11 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	}
 	for _, ipAddr := range addrs {
 		addr, ok := netip.AddrFromSlice(ipAddr.IP)
-		if ok && isInternalAddr(addr) {
-			return fmt.Errorf("bearer realm host %q resolves to %s, a loopback, link-local, private, unspecified, or carrier-grade NAT address", host, addr.Unmap())
+		if !ok {
+			continue
+		}
+		if prefix, ok := blockedPrefix(addr, prefixes); ok {
+			return fmt.Errorf("bearer realm host %q resolves to %s, in blocked prefix %s", host, unwrapRealmAddr(addr), prefix)
 		}
 	}
 	return nil
@@ -330,14 +463,15 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 // realmRedirectGuard returns a shallow copy of client whose CheckRedirect
 // applies validateRealm to every redirect hop of a token request, measured
 // against registryURL, before delegating to the CheckRedirect of client. This
-// keeps a validated realm from redirecting the token request to an internal
-// address or from https to http.
+// keeps a validated realm from redirecting the token request into a blocked
+// prefix or from https to http. prefixes is the same denylist used for the
+// initial realm so redirect hops are evaluated consistently.
 // Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client {
+func realmRedirectGuard(client *http.Client, registryURL *url.URL, prefixes []netip.Prefix) *http.Client {
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := validateRealm(req.Context(), req.URL.String(), registryURL); err != nil {
+		if err := validateRealm(req.Context(), req.URL.String(), registryURL, prefixes); err != nil {
 			return fmt.Errorf("redirect of token request rejected: %w", err)
 		}
 		if checkRedirect != nil {
@@ -361,7 +495,7 @@ func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client 
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
 func (c *Client) sendTokenRequest(req *http.Request, registryURL *url.URL) (*http.Response, error) {
 	tokenClient := *c
-	tokenClient.Client = realmRedirectGuard(c.client(), registryURL)
+	tokenClient.Client = realmRedirectGuard(c.client(), registryURL, c.BlockedRealmPrefixes)
 	return tokenClient.sendRedirectSafe(req, true)
 }
 
@@ -419,12 +553,23 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return resp, nil
 	}
-	// If the challenge came from a different origin than originally requested
-	// (e.g. the request was redirected to another host or port), do not resolve
-	// or send the registry credentials to that origin.
-	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
-	if resp.Request != nil && !sameHTTPOrigin(originalReq.URL, resp.Request.URL) {
-		return resp, nil
+	// Resolve credentials only for the original origin and repository, or a
+	// same-host HTTPS upgrade.
+	authReq := originalReq
+	if resp.Request != nil {
+		responseURL := resp.Request.URL
+		if !sameHTTPOrigin(originalReq.URL, responseURL) {
+			if !safeHTTPSUpgrade(originalReq, resp.Request) {
+				return resp, nil
+			}
+			authReq = resp.Request.Clone(ctx)
+			authReq.Header = originalReq.Header.Clone()
+			if authReq.Method == originalReq.Method {
+				authReq.GetBody = originalReq.GetBody
+			}
+			// Cache keys don't distinguish HTTP from HTTPS.
+			cache = noCache{}
+		}
 	}
 
 	// attempt again with credentials for recognized schemes
@@ -441,7 +586,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 
-		req = originalReq.Clone(ctx)
+		req = authReq.Clone(ctx)
 		req.Header.Set("Authorization", "Basic "+token)
 	case SchemeBearer:
 		resp.Body.Close()
@@ -457,7 +602,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {
 			if token, err := cache.GetToken(ctx, host, SchemeBearer, key); err == nil {
-				req = originalReq.Clone(ctx)
+				req = authReq.Clone(ctx)
 				req.Header.Set("Authorization", "Bearer "+token)
 				if err := rewindRequestBody(req); err != nil {
 					return nil, err
@@ -476,18 +621,18 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := validateRealm(ctx, realm, originalReq.URL); err != nil {
+		if err := validateRealm(ctx, realm, authReq.URL, c.BlockedRealmPrefixes); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(ctx, originalReq.URL, host, realm, service, scopes)
+			return c.fetchBearerToken(ctx, authReq.URL, host, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 
-		req = originalReq.Clone(ctx)
+		req = authReq.Clone(ctx)
 		req.Header.Set("Authorization", "Bearer "+token)
 	default:
 		return resp, nil

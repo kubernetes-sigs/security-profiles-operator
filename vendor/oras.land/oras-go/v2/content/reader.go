@@ -163,8 +163,11 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 func ensureEOF(r io.Reader) error {
 	var peek [1]byte
 	_, err := io.ReadFull(r, peek[:])
-	if err != io.EOF {
+	if err == nil {
 		return ErrTrailingData
+	}
+	if err != io.EOF {
+		return fmt.Errorf("read failed: %w", err)
 	}
 	return nil
 }
