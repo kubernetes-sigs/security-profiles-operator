@@ -17,6 +17,7 @@ limitations under the License.
 package bindata
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -1592,6 +1594,121 @@ func TestRecordingWebhookSelection(t *testing.T) {
 		t,
 		nothing.Matches(labels.Set{"security-profiles-operator.x-k8s.io/no-recording-webhook": ""}),
 	)
+}
+
+// TestWebhookSelectsNamespace verifies that the namespace counts as selected
+// when nothing can be told about it, and that a failed lookup is an error.
+func TestWebhookSelectsNamespace(t *testing.T) {
+	t.Parallel()
+
+	const webhookName = "binding.spo.io"
+
+	namespace := func() *corev1.Namespace {
+		return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+	}
+	webhookConfig := func(selector *metav1.LabelSelector) *admissionregv1.MutatingWebhookConfiguration {
+		return &admissionregv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: MutatingWebhookConfigName},
+			Webhooks: []admissionregv1.MutatingWebhook{{
+				Name: webhookName, NamespaceSelector: selector,
+			}},
+		}
+	}
+	// The selector does not match the namespace, so that only the fallbacks
+	// select it.
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"bind": "true"}}
+	invalidSelector := &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key: "bind", Operator: "invalid",
+	}}}
+
+	// The namespace gets looked up as metadata, the configuration as itself.
+	isNamespace := func(obj client.Object) bool {
+		_, ok := obj.(*metav1.PartialObjectMetadata)
+
+		return ok
+	}
+	isConfig := func(obj client.Object) bool {
+		_, ok := obj.(*admissionregv1.MutatingWebhookConfiguration)
+
+		return ok
+	}
+
+	for name, tc := range map[string]struct {
+		webhookName  string
+		objs         []client.Object
+		failGet      func(client.Object) bool
+		wantSelected bool
+	}{
+		"not selected": {
+			webhookName: webhookName,
+			objs:        []client.Object{namespace(), webhookConfig(selector)},
+		},
+		"no selector": {
+			webhookName:  webhookName,
+			objs:         []client.Object{namespace(), webhookConfig(nil)},
+			wantSelected: true,
+		},
+		"no configuration": {
+			webhookName:  webhookName,
+			objs:         []client.Object{namespace()},
+			wantSelected: true,
+		},
+		"configuration lookup failed": {
+			webhookName: webhookName,
+			objs:        []client.Object{namespace(), webhookConfig(selector)},
+			failGet:     isConfig,
+		},
+		"webhook not in the configuration": {
+			webhookName:  "other.spo.io",
+			objs:         []client.Object{namespace(), webhookConfig(selector)},
+			wantSelected: true,
+		},
+		"invalid selector": {
+			webhookName:  webhookName,
+			objs:         []client.Object{namespace(), webhookConfig(invalidSelector)},
+			wantSelected: true,
+		},
+		"namespace not found": {
+			webhookName:  webhookName,
+			objs:         []client.Object{webhookConfig(selector)},
+			wantSelected: true,
+		},
+		"namespace lookup failed": {
+			webhookName: webhookName,
+			objs:        []client.Object{namespace(), webhookConfig(selector)},
+			failGet:     isNamespace,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objs...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(
+						ctx context.Context, c client.WithWatch, key client.ObjectKey,
+						obj client.Object, opts ...client.GetOption,
+					) error {
+						if tc.failGet != nil && tc.failGet(obj) {
+							return errTest
+						}
+
+						return c.Get(ctx, key, obj, opts...)
+					},
+				}).Build()
+
+			selected, err := WebhookSelectsNamespace(t.Context(), c, tc.webhookName, "ns")
+			if tc.failGet != nil {
+				require.ErrorIs(t, err, errTest)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.wantSelected, selected)
+		})
+	}
 }
 
 func TestProfileKindEnabled(t *testing.T) {
