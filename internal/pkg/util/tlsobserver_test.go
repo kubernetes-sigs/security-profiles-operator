@@ -100,6 +100,51 @@ func TestTLSWatcherNoChangeNoCallback(t *testing.T) {
 	require.False(t, profileChanged.Load(), "expected no callback when profile unchanged")
 }
 
+func TestTLSWatcherGroupsChangeCallback(t *testing.T) {
+	t.Parallel()
+
+	initialProfile := configv1.TLSProfileSpec{
+		Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+		MinTLSVersion: configv1.VersionTLS12,
+		Groups:        []configv1.TLSGroup{configv1.TLSGroupSecP256r1},
+	}
+
+	for name, groups := range map[string][]configv1.TLSGroup{
+		"changed": {configv1.TLSGroupSecP384r1},
+		"removed": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			updatedProfile := *initialProfile.DeepCopy()
+			updatedProfile.Groups = groups
+			apiServer := &configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{Name: tlspkg.APIServerName},
+				Spec: configv1.APIServerSpec{TLSSecurityProfile: &configv1.TLSSecurityProfile{
+					Type:   configv1.TLSProfileCustomType,
+					Custom: &configv1.CustomTLSProfile{TLSProfileSpec: updatedProfile},
+				}},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).WithObjects(apiServer).Build()
+			var profileChanged bool
+			watcher := newTLSWatcher(
+				fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion,
+				func(_ context.Context, oldProfile, newProfile configv1.TLSProfileSpec) {
+					profileChanged = true
+					require.Equal(t, initialProfile, oldProfile)
+					require.Equal(t, updatedProfile, newProfile)
+				}, nil,
+			)
+
+			_, err := watcher.Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(apiServer),
+			})
+			require.NoError(t, err)
+			require.True(t, profileChanged, "groups-only changes must trigger the restart callback")
+		})
+	}
+}
+
 func TestTLSWatcherAdherencePolicyChangeCallback(t *testing.T) {
 	t.Parallel()
 
