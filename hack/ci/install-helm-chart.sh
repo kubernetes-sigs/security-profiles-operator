@@ -156,8 +156,24 @@ fi
 k rollout status deployment security-profiles-operator-webhook --timeout "$WAIT_TIMEOUT"
 
 # The examples must pass the API server validation and the admission webhooks
-# of the installed operator.
+# of the installed operator. The raw SELinux profile is the only example which
+# a webhook of the operator gets called for, and right after the rollout that
+# call still times out now and then, on a webhook pod which is gone before
+# kube-proxy dropped its endpoint. So only a failed webhook call gets retried,
+# an example which the API server or a webhook rejects fails right away.
 echo "Validating the examples against the cluster"
-kubectl apply --dry-run=server -f examples/
+for ((i = 1; ; i++)); do
+  if out=$(kubectl apply --dry-run=server -f examples/ 2>&1); then
+    echo "$out"
+    break
+  fi
+  echo "$out"
+  if ((i == 5)) || ! grep -q "failed calling webhook" <<<"$out"; then
+    diagnose
+    exit 1
+  fi
+  echo "Retrying the validation after a failed webhook call ($i)"
+  sleep 5
+done
 
 echo "The Helm chart installs a working operator"

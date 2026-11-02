@@ -609,11 +609,13 @@ func doDeployCertManager(e *e2e) {
 	e.logf("Deploying cert-manager")
 	e.kubectl("apply", "-f", e.downloadVerified(certmanager, certmanagerSHA256))
 
-	// https://cert-manager.io/docs/installation/kubernetes/#verifying-the-installation
+	// The deployments exist right after the apply, their pods may not yet,
+	// and kubectl wait fails right away if no pod matches, see
+	// install_cert_manager in hack/ci/lib.sh.
 	e.waitFor(
-		"condition=ready",
+		"condition=available",
 		"--namespace", "cert-manager",
-		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
+		"deployment", "--all",
 	)
 
 	certManifest := `

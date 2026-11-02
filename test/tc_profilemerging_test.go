@@ -85,18 +85,15 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
-	// Logging every syscall of the starting containers floods the audit
-	// subsystem, which then loses whole batches of records before auditd
-	// writes them. A syscall like listen, which each container does only once
-	// on startup, can be among them, so the common action is epoll_wait, which
-	// redis calls ten times a second and nginx on each readiness probe.
+	// The common action is one which survives the lost audit records, see
+	// nginxRecordedSyscall.
 	e.profileMergingTest(
 		"Logs",
 		"SeccompProfile", "sp",
 		seccompLogsMergingTrigger,
-		"epoll_wait", "mknod",
+		nginxRecordedSyscall, "mknod",
 		policyEnabledAfterRecording,
-		"container", "nginx", "syscallName", "epoll_wait")
+		"container", "nginx", "syscallName", nginxRecordedSyscall)
 }
 
 // selinuxMergingTrigger connects to nginx from a process which stays alive for
