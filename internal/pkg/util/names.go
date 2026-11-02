@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -151,6 +152,23 @@ func IsLegacyRecordedProfile(profile client.Object) bool {
 func RecordsContainer(recording *profilerecordingapi.ProfileRecording, containerName string) bool {
 	return recording.Spec.Containers == nil ||
 		slices.Contains(recording.Spec.Containers, containerName)
+}
+
+// RecordingAnnotationValueContainer returns the container which the value of
+// a recording annotation names, "<recording>_<container>_<nonce>_<timestamp>".
+// The recording webhook sets the annotation of a container to a value which
+// names the container, so a value which names another one did not come from
+// it, and must not get the container recorded into the profile of the other
+// one.
+func RecordingAnnotationValueContainer(value string) (string, bool) {
+	const parts = 4
+
+	fields := strings.Split(value, "_")
+	if len(fields) != parts {
+		return "", false
+	}
+
+	return fields[1], true
 }
 
 // RecordedProfileName returns the name of the profile which a recording

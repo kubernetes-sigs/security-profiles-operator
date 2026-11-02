@@ -416,8 +416,8 @@ func TestMergeProfilesListsNamesakeRecordingsOnce(t *testing.T) {
 		WithObjects(
 			recording, other,
 			legacyMerged(testRecording+"-nginx", 3), legacyMerged(testRecording+"-redis", 3),
-			partialSeccomp("partial-nginx", "nginx", "write"),
-			partialSeccomp("partial-redis", "redis", "open"),
+			partialAfter(recording, partialSeccomp("partial-nginx", "nginx", "write")),
+			partialAfter(recording, partialSeccomp("partial-redis", "redis", "open")),
 		).
 		WithIndex(
 			&profilerecordingapi.ProfileRecording{},

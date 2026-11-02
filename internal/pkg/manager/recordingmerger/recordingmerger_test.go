@@ -96,6 +96,17 @@ func partialSeccomp(name, container string, syscalls ...string) *seccompprofile.
 	}
 }
 
+// partialAfter returns the partial profile created after the recording, which
+// a partial profile of an earlier release without the recording UID has to be
+// to get merged, see mayOwn.
+func partialAfter(
+	recording *profilerecordingapi.ProfileRecording, partial *seccompprofile.SeccompProfile,
+) *seccompprofile.SeccompProfile {
+	partial.CreationTimestamp = metav1.NewTime(recording.CreationTimestamp.Add(time.Second))
+
+	return partial
+}
+
 // mergerTestScheme extends the profile scheme with ProfileRecording, which the
 // reconciler reads but the profile-only coverage scheme does not register.
 func mergerTestScheme(t *testing.T) *runtime.Scheme {
@@ -260,6 +271,51 @@ func TestMergeProfilesKeepsExistingMergedProfile(t *testing.T) {
 	require.ElementsMatch(t, []string{"read", "write"}, mergedSyscalls(t, r, "redis"))
 }
 
+// A partial profile which a daemon stored after a deleted recording with the
+// same name got merged is not merged, but cleaned up. Partial profiles of this
+// recording and the ones of earlier releases, without the annotation, created
+// after the recording are merged.
+func TestMergeProfilesSkipsPartialOfDeletedRecording(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	recording.UID = "recording-uid"
+	recording.CreationTimestamp = metav1.NewTime(time.Now())
+
+	ownPartial := partialSeccomp("partial-a", "redis", "read")
+	ownPartial.Annotations = map[string]string{RecordingUIDAnnotation: "recording-uid"}
+
+	stalePartial := partialSeccomp("partial-b", "redis", "exec")
+	stalePartial.Annotations = map[string]string{RecordingUIDAnnotation: "deleted-uid"}
+
+	// Partial profiles of an earlier release have no annotation. The one
+	// created before the recording belongs to a deleted one.
+	staleLegacyPartial := partialSeccomp("partial-d", "redis", "kill")
+	staleLegacyPartial.CreationTimestamp = metav1.NewTime(
+		recording.CreationTimestamp.Add(-time.Hour),
+	)
+
+	r := newMergeReconciler(t,
+		recording,
+		ownPartial,
+		stalePartial,
+		partialAfter(recording, partialSeccomp("partial-c", "redis", "write")),
+		staleLegacyPartial,
+	)
+
+	requireMerged(t, r, recording)
+	require.ElementsMatch(t, []string{"read", "write"}, mergedSyscalls(t, r, "redis"))
+
+	for _, name := range []string{"partial-a", "partial-b", "partial-c", "partial-d"} {
+		err := r.client.Get(
+			t.Context(),
+			types.NamespacedName{Name: name},
+			&seccompprofile.SeccompProfile{},
+		)
+		require.True(t, kerrors.IsNotFound(err), "%s: %v", name, err)
+	}
+}
+
 // Only a merged profile created by this recording gets merged into the result,
 // others, like the one of a deleted recording with the same name, get replaced.
 func TestMergeProfilesReplacesUnrelatedMergedProfile(t *testing.T) {
@@ -288,7 +344,7 @@ func TestMergeProfilesReplacesUnrelatedMergedProfile(t *testing.T) {
 				t,
 				recording,
 				existing,
-				partialSeccomp("partial-a", "redis", "read"),
+				partialAfter(recording, partialSeccomp("partial-a", "redis", "read")),
 			)
 
 			requireMerged(t, r, recording)

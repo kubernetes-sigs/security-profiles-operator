@@ -119,18 +119,6 @@ func TestRun(t *testing.T) {
 			},
 			shouldError: true,
 		},
-		"failure on SaveKubeletConfig failure": {
-			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.SaveKubeletConfigReturns(errTest)
-			},
-			shouldError: true,
-		},
-		"success on SaveKubeletDir success": {
-			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.SaveKubeletConfigReturns(nil)
-			},
-			shouldError: false,
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

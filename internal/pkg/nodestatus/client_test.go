@@ -1583,3 +1583,112 @@ func TestCreateAdoptsStatusWithoutOwner(t *testing.T) {
 	require.Empty(t, status.Annotations)
 	require.Equal(t, sp.GetUID(), status.OwnerReferences[0].UID)
 }
+
+// Profile "web-gpu" on node "node1" and profile "web" on node "gpu-node1" have
+// the same status name. The second node never takes over the status of the
+// first one, its status gets another name, which it finds again and removes
+// without touching the one of the first node.
+func TestCreateStatusNameOfOtherNode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	webGPU := regularSeccompProfile()
+	webGPU.Name = "web-gpu"
+	webGPU.UID = "web-gpu"
+
+	web := regularSeccompProfile()
+	web.Name = "web"
+	web.UID = "web"
+
+	c := newFakeClient(t, webGPU.DeepCopy(), web.DeepCopy())
+
+	first, err := NewForProfileOnNode(webGPU, c, "node1")
+	require.NoError(t, err)
+
+	second, err := NewForProfileOnNode(web, c, "gpu-node1")
+	require.NoError(t, err)
+	require.Equal(t, first.perNodeStatusName(), second.perNodeStatusName())
+
+	_, err = first.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, first.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled))
+
+	_, err = second.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, second.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError))
+
+	status, err := nodeStatus(t, c, first.perNodeStatusName())
+	require.NoError(t, err)
+	require.Equal(t, "node1", status.Spec.NodeName)
+	require.Equal(t, webGPU.GetUID(), status.OwnerReferences[0].UID)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
+
+	altName := second.alternativeStatusName()
+	require.True(t, strings.HasSuffix(altName, "-gpu-node1"), altName)
+
+	status, err = nodeStatus(t, c, altName)
+	require.NoError(t, err)
+	require.Equal(t, "gpu-node1", status.Spec.NodeName)
+	require.Equal(t, web.GetUID(), status.OwnerReferences[0].UID)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+
+	// A new client, like the one of the next reconcile, finds the status of
+	// its node.
+	again, err := NewForProfileOnNode(web, c, "gpu-node1")
+	require.NoError(t, err)
+
+	state, err := again.State(ctx)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, state)
+
+	require.NoError(t, again.Remove(ctx, c))
+
+	_, err = nodeStatus(t, c, altName)
+	require.True(t, kerrors.IsNotFound(err), "got %v", err)
+
+	status, err = nodeStatus(t, c, first.perNodeStatusName())
+	require.NoError(t, err)
+	require.Equal(t, "node1", status.Spec.NodeName)
+}
+
+// A node whose status got the alternative name, which its cache does not have
+// yet, must not create a second status under the plain name once the status
+// of the other node with that name is gone.
+func TestCreateKeepsAlternativeStatusName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	web := regularSeccompProfile()
+	web.Name = "web"
+	web.UID = "web"
+
+	apiServer := newFakeClient(t, web.DeepCopy())
+
+	sc, err := NewForProfileOnNode(web, apiServer, "gpu-node1")
+	require.NoError(t, err)
+
+	alternative := sc.statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	alternative.Name = sc.alternativeStatusName()
+	require.NoError(t, apiServer.Create(ctx, alternative))
+
+	// The cache neither has the alternative status nor the one of the other
+	// node, which got deleted. The client writes through it.
+	cache := newFakeClient(t, web.DeepCopy())
+
+	again, err := NewForProfileOnNode(web, cache, "gpu-node1")
+	require.NoError(t, err)
+	again.WithAPIReader(apiServer)
+
+	require.NoError(t, again.createNodeStatus(ctx, "", false))
+	require.Equal(t, sc.alternativeStatusName(), again.statusName())
+
+	_, err = nodeStatus(t, cache, again.perNodeStatusName())
+	require.True(t, kerrors.IsNotFound(err), "no status with the plain name, got %v", err)
+
+	list := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
+	require.NoError(t, cache.List(ctx, list))
+	require.Len(t, list.Items, 1)
+	require.Equal(t, sc.alternativeStatusName(), list.Items[0].Name)
+}

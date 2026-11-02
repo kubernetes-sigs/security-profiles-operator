@@ -287,7 +287,7 @@ spec:
 			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
 				t.Helper()
 
-				require.ErrorContains(t, err, "cannot merge SeccompProfile with *recordingmerger.MergeableSelinuxProfile")
+				require.ErrorContains(t, err, "cannot merge SeccompProfile with *recordingmerger.mergeableSelinuxProfile")
 				require.Equal(t, 0, mock.WriteFileCallCount())
 			},
 		},

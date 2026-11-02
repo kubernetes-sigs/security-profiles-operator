@@ -37,6 +37,12 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
+// RecordingUIDAnnotation is the annotation of a partial profile with the UID
+// of the recording which recorded it. A daemon can store a partial profile
+// right after its recording got merged, and a recording with the same name
+// which got created since must not merge it.
+const RecordingUIDAnnotation = "spo.x-k8s.io/recording-uid"
+
 func mergedObjectMeta(profileName, recordingName, namespace string) *metav1.ObjectMeta {
 	return &metav1.ObjectMeta{
 		Name: profileName,
@@ -152,6 +158,16 @@ func listPartialProfiles(
 		}
 
 		listed = append(listed, copied)
+
+		// A partial profile of a deleted recording with the same name, which
+		// got stored after that recording got merged, is only cleaned up. A
+		// partial profile of an earlier release has no annotation, it belongs
+		// to the recording if the recording may have recorded it, like the
+		// daemon decides.
+		if uid, ok := obj.GetAnnotations()[RecordingUIDAnnotation]; ok &&
+			uid != string(recording.GetUID()) || !ok && !mayOwn(recording, obj) {
+			return nil
+		}
 
 		partialPrf, err := newMergeableProfile(obj)
 		if err != nil {
@@ -325,7 +341,7 @@ func newMergeableProfile(obj client.Object) (mergeableProfile, error) {
 	case *seccompprofile.SeccompProfile:
 		return &mergeableSeccompProfile{SeccompProfile: *obj}, nil
 	case *selinuxprofileapi.SelinuxProfile:
-		return &MergeableSelinuxProfile{SelinuxProfile: *obj}, nil
+		return &mergeableSelinuxProfile{SelinuxProfile: *obj}, nil
 	case *apparmorprofileapi.AppArmorProfile:
 		return &mergeableAppArmorProfile{AppArmorProfile: *obj}, nil
 	default:
@@ -379,19 +395,19 @@ func (sp *mergeableSeccompProfile) getProfile() client.Object {
 	return &sp.SeccompProfile
 }
 
-type MergeableSelinuxProfile struct {
+type mergeableSelinuxProfile struct {
 	selinuxprofileapi.SelinuxProfile
 }
 
-func (sp *MergeableSelinuxProfile) getProfile() client.Object {
+func (sp *mergeableSelinuxProfile) getProfile() client.Object {
 	return &sp.SelinuxProfile
 }
 
 // merge adds the allow rules of other. The other attributes, like the
 // inherited policies, are the same for all partial profiles of a recording and
 // stay the ones of sp.
-func (sp *MergeableSelinuxProfile) merge(other mergeableProfile) error {
-	otherSP, ok := other.(*MergeableSelinuxProfile)
+func (sp *mergeableSelinuxProfile) merge(other mergeableProfile) error {
+	otherSP, ok := other.(*mergeableSelinuxProfile)
 	if !ok {
 		return fmt.Errorf("cannot merge selinuxProfile with %T", other)
 	}

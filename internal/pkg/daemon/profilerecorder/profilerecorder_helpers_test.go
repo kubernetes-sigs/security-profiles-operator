@@ -298,11 +298,11 @@ func TestParseAnnotations(t *testing.T) {
 		}
 
 		want := []profileToCollect{
-			{kind: recordingapi.ProfileRecordingKindAppArmorProfile, name: "a"},
-			{kind: recordingapi.ProfileRecordingKindAppArmorProfile, name: "z"},
-			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "sa"},
-			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "b"},
-			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "c"},
+			{kind: recordingapi.ProfileRecordingKindAppArmorProfile, name: "a", container: "a"},
+			{kind: recordingapi.ProfileRecordingKindAppArmorProfile, name: "z", container: "z"},
+			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "sa", container: "a"},
+			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "b", container: "b"},
+			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "c", container: "c"},
 		}
 
 		// Map iteration order is random, the result must not be.
@@ -342,16 +342,28 @@ func TestParseAnnotations(t *testing.T) {
 		logs, err := parseLogAnnotations(annotations)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []profileToCollect{
-			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "logs"},
-			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "logs2"},
-			{kind: recordingapi.ProfileRecordingKindSelinuxProfile, name: "selinux"},
+			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "logs", container: "ctr"},
+			{
+				kind:      recordingapi.ProfileRecordingKindSeccompProfile,
+				name:      "logs2",
+				container: "ctr2",
+			},
+			{
+				kind:      recordingapi.ProfileRecordingKindSelinuxProfile,
+				name:      "selinux",
+				container: "ctr",
+			},
 		}, logs)
 
 		bpf, err := parseBpfAnnotations(annotations)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []profileToCollect{
-			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "bpf"},
-			{kind: recordingapi.ProfileRecordingKindAppArmorProfile, name: "apparmor"},
+			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "bpf", container: "ctr"},
+			{
+				kind:      recordingapi.ProfileRecordingKindAppArmorProfile,
+				name:      "apparmor",
+				container: "ctr",
+			},
 		}, bpf)
 	})
 }
@@ -361,12 +373,7 @@ func TestParseProfileAnnotation(t *testing.T) {
 
 	parsed, err := parseProfileAnnotation("recording_ctr_nonce_1700000000")
 	require.NoError(t, err)
-	require.Equal(t, &parsedAnnotation{
-		profileName: "recording",
-		cntName:     "ctr",
-		nonce:       "nonce",
-		timestamp:   "1700000000",
-	}, parsed)
+	require.Equal(t, &parsedAnnotation{profileName: "recording", cntName: "ctr"}, parsed)
 
 	for _, invalid := range []string{
 		"", "recording", "recording_ctr_nonce", "recording_ctr_nonce_1_extra",

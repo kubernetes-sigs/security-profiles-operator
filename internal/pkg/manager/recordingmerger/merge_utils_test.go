@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
@@ -464,8 +465,8 @@ func TestNormalizeCheckMergeComparison(t *testing.T) {
 func TestMergeSelinuxProfileWithoutAllow(t *testing.T) {
 	t.Parallel()
 
-	empty := &MergeableSelinuxProfile{}
-	other := &MergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
+	empty := &mergeableSelinuxProfile{}
+	other := &mergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
 		Spec: selinuxprofileapi.SelinuxProfileSpec{
 			Allow: selinuxprofileapi.Allow{
 				"self": {"file": {"read"}},
@@ -476,7 +477,7 @@ func TestMergeSelinuxProfileWithoutAllow(t *testing.T) {
 	require.NoError(t, empty.merge(other))
 	require.Equal(t, selinuxprofileapi.PermissionSet{"read"}, empty.Spec.Allow["self"]["file"])
 
-	require.NoError(t, other.merge(&MergeableSelinuxProfile{}))
+	require.NoError(t, other.merge(&mergeableSelinuxProfile{}))
 	require.Len(t, other.Spec.Allow, 1)
 }
 
@@ -484,12 +485,12 @@ func TestMergeSelinuxProfileWithoutAllow(t *testing.T) {
 func TestMergeSelinuxProfileDuplicatePermissions(t *testing.T) {
 	t.Parallel()
 
-	base := &MergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
+	base := &mergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
 		Spec: selinuxprofileapi.SelinuxProfileSpec{
 			Allow: selinuxprofileapi.Allow{"self": {"file": {"read"}}},
 		},
 	}}
-	other := &MergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
+	other := &mergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
 		Spec: selinuxprofileapi.SelinuxProfileSpec{
 			Allow: selinuxprofileapi.Allow{
 				"self":  {"file": {"read", "write", "write"}},
@@ -544,4 +545,56 @@ func TestMergeSeccompProfileArchitectures(t *testing.T) {
 	sp, ok = merged.(*seccompprofile.SeccompProfile)
 	require.True(t, ok)
 	require.Empty(t, sp.Spec.Architectures)
+}
+
+// SpecBaseOf returns the base spec of every profile kind, which the profiles
+// get disabled through after their recording.
+func TestSpecBaseOf(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		profile client.Object
+		state   func(client.Object) profilebase.SpecState
+	}{
+		"seccomp": {
+			profile: &seccompprofile.SeccompProfile{},
+			state: func(obj client.Object) profilebase.SpecState {
+				if prf, ok := obj.(*seccompprofile.SeccompProfile); ok {
+					return prf.Spec.State
+				}
+
+				return ""
+			},
+		},
+		"SELinux": {
+			profile: &selinuxprofileapi.SelinuxProfile{},
+			state: func(obj client.Object) profilebase.SpecState {
+				if prf, ok := obj.(*selinuxprofileapi.SelinuxProfile); ok {
+					return prf.Spec.State
+				}
+
+				return ""
+			},
+		},
+		"AppArmor": {
+			profile: &apparmorprofileapi.AppArmorProfile{},
+			state: func(obj client.Object) profilebase.SpecState {
+				if prf, ok := obj.(*apparmorprofileapi.AppArmorProfile); ok {
+					return prf.Spec.State
+				}
+
+				return ""
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			SpecBaseOf(tc.profile).State = profilebase.SpecStateDisabled
+			require.Equal(t, profilebase.SpecStateDisabled, tc.state(tc.profile))
+		})
+	}
+
+	// A profile of another kind does not change anything.
+	SpecBaseOf(&metav1.PartialObjectMetadata{}).State = profilebase.SpecStateDisabled
 }

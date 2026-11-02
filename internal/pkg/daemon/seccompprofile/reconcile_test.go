@@ -383,6 +383,39 @@ func TestReconcileSeccompProfileNotAllowed(t *testing.T) {
 	require.Empty(t, env.saved)
 }
 
+// The allow lists apply to the profile with its base profiles merged in,
+// which is the only check of the syscalls of a pulled base profile.
+func TestReconcileSeccompProfileBaseProfileNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	sp := newTestProfile()
+	sp.Spec.BaseProfileName = "base"
+	sp.Spec.Syscalls[0].Names = []string{"read"}
+	env := newReconcileEnv(t, sp)
+	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	}, nil)
+	env.impl.ClientGetProfileReturns(&seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"socket"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}, nil)
+
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+
+	evs := env.events()
+	require.Len(t, evs, 1)
+	require.True(t, strings.HasPrefix(evs[0], "Warning "+reasonProfileNotAllowed+" "), evs[0])
+	require.Contains(t, evs[0], "syscall not allowed: socket")
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+	require.Empty(t, env.saved)
+}
+
 // A profile which gets rejected after it was installed, for example because
 // the allow list got tightened, must not stay usable on the node.
 func TestReconcileSeccompProfileNotAllowedRemovesInstalledFile(t *testing.T) {
@@ -1017,7 +1050,9 @@ func TestReconcileSeccompProfileFileConflict(t *testing.T) {
 	require.Empty(t, env.events())
 
 	// The owner is unaffected by the later profile.
-	other, err := fileOwner(t.Context(), env.rec.apiReader(), owner)
+	other, err := fileOwner(
+		t.Context(), env.rec.apiReader(), owner, env.rec.removalPending(t.Context()),
+	)
 	require.NoError(t, err)
 	require.Empty(t, other)
 
@@ -1048,7 +1083,10 @@ func TestFileOwnerSkipsInactiveOwners(t *testing.T) {
 
 	for name, tc := range map[string]struct {
 		mutateOwner func(*seccompprofileapi.SeccompProfile)
-		wantOwner   bool
+		// ownerState is the state of the node status of the owner on this
+		// node, which has none without it.
+		ownerState secprofnodestatusapi.ProfileState
+		wantOwner  bool
 	}{
 		"active owner": {wantOwner: true},
 		"disabled owner": {
@@ -1076,6 +1114,43 @@ func TestFileOwnerSkipsInactiveOwners(t *testing.T) {
 			},
 			wantOwner: true,
 		},
+		// The file of a disabled profile stays for the pods which use it as
+		// well, see common.ReconcileDisabled.
+		"disabled owner but in use": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.Spec.State = profilebaseapi.SpecStateDisabled
+				sp.Finalizers = []string{util.HasActivePodsFinalizerString}
+			},
+			ownerState: secprofnodestatusapi.ProfileStateInstalled,
+			wantOwner:  true,
+		},
+		// The in-use finalizer is set for the pods using the file of either
+		// profile, a disabled one which never got installed on the node,
+		// like one created disabled, has no file to keep.
+		"disabled owner in use which got removed": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.Spec.State = profilebaseapi.SpecStateDisabled
+				sp.Finalizers = []string{util.HasActivePodsFinalizerString}
+			},
+			ownerState: secprofnodestatusapi.ProfileStateDisabled,
+		},
+		// Its node status turns Terminating, while its file may be gone for
+		// long.
+		"disabled owner in use being deleted": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				now := metav1.Now()
+				sp.DeletionTimestamp = &now
+				sp.Spec.State = profilebaseapi.SpecStateDisabled
+				sp.Finalizers = []string{util.HasActivePodsFinalizerString}
+			},
+			ownerState: secprofnodestatusapi.ProfileStateTerminating,
+		},
+		"partial owner in use": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.Labels = map[string]string{profilebaseapi.ProfilePartialLabel: "true"}
+				sp.Finalizers = []string{util.HasActivePodsFinalizerString}
+			},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -1093,7 +1168,18 @@ func TestFileOwnerSkipsInactiveOwners(t *testing.T) {
 
 			env := newReconcileEnv(t, owner, later)
 
-			got, err := fileOwner(t.Context(), env.rec.apiReader(), later)
+			if tc.ownerState != "" {
+				nodeStatus, err := nodestatus.NewForProfileOnNode(owner, env.cli, testNode)
+				require.NoError(t, err)
+
+				_, err = nodeStatus.Create(t.Context())
+				require.NoError(t, err)
+				require.NoError(t, nodeStatus.SetNodeStatus(t.Context(), tc.ownerState))
+			}
+
+			got, err := fileOwner(
+				t.Context(), env.rec.apiReader(), later, env.rec.removalPending(t.Context()),
+			)
 			require.NoError(t, err)
 
 			if tc.wantOwner {
@@ -1120,7 +1206,9 @@ func TestFileOwnerReadsFromAPIServer(t *testing.T) {
 	env := newReconcileEnv(t, later)
 	env.rec.reader = newReconcileEnv(t, owner, later).cli
 
-	got, err := fileOwner(t.Context(), env.rec.apiReader(), later)
+	got, err := fileOwner(
+		t.Context(), env.rec.apiReader(), later, env.rec.removalPending(t.Context()),
+	)
 	require.NoError(t, err)
 	require.Equal(t, testProfile, got)
 }
@@ -1478,14 +1566,19 @@ func TestReconcileSeccompProfileRejectedWithoutFileAvoidsUncachedReads(t *testin
 		},
 	}, nil)
 
-	apiReads := 0
+	apiReads, nodeStatusReads := 0, 0
 	env.rec.reader = interceptor.NewClient(
 		fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).Build(),
 		interceptor.Funcs{Get: func(
 			ctx context.Context, c client.WithWatch, key client.ObjectKey,
 			obj client.Object, opts ...client.GetOption,
 		) error {
-			apiReads++
+			switch obj.(type) {
+			case *seccompprofileapi.SeccompProfile:
+				apiReads++
+			case *secprofnodestatusapi.SecurityProfileNodeStatus:
+				nodeStatusReads++
+			}
 
 			return c.Get(ctx, key, obj, opts...)
 		}},
@@ -1499,6 +1592,9 @@ func TestReconcileSeccompProfileRejectedWithoutFileAvoidsUncachedReads(t *testin
 
 	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
 	require.Zero(t, apiReads)
+	// The creation of the node status looks up its alternative name once,
+	// see nodestatus.StatusClient.
+	require.LessOrEqual(t, nodeStatusReads, 1)
 }
 
 // A disabled profile without a file on the node has nothing to remove, so

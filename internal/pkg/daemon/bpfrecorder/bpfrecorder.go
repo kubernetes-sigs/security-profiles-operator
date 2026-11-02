@@ -276,6 +276,10 @@ type BpfRecorder struct {
 	// staleKeys counts the maintenance runs in a row which found a key
 	// without container and processes. Only used by the maintenance.
 	staleKeys map[uint64]int
+	// goneSince holds since when the containers being recorded are not on
+	// the node any more, see dropGoneContainers. Only used by the
+	// maintenance.
+	goneSince map[string]time.Time
 	// idleSince is when the maintenance first found no pod to record on the
 	// node while a recording was running. Guarded by startMu.
 	idleSince time.Time
@@ -334,7 +338,7 @@ type BpfRecorder struct {
 	// not be read, see verifyProcess.
 	mntnsDeniedOnce sync.Once
 
-	// recordingGeneration is bumped whenever a recording session ends. Handlers
+	// recordingGeneration is bumped whenever the recording stops. Handlers
 	// carry the generation their event was queued in and skip writing to the
 	// lookup tables once it no longer matches, so a handler still in flight
 	// cannot repopulate the tables after they were released.
@@ -406,8 +410,10 @@ const (
 	// padding, so this is simply the sum of the field widths.
 	bpfEventHeaderSize = 4 + 4 + 8 + 1 + 8
 
-	// bpfEventSize is the size of the largest event. Events without data are
-	// only sent as the header, file events only with the used part of Data.
+	// bpfEventSize is the size of an event with a full Data. Events without
+	// data are only sent as the header, file events only with the used part
+	// of Data. The exec events of the process cache have a layout of their
+	// own, see bpfExecEvent.
 	bpfEventSize = bpfEventHeaderSize + pathMax
 )
 
@@ -739,6 +745,16 @@ func (b *BpfRecorder) start(r *api.RecordingRequest) (*api.EmptyResponse, error)
 	// A failed stop may have switched the recording off half way, while
 	// its client is still counted until its Stop gets retried.
 	if atomic.LoadInt64(&b.startRequests) == 0 || b.stopFailed {
+		// The stop gets retried first, so that the new recording does not
+		// start with what the stopped one left behind, like the reported
+		// capabilities and sockets which suppress their reports. The
+		// profiles of the stopped recording got collected before its stop.
+		if b.stopFailed {
+			if err := b.StopRecording(); err != nil {
+				return nil, fmt.Errorf("retry stopping the previous recording: %w", err)
+			}
+		}
+
 		b.logger.Info("Starting bpf recorder")
 
 		if err := b.StartRecording(); err != nil {
@@ -868,7 +884,14 @@ func sessionProfileKey(container, profile string) string {
 func (b *BpfRecorder) recordsPod(
 	pod *v1.Pod,
 ) (recorded bool, trusted func(container, profile string) bool) {
-	trustAll := func(string, string) bool { return true }
+	// Without the profiles of the sessions, any recording annotation counts
+	// whose value names the container of its key, like the recording webhook
+	// sets it, see util.RecordingAnnotationValueContainer.
+	trustAll := func(container, profile string) bool {
+		named, ok := util.RecordingAnnotationValueContainer(profile)
+
+		return ok && named == container
+	}
 
 	recordedPods := b.recordedPods.Load()
 	if recordedPods == nil || len(*recordedPods) == 0 {
@@ -1805,7 +1828,7 @@ func (b *BpfRecorder) StopRecording() error {
 
 	// Every step runs even if an earlier one failed, so that a failed stop
 	// does not leave the state of this session to the next one. The next
-	// Start retries what failed, see stopFailed.
+	// Start retries the whole stop, see stopFailed.
 	var errs []error
 
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{0}); err != nil {
@@ -2588,9 +2611,30 @@ func (b *BpfRecorder) lookupProfileForContainerID(id string, generation uint64) 
 
 	// The container exists but is not being recorded. Remember that, so the
 	// next event from it does not look it up again.
-	b.containersWithoutProfile.Set(id, struct{}{}, ttlcache.DefaultTTL)
+	if !b.rememberWithoutProfile(id, generation) {
+		return "", errRecordingEnded
+	}
 
 	return "", errNoProfileForContainer
+}
+
+// rememberWithoutProfile puts the container into the negative cache, unless
+// the recording of the generation stopped, which may have skipped caching its
+// profile, see insertProfile. A recorded container must not end up in the
+// negative cache of the next recording. StopRecording holds the write lock
+// while it ends the recording and clears the cache. It reports whether the
+// container got remembered.
+func (b *BpfRecorder) rememberWithoutProfile(id string, generation uint64) bool {
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	if b.recordingGeneration.Load() != generation {
+		return false
+	}
+
+	b.containersWithoutProfile.Set(id, struct{}{}, ttlcache.DefaultTTL)
+
+	return true
 }
 
 // waitForContainer returns the pod which has the container with the ID.
@@ -2690,15 +2734,31 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) bool {
 					"podName", pod.Name,
 					"containerName", containerName,
 				)
-				b.cacheMu.Lock()
-				b.forgetCollected(profile, containerID)
-				b.containerIDToProfileMap.InsertAt(containerID, profile, generation)
-				b.cacheMu.Unlock()
+				b.insertProfile(containerID, profile, generation)
 			}
 		}
 	}
 
 	return true
+}
+
+// insertProfile caches the profile of the container for the recording of the
+// generation, unless that recording stopped meanwhile. StopRecording holds
+// the write lock while it ends the recording and clears the tables, so that a
+// lookup which is still running cannot repopulate them, see insertKey.
+func (b *BpfRecorder) insertProfile(containerID, profile string, generation uint64) {
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	if b.recordingGeneration.Load() != generation {
+		return
+	}
+
+	b.cacheMu.Lock()
+	defer b.cacheMu.Unlock()
+
+	b.forgetCollected(profile, containerID)
+	b.containerIDToProfileMap.InsertAt(containerID, profile, generation)
 }
 
 // forgetCollected forgets that the profile got collected if the container is

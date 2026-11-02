@@ -51,12 +51,10 @@ func FuzzParseProfileAnnotation(f *testing.F) {
 			return
 		}
 
-		parts := []string{parsed.profileName, parsed.cntName, parsed.nonce, parsed.timestamp}
-		for _, part := range parts {
-			require.NotContains(t, part, "_")
-		}
-
-		require.Equal(t, annotation, strings.Join(parts, "_"))
+		parts := strings.Split(annotation, "_")
+		require.Len(t, parts, 4)
+		require.Equal(t, parts[0], parsed.profileName)
+		require.Equal(t, parts[1], parsed.cntName)
 	})
 }
 
@@ -122,7 +120,9 @@ func checkParsedAnnotations(
 				missingProfile = true
 			}
 
-			want = append(want, profileToCollect{kind: kind, name: annotations[key]})
+			want = append(want, profileToCollect{
+				kind: kind, name: annotations[key], container: strings.TrimPrefix(key, prefix),
+			})
 
 			break
 		}

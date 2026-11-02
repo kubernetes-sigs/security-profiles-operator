@@ -18,9 +18,11 @@ package enricher
 
 import (
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 
@@ -147,12 +149,28 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	require.Equal(t, &uid, first.Uid)
 
 	// Cached for the same process, with the details of the audit line.
-	again, err := GetProcessInfo(pid, "/bin/exec", nil, nil, cache, mock, nil)
+	again, err := GetProcessInfo(pid, "/bin/first", nil, nil, cache, mock, nil)
 	require.NoError(t, err)
 	require.Equal(t, first.CmdLine, again.CmdLine)
-	require.Equal(t, "/bin/exec", again.Executable)
+	require.Equal(t, "/bin/first", again.Executable)
 	require.Nil(t, again.Uid)
 	require.Equal(t, 1, mock.CmdlineForPIDCallCount())
+
+	// The program which the process execs keeps the PID and the start time,
+	// but gets its own command line.
+	mock.CmdlineForPIDReturns("exec", []string{"exec"}, nil)
+
+	execed, err := GetProcessInfo(pid, "/bin/exec", nil, nil, cache, mock, nil)
+	require.NoError(t, err)
+	require.Equal(t, "exec", execed.CmdLine)
+	require.Equal(t, "/bin/exec", execed.Executable)
+	require.Equal(t, 2, mock.CmdlineForPIDCallCount())
+
+	// A process which reuses the PID can log lines and exit before they got
+	// read, so the last process seen with the PID is only kept briefly.
+	last := cache.Get(strconv.Itoa(pid))
+	require.NotNil(t, last)
+	require.Equal(t, exitedProcessTimeout, last.TTL())
 
 	// Another process with the PID.
 	mock.ProcessStartTimeReturns(time.Minute, nil)
@@ -184,6 +202,46 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, pid+1, unknown.Pid)
 	require.Equal(t, calls, mock.CmdlineForPIDCallCount())
+}
+
+// TestKeepSeenProcess asserts that the last process seen with a PID and its
+// container are kept while lines of the process keep coming, even after it
+// exited, like the final exit of an idle shell, but only briefly after that.
+func TestKeepSeenProcess(t *testing.T) {
+	t.Parallel()
+
+	const pid = 42
+
+	key := strconv.Itoa(pid)
+	cache := ttlcache.New(ttlcache.WithTTL[string, *types.ProcessInfo](time.Hour))
+	info := &types.ProcessInfo{Pid: pid, CmdLine: "sh"}
+
+	// Nothing is kept for a process which was not seen.
+	keepLastProcess(pid, cache)
+	require.Nil(t, cache.Get(key))
+
+	// Seen a while ago, its entry would expire soon.
+	cache.Set(key, info, time.Second)
+	keepLastProcess(pid, cache)
+
+	item := cache.Get(key, ttlcache.WithDisableTouchOnHit[string, *types.ProcessInfo]())
+	require.NotNil(t, item)
+	require.Same(t, info, item.Value())
+	require.Greater(t, time.Until(item.ExpiresAt()), exitedProcessTimeout-processRefreshInterval)
+
+	lookup := newContainerLookup(logr.Discard())
+	container := processContainer{id: "container", started: time.Second}
+
+	lookup.keepSeenProcess(pid)
+	require.Nil(t, lookup.processContainers.Get(pid))
+
+	lookup.processContainers.Set(pid, container, time.Second)
+	lookup.keepSeenProcess(pid)
+
+	kept := lookup.processContainers.Get(pid)
+	require.NotNil(t, kept)
+	require.Equal(t, container, kept.Value())
+	require.Greater(t, time.Until(kept.ExpiresAt()), exitedProcessTimeout-processRefreshInterval)
 }
 
 // TestGetProcessInfoStartedLater asserts that the lines of a process which

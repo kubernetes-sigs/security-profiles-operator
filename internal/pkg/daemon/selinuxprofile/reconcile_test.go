@@ -284,6 +284,8 @@ func TestReconcileDeletionMarksStatusTerminating(t *testing.T) {
 	require.NoError(t, err)
 	_, err = ns.Create(ctx)
 	require.NoError(t, err)
+	// The node wrote the policy, which selinuxd reports as installed.
+	require.NoError(t, ns.SetAnnotation(ctx, policyWrittenAnnotation, "true"))
 	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
 
 	res, err := f.r.Reconcile(ctx, f.request)
@@ -316,6 +318,10 @@ func TestReconcileDeletionWithoutNodeStatus(t *testing.T) {
 
 	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
 	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+
+	// Without the node status, nothing tells that the policy never got
+	// installed, so the removed module gets reloaded out of the kernel.
+	require.Len(t, f.reloadJobs(t), 1)
 }
 
 func TestReconcileProfileNotFound(t *testing.T) {
@@ -670,6 +676,7 @@ func TestReconcileRetriesFailedReloadJob(t *testing.T) {
 		"Warning " + reasonCannotReloadPolicy + " Policy reload job failed on " +
 			testReconcileNode + ", retrying: the job failed",
 	}, f.events())
+	require.InDelta(t, 1, f.errorCount(t, reasonCannotReloadPolicy), 0)
 
 	// The policy is not active while its reload fails.
 	status := f.nodeStatus(t).Status
@@ -702,6 +709,8 @@ func TestReconcileRetriesFailedReloadJob(t *testing.T) {
 	require.Equal(t, reconcile.Result{RequeueAfter: 2 * reloadJobRetryInterval}, res)
 	require.Empty(t, f.reloadJobs(t))
 	require.Empty(t, f.events())
+	require.InDelta(t, 1, f.errorCount(t, reasonCannotReloadPolicy), 0,
+		"only the reported failure counts")
 	require.Contains(t, f.nodeStatus(t).Status.Message, " (failed reload jobs: 2), retrying")
 
 	// The next job completes, which is recorded.
@@ -857,6 +866,20 @@ func TestReconcileSystemModuleConflict(t *testing.T) {
 
 	_, err = os.Stat(filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
 	require.True(t, os.IsNotExist(err), "the system module must not be replaced")
+
+	// Deleting the profile leaves the system module alone and does not
+	// reload the policy, like for a policy which was never written.
+	ctx := context.Background()
+	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
+
+	for range 2 {
+		_, err = f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+	require.Empty(t, f.reloadJobs(t))
 }
 
 func TestReconcileDeletionSelinuxdNotReady(t *testing.T) {
@@ -1008,6 +1031,55 @@ func TestReconcileDeletionPolicyRemoved(t *testing.T) {
 	require.Empty(t, f.events())
 }
 
+// A policy which this node never wrote, like a partial profile of a recording,
+// was never installed and needs no privileged reload job when it is removed,
+// even if selinuxd is ready.
+//
+// A module of the name in the store of a profile which conflicted with a
+// system module is the system module.
+func TestReconcileDeletionPolicyNeverWritten(t *testing.T) {
+	t.Parallel()
+
+	for name, systemModule := range map[string]bool{
+		"without module":       false,
+		"with a system module": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newReconcileFixture(t, testProfile(), nil,
+				selinuxd(t, true, http.StatusNotFound, ""))
+
+			if !systemModule {
+				f.prepareDeletionWith(t, nil)
+			} else {
+				// The installation recorded the conflict, see checkConflicts.
+				f.prepareDeletionWith(t, map[string]string{systemModuleConflictAnnotation: "true"})
+				require.NoError(t, os.MkdirAll(filepath.Join(
+					f.r.moduleStorePath,
+					"targeted",
+					"active",
+					"modules",
+					"100",
+					testReconcileProfile,
+				), 0o755))
+			}
+
+			res, err := f.r.Reconcile(context.Background(), f.request)
+			require.NoError(t, err)
+			require.Equal(t, reconcile.Result{}, res)
+
+			ctx := context.Background()
+			err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
+			require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+
+			jobs := &batchv1.JobList{}
+			require.NoError(t, f.client.List(ctx, jobs, client.InNamespace(testReconcileNamespace)))
+			require.Empty(t, jobs.Items)
+		})
+	}
+}
+
 // semodule cannot remove a module which another one inherits, and selinuxd
 // does not retry it, so the policy stays until the inheriting one is gone. The
 // policy files of the existing profiles tell it, not the specs, which may have
@@ -1123,6 +1195,43 @@ func TestReconcileDeletionReloadJobFailure(t *testing.T) {
 	evts := f.events()
 	require.Len(t, evts, 1)
 	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonCannotReloadPolicy+" "))
+}
+
+// A reload job which cannot be created gets retried, but reported once per
+// generation of the profile.
+func TestReconcileReportsFailedReloadJobCreationOnce(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+
+	// Without the own pod the reload job cannot find the selinuxd image.
+	f.r.podName = "missing-pod"
+
+	// The first reconcile only writes the policy, the creation of the reload
+	// job fails on the later ones.
+	failed := 0
+
+	for range 5 {
+		if _, err := f.r.Reconcile(context.Background(), f.request); err != nil {
+			require.ErrorIs(t, err, errCreateReloadJob)
+
+			failed++
+		}
+	}
+
+	require.Greater(t, failed, 1)
+
+	var reported int
+
+	for _, evt := range f.events() {
+		if strings.HasPrefix(evt, "Warning "+reasonCannotReloadPolicy+" ") {
+			reported++
+		}
+	}
+
+	require.Equal(t, 1, reported)
+	require.InDelta(t, 1, f.errorCount(t, reasonCannotReloadPolicy), 0)
 }
 
 // runningReloadJob returns an unfinished reload job of the test policy.

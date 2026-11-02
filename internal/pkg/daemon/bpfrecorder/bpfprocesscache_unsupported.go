@@ -26,8 +26,6 @@ import (
 	"github.com/go-logr/logr"
 )
 
-type BpfProcessInfo struct{}
-
 type BpfProcessCache struct{}
 
 func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {

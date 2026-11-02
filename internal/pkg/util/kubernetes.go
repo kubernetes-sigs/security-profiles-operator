@@ -255,7 +255,7 @@ func ValidateKubeletDir(dir string) error {
 	// cpu_manager_state is a file. Such paths are below the default kubelet
 	// root directory or below another directory named "kubelet".
 	defaultParts := strings.Split(
-		strings.TrimPrefix(filepath.Clean(config.DefaultKubeletDir()), "/"), "/",
+		strings.TrimPrefix(filepath.Clean(config.KubeletDir()), "/"), "/",
 	)
 
 	for i := range len(parts) - 1 {

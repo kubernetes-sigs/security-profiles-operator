@@ -31,6 +31,7 @@ import (
 
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -132,6 +133,45 @@ func TestFindProfileOfFinishedRecording(t *testing.T) {
 	got, err := sut.findProfileForContainerID(containerID, sut.recordingGeneration.Load())
 	require.NoError(t, err)
 	require.Equal(t, profile, got)
+}
+
+// TestFindProfileOfRecordingStoppedWhileCaching asserts that a lookup whose
+// recording stops while it caches the profiles of the pod does not put the
+// recorded container into the negative cache of the next recording.
+func TestFindProfileOfRecordingStoppedWhileCaching(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, false)
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	// The recording stops right before the profile gets cached.
+	sut.logger = funcr.New(func(_, args string) {
+		if strings.Contains(args, "Cache this profile found in cluster") {
+			sut.recordingGeneration.Add(1)
+		}
+	}, funcr.Options{})
+
+	_, err := sut.findProfileForContainerID(containerID, sut.recordingGeneration.Load())
+	require.ErrorIs(t, err, errRecordingEnded)
+	require.False(t, sut.containersWithoutProfile.Has(containerID))
+}
+
+// TestCacheProfilesOfPodWithoutSessionsChecksContainer asserts that without
+// the profiles of the sessions, an annotation whose value names another
+// container, which the recording webhook never sets, is not cached.
+func TestCacheProfilesOfPodWithoutSessionsChecksContainer(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, true)
+
+	sut.cacheProfilesOfPod(podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "profile_other_x_1",
+	}), sut.recordingGeneration.Load())
+
+	_, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.False(t, ok)
 }
 
 func TestFindProfileBoundsWaitingLookups(t *testing.T) {
@@ -309,7 +349,7 @@ func TestCacheProfilesOfPod(t *testing.T) {
 
 	p := podWithContainer(map[string]string{
 		config.SeccompProfileRecordBpfAnnotationKey + "ctr":   profile,
-		config.ApparmorProfileRecordBpfAnnotationKey + "init": "apparmor-profile",
+		config.ApparmorProfileRecordBpfAnnotationKey + "init": "apparmor-profile_init_x_1",
 		config.SeccompProfileRecordBpfAnnotationKey + "none":  "",
 	})
 	p.Status.InitContainerStatuses = []v1.ContainerStatus{
@@ -325,7 +365,7 @@ func TestCacheProfilesOfPod(t *testing.T) {
 
 	got, ok = sut.containerIDToProfileMap.Get(initContainerID)
 	require.True(t, ok)
-	require.Equal(t, "apparmor-profile", got)
+	require.Equal(t, "apparmor-profile_init_x_1", got)
 
 	_, ok = sut.containerIDToProfileMap.Get(strings.Repeat("4", 64))
 	require.False(t, ok)
@@ -926,6 +966,99 @@ func TestForgetGoneContainers(t *testing.T) {
 
 	_, warned = sut.keyLimitWarned.Load(goneID)
 	require.False(t, warned, "the warning is given again for a new container with the ID")
+}
+
+// TestDropGoneContainers asserts that the data of a container which left the
+// node without its profile being collected is dropped once its collection
+// would not be retried any more, while the recording runs on for other pods.
+// The earlier runs of a restarted container stay, and the data of reusable
+// keys is left to sweepStaleKeys.
+func TestDropGoneContainers(t *testing.T) {
+	t.Parallel()
+
+	for name, uniqueKeys := range map[string]bool{"unique keys": true, "reusable keys": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			const (
+				goneID      = "gone-container"
+				restartedID = "earlier-run"
+			)
+
+			now := time.Now()
+
+			sut, mock := newClusterRecorder(true, false)
+			sut.uniqueKeys = uniqueKeys
+			sut.now = func() time.Time { return now }
+
+			generation := sut.recordingGeneration.Load()
+			sut.containerIDToProfileMap.InsertAt(containerID, profile, generation)
+			sut.containerIDToProfileMap.InsertAt(restartedID, profile, generation)
+			sut.containerIDToProfileMap.InsertAt(goneID, "gone", generation)
+			sut.containerKeys.Insert(1, containerID)
+			sut.containerKeys.Insert(2, goneID)
+			sut.containerKeys.Insert(3, restartedID)
+
+			watchPods(t, sut, podWithContainer(nil))
+
+			sut.forgetGoneContainers()
+
+			now = now.Add(uncollectedRecordingTimeout - time.Second)
+
+			sut.forgetGoneContainers()
+
+			_, ok := sut.containerIDToProfileMap.Get(goneID)
+			require.True(t, ok, "the collection may still be retried")
+
+			now = now.Add(time.Second)
+
+			sut.forgetGoneContainers()
+
+			_, ok = sut.containerIDToProfileMap.Get(goneID)
+			require.False(t, ok)
+			require.Empty(t, sut.containerKeys.Keys(goneID))
+			require.Empty(t, sut.goneSince)
+
+			if uniqueKeys {
+				require.Equal(t, 1, mock.DeleteKey64CallCount())
+
+				_, key := mock.DeleteKey64ArgsForCall(0)
+				require.Equal(t, uint64(2), key)
+			} else {
+				require.Zero(t, mock.DeleteKey64CallCount(),
+					"a reused key may have data of a new container already")
+			}
+
+			for _, id := range []string{containerID, restartedID} {
+				_, ok = sut.containerIDToProfileMap.Get(id)
+				require.True(t, ok, id)
+			}
+
+			require.Equal(t, []uint64{3}, sut.containerKeys.Keys(restartedID))
+		})
+	}
+}
+
+// TestInsertProfileOfStoppedRecording asserts that a lookup which finishes
+// after its recording stopped does not cache the profile for the next one.
+func TestInsertProfileOfStoppedRecording(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+
+	stale := sut.recordingGeneration.Load()
+	sut.recordingGeneration.Add(1)
+
+	sut.insertProfile(containerID, "profile", stale)
+
+	_, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.False(t, ok)
+
+	sut.insertProfile(containerID, "profile", sut.recordingGeneration.Load())
+
+	profile, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok)
+	require.Equal(t, "profile", profile)
 }
 
 // TestReleaseAbandonedRecording asserts that a recording nobody stopped is

@@ -17,7 +17,6 @@ limitations under the License.
 package nonrootenabler
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -66,10 +65,6 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	kubeletSeccompDir, err := n.ensureDirs(logger, kubeletDir)
 	if err != nil {
-		return err
-	}
-
-	if err := n.saveKubeletConfig(logger, kubeletDir); err != nil {
 		return err
 	}
 
@@ -155,27 +150,6 @@ func (n *NonRootEnabler) ensureDirs(logger logr.Logger, kubeletDir string) (stri
 	}
 
 	return kubeletSeccompDir, nil
-}
-
-// saveKubeletConfig saves the kubelet directory for the other components of
-// the daemon.
-func (n *NonRootEnabler) saveKubeletConfig(logger logr.Logger, kubeletDir string) error {
-	logger.Info("Saving kubelet configuration")
-
-	cfg, err := json.Marshal(config.KubeletConfig{KubeletDir: kubeletDir})
-	if err != nil {
-		return fmt.Errorf("marshaling kubelet config: %w", err)
-	}
-
-	if err := n.SaveKubeletConfig(
-		config.KubeletConfigFilePath(),
-		cfg,
-		filePermissions,
-	); err != nil {
-		return fmt.Errorf("saving kubelet config: %w", err)
-	}
-
-	return nil
 }
 
 // seccompProfiles are the seccomp profiles of the operator itself, which the
@@ -265,7 +239,6 @@ type impl interface {
 	Symlink(oldname, newname string) error
 	Lchown(name string, uid, gid int) error
 	CopyFile(src, dst string, perm os.FileMode) error
-	SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error
 	InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error
 }
 
@@ -323,15 +296,6 @@ func (*defaultImpl) CopyFile(src, dst string, perm os.FileMode) error {
 	return nil
 }
 
-func (*defaultImpl) SaveKubeletConfig(
-	filename string,
-	kubeletConfig []byte,
-	perm os.FileMode,
-) error {
-	// The daemon reads the file while it may get written.
-	return util.WriteFileAtomic(filename, kubeletConfig, perm)
-}
-
 func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -375,7 +339,7 @@ var defaultProfilesRoot = path.Join(
 // the non-root enabler uses for the link of the kubelet.
 func daemonProfilesRoot() string {
 	return path.Join(
-		config.DefaultKubeletDir(), config.SeccompProfilesFolder, config.OperatorProfilesFolder,
+		config.KubeletDir(), config.SeccompProfilesFolder, config.OperatorProfilesFolder,
 	)
 }
 

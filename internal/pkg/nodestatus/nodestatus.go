@@ -18,6 +18,8 @@ package nodestatus
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,6 +102,10 @@ type StatusClient struct {
 	// cache may not have yet, see getStatus.
 	created bool
 
+	// name is the name of the node status of this node, once it got looked
+	// up or created, see statusName.
+	name string
+
 	// kind is the profile kind, resolved once on construction so that names
 	// and labels do not depend on the TypeMeta of pol, which is empty for
 	// objects decoded by the uncached typed client.
@@ -112,6 +118,10 @@ type StatusClient struct {
 
 // ErrNoNodeName is returned if the node name cannot be determined.
 var ErrNoNodeName = errors.New("cannot determine node name")
+
+// errStatusOfOtherNode is returned if the node status of another node has
+// the name of the one of this node, see alternativeStatusName.
+var errStatusOfOtherNode = errors.New("the node status of another node has the name")
 
 // NewForProfileOnNode returns a status client for the provided node.
 func NewForProfileOnNode(
@@ -187,19 +197,60 @@ func (nsf *StatusClient) profileID() string {
 	return util.KindNameDNSLengthName(nsf.kind, nsf.pol.GetName())
 }
 
+// perNodeStatusName returns the name of the node status, which is
+// <kind>-<profile>-<node>. It cannot tell node "b" of profile "p-a" from node
+// "a-b" of profile "p", whose node status gets alternativeStatusName then.
 func (nsf *StatusClient) perNodeStatusName() string {
 	kind := strings.ToLower(nsf.kind)
 
 	return util.DNSLengthName(kind, "%s-%s-%s", kind, nsf.pol.GetName(), nsf.nodeName)
 }
 
-func (nsf *StatusClient) perNodeStatusNamespacedName() types.NamespacedName {
-	return util.NamespacedName(nsf.perNodeStatusName(), nsf.pol.GetNamespace())
+// alternativeStatusName returns the name of the node status if the one of
+// perNodeStatusName belongs to the node status of another node. A hash of the
+// kind, the profile and the node keeps it apart from the names of the other
+// nodes. Like perNodeStatusName, it ends with the node name, which the
+// spo-spod-node-statuses policy checks, unless it gets hashed into a DNS
+// label.
+func (nsf *StatusClient) alternativeStatusName() string {
+	kind := strings.ToLower(nsf.kind)
+	sum := sha256.Sum256([]byte(nsf.kind + "/" + nsf.pol.GetName() + "/" + nsf.nodeName))
+
+	return util.DNSLengthName(
+		kind, "%s-%s-%s-%s", kind, nsf.pol.GetName(), hex.EncodeToString(sum[:4]), nsf.nodeName,
+	)
+}
+
+// statusName returns the name of the node status of this node, see getStatus,
+// or perNodeStatusName before it got looked up or created.
+func (nsf *StatusClient) statusName() string {
+	if nsf.name != "" {
+		return nsf.name
+	}
+
+	return nsf.perNodeStatusName()
+}
+
+// ownStatus returns false if the status belongs to another node: its spec
+// names another node, or the node label of a status written before the node
+// name moved into the spec does. A status without either is attributed by its
+// name, like the spo-spod-node-statuses policy does.
+func (nsf *StatusClient) ownStatus(status *secprofnodestatusapi.SecurityProfileNodeStatus) bool {
+	if status.Spec.NodeName != "" {
+		return status.Spec.NodeName == nsf.nodeName
+	}
+
+	if label, ok := status.Labels[secprofnodestatusapi.StatusToNodeLabel]; ok {
+		return label == util.NodeNameLabelValue(nsf.nodeName)
+	}
+
+	return true
 }
 
 // writtenKey is the key of the node status in the WrittenStates.
 func (nsf *StatusClient) writtenKey() string {
-	return string(nsf.pol.GetUID()) + "/" + nsf.perNodeStatusNamespacedName().String()
+	return string(nsf.pol.GetUID()) + "/" +
+		util.NamespacedName(nsf.statusName(), nsf.pol.GetNamespace()).String()
 }
 
 // recordWritten records the state which got written to the node status.
@@ -269,16 +320,62 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 	return wasMigrated, nil
 }
 
-// getStatus reads the node status through c. The cache may not have a status
-// which this client just created yet, so that the reconcile which created it
-// can go on to update it. Such a status is read through the reader then, see
-// WithAPIReader.
+// getStatus reads the node status of this node through c. A status of another
+// node which has the name of perNodeStatusName means that the one of this
+// node has alternativeStatusName, if there is one. A status which is not
+// found returns a NotFound error.
 func (nsf *StatusClient) getStatus(
 	ctx context.Context, c client.Reader, status *secprofnodestatusapi.SecurityProfileNodeStatus,
 ) error {
-	err := c.Get(ctx, nsf.perNodeStatusNamespacedName(), status)
+	if nsf.name != "" {
+		return nsf.getStatusNamed(ctx, c, nsf.name, status)
+	}
+
+	name := nsf.perNodeStatusName()
+
+	err := nsf.getStatusNamed(ctx, c, name, status)
+	if err == nil && nsf.ownStatus(status) {
+		nsf.name = name
+
+		return nil
+	} else if err != nil && !kerrors.IsNotFound(err) {
+		return err
+	}
+
+	alternative := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+
+	altErr := nsf.getStatusNamed(ctx, c, nsf.alternativeStatusName(), alternative)
+	if altErr == nil && nsf.ownStatus(alternative) {
+		nsf.name = alternative.Name
+		*status = *alternative
+
+		return nil
+	} else if altErr != nil && !kerrors.IsNotFound(altErr) {
+		return altErr
+	}
+
+	return kerrors.NewNotFound(
+		secprofnodestatusapi.GroupVersion.WithResource("securityprofilenodestatuses").
+			GroupResource(),
+		name,
+	)
+}
+
+// getStatusNamed reads the node status with the name through c. The cache may
+// not have a status which this client just created yet, so that the
+// reconcile which created it can go on to update it. Such a status is read
+// through the reader then, see WithAPIReader.
+func (nsf *StatusClient) getStatusNamed(
+	ctx context.Context,
+	c client.Reader,
+	name string,
+	status *secprofnodestatusapi.SecurityProfileNodeStatus,
+) error {
+	key := util.NamespacedName(name, nsf.pol.GetNamespace())
+
+	err := c.Get(ctx, key, status)
 	if kerrors.IsNotFound(err) && nsf.created && nsf.reader != nil {
-		return nsf.reader.Get(ctx, nsf.perNodeStatusNamespacedName(), status)
+		return nsf.reader.Get(ctx, key, status)
 	}
 
 	return err
@@ -378,7 +475,7 @@ func (nsf *StatusClient) statusObj(
 ) *secprofnodestatusapi.SecurityProfileNodeStatus {
 	return &secprofnodestatusapi.SecurityProfileNodeStatus{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nsf.perNodeStatusName(),
+			Name:      nsf.statusName(),
 			Namespace: nsf.pol.GetNamespace(),
 			Labels: map[string]string{
 				secprofnodestatusapi.StatusToProfLabel: nsf.profileID(),
@@ -492,6 +589,16 @@ func (nsf *StatusClient) createNodeStatus(
 		initialStatus = legacyState
 	}
 
+	// The status of this node may have the alternative name, which the
+	// cache may not have yet, while the status of the other node which got
+	// the plain name is gone by now. Creating the plain one would give this
+	// node a second status.
+	if nsf.name == "" {
+		if err := nsf.useAlternativeStatus(ctx); err != nil {
+			return err
+		}
+	}
+
 	s := nsf.statusObj(initialStatus)
 	if unsupported {
 		s.Labels[UnsupportedLabel] = "true"
@@ -523,55 +630,33 @@ func (nsf *StatusClient) createNodeStatus(
 		}
 
 		existing := &secprofnodestatusapi.SecurityProfileNodeStatus{}
-		if getErr := reader.Get(
-			ctx,
-			nsf.perNodeStatusNamespacedName(),
-			existing,
-		); getErr != nil {
+		if getErr := reader.Get(ctx, client.ObjectKeyFromObject(s), existing); getErr != nil {
 			return fmt.Errorf("fetching existing node status: %w", getErr)
 		}
 
-		// The status may be left over from a profile of the same name which
-		// got deleted, so its owner and labels become the ones of this
-		// profile. The garbage collector would delete it otherwise. A status
-		// written before the node name moved into the spec gets it as well.
-		if !equality.Semantic.DeepEqual(existing.OwnerReferences, s.OwnerReferences) ||
-			!labels.SelectorFromSet(s.Labels).Matches(labels.Set(existing.Labels)) ||
-			IsUnsupported(existing) != unsupported ||
-			existing.Spec.NodeName == "" {
-			if existing.Labels == nil {
-				existing.Labels = map[string]string{}
+		// The status of another node, whose node name and profile name are
+		// split up differently, has the name. It is never taken over: the
+		// status of this node gets another name.
+		if !nsf.ownStatus(existing) {
+			if s.Name == nsf.alternativeStatusName() {
+				return fmt.Errorf(
+					"%w: %s", errStatusOfOtherNode, client.ObjectKeyFromObject(existing),
+				)
 			}
 
-			// The annotations of the deleted profile, like the one which
-			// tells that the daemon installed its AppArmor policy, do not
-			// hold for this one, and neither do the ones of a status of
-			// unknown origin.
-			if !ownedByProfile(existing, nsf.pol.GetUID()) {
-				maps.DeleteFunc(existing.Annotations, func(key, _ string) bool {
-					return strings.HasPrefix(key, annotationPrefix)
-				})
-			}
+			nsf.name = nsf.alternativeStatusName()
 
-			maps.Copy(existing.Labels, s.Labels)
+			return nsf.createNodeStatus(ctx, legacyState, unsupported)
+		}
 
-			if !unsupported {
-				delete(existing.Labels, UnsupportedLabel)
-			}
-
-			existing.OwnerReferences = s.OwnerReferences
-
-			if existing.Spec.NodeName == "" {
-				existing.Spec.NodeName = nsf.nodeName
-			}
-
-			if updateErr := nsf.client.Update(ctx, existing); updateErr != nil {
-				return fmt.Errorf("updating existing node status: %w", updateErr)
-			}
+		if err := nsf.adoptStatus(ctx, existing, s, unsupported); err != nil {
+			return err
 		}
 
 		s = existing
 	}
+
+	nsf.name = s.Name
 
 	if s.Status.Status == initialStatus && s.Status.Message == "" {
 		nsf.recordWritten(initialStatus, "")
@@ -590,6 +675,85 @@ func (nsf *StatusClient) createNodeStatus(
 	}
 
 	nsf.recordWritten(initialStatus, "")
+
+	return nil
+}
+
+// adoptStatus repairs the existing node status of this node to match s. The
+// status may be left over from a profile of the same name which got deleted,
+// so its owner and labels become the ones of this profile. The garbage
+// collector would delete it otherwise. A status written before the node name
+// moved into the spec gets it as well. unsupported marks the status with
+// UnsupportedLabel, which it loses otherwise.
+func (nsf *StatusClient) adoptStatus(
+	ctx context.Context,
+	existing, s *secprofnodestatusapi.SecurityProfileNodeStatus,
+	unsupported bool,
+) error {
+	if equality.Semantic.DeepEqual(existing.OwnerReferences, s.OwnerReferences) &&
+		labels.SelectorFromSet(s.Labels).Matches(labels.Set(existing.Labels)) &&
+		IsUnsupported(existing) == unsupported &&
+		existing.Spec.NodeName != "" {
+		return nil
+	}
+
+	if existing.Labels == nil {
+		existing.Labels = map[string]string{}
+	}
+
+	// The annotations of the deleted profile, like the one which tells that
+	// the daemon installed its AppArmor policy, do not hold for this one, and
+	// neither do the ones of a status of unknown origin.
+	if !ownedByProfile(existing, nsf.pol.GetUID()) {
+		maps.DeleteFunc(existing.Annotations, func(key, _ string) bool {
+			return strings.HasPrefix(key, annotationPrefix)
+		})
+	}
+
+	maps.Copy(existing.Labels, s.Labels)
+
+	if !unsupported {
+		delete(existing.Labels, UnsupportedLabel)
+	}
+
+	existing.OwnerReferences = s.OwnerReferences
+
+	if existing.Spec.NodeName == "" {
+		existing.Spec.NodeName = nsf.nodeName
+	}
+
+	if err := nsf.client.Update(ctx, existing); err != nil {
+		return fmt.Errorf("updating existing node status: %w", err)
+	}
+
+	return nil
+}
+
+// useAlternativeStatus looks up the node status of this node under the name
+// of alternativeStatusName through the API reader, if there is one, and uses
+// it if it exists.
+func (nsf *StatusClient) useAlternativeStatus(ctx context.Context) error {
+	var reader client.Reader = nsf.client
+	if nsf.reader != nil {
+		reader = nsf.reader
+	}
+
+	alternative := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+
+	err := reader.Get(
+		ctx,
+		util.NamespacedName(nsf.alternativeStatusName(), nsf.pol.GetNamespace()),
+		alternative,
+	)
+	if kerrors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("fetching node status: %w", err)
+	}
+
+	if nsf.ownStatus(alternative) {
+		nsf.name = alternative.Name
+	}
 
 	return nil
 }
@@ -710,10 +874,22 @@ func (nsf *StatusClient) ReleasePartialFinalizer(ctx context.Context) error {
 	return client.IgnoreNotFound(err)
 }
 
+// removeNodeStatus deletes the node status of this node. It is looked up
+// first, so that the status of another node with the same name stays, see
+// alternativeStatusName. The cache may not have the status yet, so it is read
+// through the API reader if there is one.
 func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) error {
-	// the state here is more or less unused, we just care about the name since we're deleting...
-	err := c.Delete(ctx, nsf.statusObj(secprofnodestatusapi.ProfileStateTerminating))
-	if err != nil && !kerrors.IsNotFound(err) {
+	var reader client.Reader = c
+	if nsf.reader != nil {
+		reader = nsf.reader
+	}
+
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+	if err := nsf.getStatus(ctx, reader, status); err != nil {
+		if !kerrors.IsNotFound(err) {
+			return fmt.Errorf("fetching node status: %w", err)
+		}
+	} else if err := c.Delete(ctx, status); err != nil && !kerrors.IsNotFound(err) {
 		return fmt.Errorf("deleting node status: %w", err)
 	}
 

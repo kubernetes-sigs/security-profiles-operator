@@ -98,25 +98,37 @@ func TestContainerInfoOf(t *testing.T) {
 		},
 		"seccomp and SELinux recording": {
 			pod: withAnnotations(map[string]string{
-				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp-profile",
-				config.SelinuxProfileRecordLogsAnnotationKey + "container": "selinux-profile",
+				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp_container_x_1",
+				config.SelinuxProfileRecordLogsAnnotationKey + "container": "selinux_container_x_1",
 			}),
 			containerID: containerID,
 			want: types.ContainerInfo{
 				PodName: pod, Namespace: namespace, ContainerName: "container", ContainerID: containerID,
-				SeccompRecordProfile: "seccomp-profile",
-				SelinuxRecordProfile: "selinux-profile",
+				SeccompRecordProfile: "seccomp_container_x_1",
+				SelinuxRecordProfile: "selinux_container_x_1",
 			},
 		},
 		"SELinux recording of an init container": {
 			pod: withAnnotations(map[string]string{
-				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp-profile",
-				config.SelinuxProfileRecordLogsAnnotationKey + "init":      "selinux-profile",
+				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp_container_x_1",
+				config.SelinuxProfileRecordLogsAnnotationKey + "init":      "selinux_init_x_1",
 			}),
 			containerID: otherContainerID,
 			want: types.ContainerInfo{
 				PodName: pod, Namespace: namespace, ContainerName: "init", ContainerID: otherContainerID,
-				SelinuxRecordProfile: "selinux-profile",
+				SelinuxRecordProfile: "selinux_init_x_1",
+			},
+		},
+		// The recording webhook sets values which name their container, a
+		// value of another one would record the container into its profile.
+		"recording annotation naming another container": {
+			pod: withAnnotations(map[string]string{
+				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp_init_x_1",
+				config.SelinuxProfileRecordLogsAnnotationKey + "container": "malformed",
+			}),
+			containerID: containerID,
+			want: types.ContainerInfo{
+				PodName: pod, Namespace: namespace, ContainerName: "container", ContainerID: containerID,
 			},
 		},
 	} {

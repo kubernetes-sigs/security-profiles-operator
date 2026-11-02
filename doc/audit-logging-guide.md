@@ -72,7 +72,7 @@ Each JSON line describes the syscalls of one process within the
 [audit log interval](#audit-log-interval), for example:
 
 ```json
-{"auditID":"8b9a4b6c-3f9e-4a8c-9d0e-2b1f3c4d5e6f","cmdLine":"touch demo-file","executable":"/usr/bin/touch","gid":0,"node":{"name":"worker-0"},"pid":12345,"requestUID":"d1c3a5e7-1f2b-4c6d-8e9f-0a1b2c3d4e5f","resource":{"container":"my-nginx-pod","namespace":"default","pod":"my-nginx-pod"},"syscalls":["execve"],"timestamp":"2025-05-07T09:55:40.574Z","uid":0,"version":"spo/v1_alpha"}
+{"auditID":"8b9a4b6c-3f9e-4a8c-9d0e-2b1f3c4d5e6f","cmdLine":"touch demo-file","executable":"/usr/bin/env","gid":0,"node":{"name":"worker-0"},"pid":12345,"requestUID":"d1c3a5e7-1f2b-4c6d-8e9f-0a1b2c3d4e5f","resource":{"container":"my-nginx-pod","namespace":"default","pod":"my-nginx-pod"},"syscalls":["execve"],"timestamp":"2025-05-07T09:55:40.574Z","uid":0,"version":"spo/v1_alpha"}
 ```
 
 The fields are:
@@ -80,8 +80,13 @@ The fields are:
 - `version`: the version of the log format, `spo/v1_alpha`.
 - `auditID`: a unique ID of the line.
 - `timestamp`: when the activity happened, in ISO 8601 format and UTC.
-- `executable`: the program that was run, like `/usr/bin/bash`.
-- `cmdLine`: the command line of the process, like `ls -l /home`.
+- `executable`: the program of the process when it made the first of the
+  syscalls, like `/usr/bin/bash`, from the `exe` field of the audit event. The
+  audit event of an `execve` is logged before the new program runs, so it has
+  the program which ran the exec.
+- `cmdLine`: the command line of the process, like `ls -l /home`. It is read
+  when the enricher processes the audit event, so after an `execve` it can be
+  the one of the new program already.
 - `pid`: the process ID on the node.
 - `uid` and `gid`: the user and group ID which ran the process. They are left
   out if the audit event does not carry them.
