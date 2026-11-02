@@ -18,26 +18,12 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// skipIfKubeletConfigExists skips tests that rely on the fallbacks used when
-// the non-root enabler has not written a kubelet config, which is the case
-// everywhere but on a node running the daemon.
-func skipIfKubeletConfigExists(t *testing.T) {
-	t.Helper()
-
-	if _, err := os.Stat(KubeletConfigFilePath()); err == nil {
-		t.Skipf("%s exists on this host", KubeletConfigFilePath())
-	}
-}
-
 func TestKubeletDir(t *testing.T) {
-	skipIfKubeletConfigExists(t)
-
 	for _, tc := range []struct {
 		name string
 		env  string
@@ -54,108 +40,11 @@ func TestKubeletDir(t *testing.T) {
 	}
 }
 
-// DefaultKubeletDir never reads the persisted kubelet config, so it does not
-// depend on the host.
-func TestDefaultKubeletDir(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		env  string
-		want string
-	}{
-		{name: "default without env", env: "", want: DefaultKubeletPath},
-		{name: "env overrides default", env: "/data/kubelet", want: "/data/kubelet"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(KubeletDirEnvKey, tc.env)
-
-			require.Equal(t, tc.want, DefaultKubeletDir())
-		})
-	}
-}
-
 func TestProfilePaths(t *testing.T) {
-	skipIfKubeletConfigExists(t)
 	t.Setenv(KubeletDirEnvKey, "/data/kubelet")
 
 	require.Equal(t, "/data/kubelet/seccomp", KubeletSeccompRootPath())
 	require.Equal(t, "/data/kubelet/seccomp/operator", ProfilesRootPath())
-}
-
-func TestKubeletConfigFilePath(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(
-		t,
-		"/var/lib/security-profiles-operator/kubelet-config.json",
-		KubeletConfigFilePath(),
-	)
-}
-
-func TestReadKubeletConfigMissing(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := readKubeletConfig(filepath.Join(t.TempDir(), KubeletConfigFile))
-	require.ErrorIs(t, err, os.ErrNotExist)
-	require.ErrorContains(t, err, "reading kubelet config")
-	require.Nil(t, cfg)
-}
-
-// writeKubeletConfig writes the content to a kubelet config file in a
-// temporary directory and returns its path.
-func writeKubeletConfig(t *testing.T, content string) string {
-	t.Helper()
-
-	configPath := filepath.Join(t.TempDir(), KubeletConfigFile)
-	require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
-
-	return configPath
-}
-
-// The kubelet config file which the non-root enabler writes wins over the
-// environment. A file without a directory and an unusable file fall back to
-// it.
-func TestKubeletDirFromConfigFile(t *testing.T) {
-	t.Setenv(KubeletDirEnvKey, "/from/env")
-
-	for _, tc := range []struct {
-		name       string
-		configPath string
-		want       string
-	}{
-		{
-			name:       "file wins over env",
-			configPath: writeKubeletConfig(t, `{"kubeletDir":"/from/file"}`),
-			want:       "/from/file",
-		},
-		{
-			name:       "file without directory",
-			configPath: writeKubeletConfig(t, `{}`),
-			want:       "/from/env",
-		},
-		{
-			name:       "invalid file",
-			configPath: writeKubeletConfig(t, `{`),
-			want:       "/from/env",
-		},
-		{
-			name:       "missing file",
-			configPath: filepath.Join(t.TempDir(), KubeletConfigFile),
-			want:       "/from/env",
-		},
-	} {
-		require.Equal(t, tc.want, kubeletDir(tc.configPath), tc.name)
-	}
-}
-
-func TestReadKubeletConfig(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := readKubeletConfig(writeKubeletConfig(t, `{"kubeletDir":"/data/kubelet"}`))
-	require.NoError(t, err)
-	require.Equal(t, "/data/kubelet", cfg.KubeletDir)
-
-	_, err = readKubeletConfig(writeKubeletConfig(t, `{`))
-	require.ErrorContains(t, err, "parsing kubelet config")
 }
 
 func TestTryToGetOperatorNamespaceSet(t *testing.T) {

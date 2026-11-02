@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 var errNoContainerInfo = errors.New("no pod of the node has the container")
@@ -126,12 +127,31 @@ func containerInfoOf(pod *v1.Pod, containerID string) *types.ContainerInfo {
 	containerName, _ := podindex.ContainerName(pod, containerID)
 
 	return &types.ContainerInfo{
-		PodName:              pod.Name,
-		PodUID:               string(pod.UID),
-		ContainerName:        containerName,
-		Namespace:            pod.Namespace,
-		ContainerID:          containerID,
-		SeccompRecordProfile: pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName],
-		SelinuxRecordProfile: pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName],
+		PodName:       pod.Name,
+		PodUID:        string(pod.UID),
+		ContainerName: containerName,
+		Namespace:     pod.Namespace,
+		ContainerID:   containerID,
+		SeccompRecordProfile: recordProfile(
+			pod, config.SeccompProfileRecordLogsAnnotationKey, containerName,
+		),
+		SelinuxRecordProfile: recordProfile(
+			pod, config.SelinuxProfileRecordLogsAnnotationKey, containerName,
+		),
 	}
+}
+
+// recordProfile returns the profile of the recording annotation of the
+// container with the key prefix. A value which names another container did
+// not come from the recording webhook, and the container does not get
+// recorded into the profile of the other one, see
+// util.RecordingAnnotationValueContainer.
+func recordProfile(pod *v1.Pod, prefix, containerName string) string {
+	profile := pod.Annotations[prefix+containerName]
+
+	if named, ok := util.RecordingAnnotationValueContainer(profile); !ok || named != containerName {
+		return ""
+	}
+
+	return profile
 }

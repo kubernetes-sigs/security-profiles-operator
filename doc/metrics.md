@@ -200,7 +200,8 @@ The error metrics use these reasons:
 - `selinux_profile_error_total`: `CannotSaveSelinuxPolicy`,
   `CannotUpdatePolicyStatus`, `CannotRemoveSelinuxPolicy`,
   `CannotContactSelinuxd`, `CannotWritePolicyFile`, `CannotGetPolicyStatus`,
-  `SystemModuleConflict` and `SelinuxPolicyNameConflict`.
+  `CannotReloadSelinuxPolicy`, `SystemModuleConflict` and
+  `SelinuxPolicyNameConflict`.
 - `apparmor_profile_error_total`: `AppArmorNotSupportedOnNode`,
   `CannotLoadAppArmorProfile`, `CannotUnloadAppArmorProfile`,
   `CannotUpdateAppArmorProfile` and `CannotUpdateNodeStatus`.

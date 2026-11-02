@@ -96,6 +96,93 @@ func (b *BpfRecorder) forgetGoneContainers() {
 
 		return true
 	})
+
+	b.dropGoneContainers(present)
+}
+
+// dropGoneContainers drops the data recorded for the containers being
+// recorded which left the node at least uncollectedRecordingTimeout ago,
+// longer than the collection of their profiles gets retried. Their profiles
+// did not get collected, like after a restart of the daemon. The recording
+// keeps running for the other pods, which may never end on a busy node, and
+// the data would take up a slot of the recorded keys until then.
+//
+// A container which restarted gets another ID, while the profile has to
+// cover what every run of it did, see containerProfiles. So a gone container
+// is kept as long as another container of one of its profiles is on the
+// node.
+func (b *BpfRecorder) dropGoneContainers(present func(string) bool) {
+	b.attachUnattachMutex.RLock()
+	generation := b.recordingGeneration.Load()
+	recorded := b.containerIDToProfileMap.ContainerIDs()
+	b.attachUnattachMutex.RUnlock()
+
+	now := b.now()
+	gone := make(map[string]time.Time, len(b.goneSince))
+
+	var drop []string
+
+	for _, id := range recorded {
+		if present(id) || slices.ContainsFunc(
+			b.containerIDToProfileMap.ProfilesOf(id),
+			func(profile string) bool {
+				return slices.ContainsFunc(b.containerIDToProfileMap.Containers(profile), present)
+			},
+		) {
+			continue
+		}
+
+		since, ok := b.goneSince[id]
+		if !ok {
+			since = now
+		}
+
+		if now.Sub(since) < uncollectedRecordingTimeout {
+			gone[id] = since
+
+			continue
+		}
+
+		drop = append(drop, id)
+	}
+
+	b.goneSince = gone
+
+	if len(drop) == 0 {
+		return
+	}
+
+	// StopRecording clears everything anyway, holding the write lock.
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	if b.recordingGeneration.Load() != generation {
+		return
+	}
+
+	for _, id := range drop {
+		b.logger.Info("Dropping the uncollected data of a container which left the node",
+			"containerID", id)
+
+		// A mount namespace key can get reused by a new container, which
+		// records under it before its handler maps the key to it. Its data
+		// is only dropped once it has no container and no processes any
+		// more, see sweepStaleKeys.
+		if b.uniqueKeys {
+			keys := b.containerKeys.Keys(id)
+
+			if b.Seccomp != nil {
+				b.Seccomp.Clear(b, keys)
+			}
+
+			if b.AppArmor != nil {
+				b.AppArmor.Clear(keys)
+			}
+		}
+
+		b.containerKeys.DeleteContainer(id)
+		b.containerIDToProfileMap.DeleteAt(id, generation)
+	}
 }
 
 // sweepStaleKeys drops the data recorded under keys which no recorded container

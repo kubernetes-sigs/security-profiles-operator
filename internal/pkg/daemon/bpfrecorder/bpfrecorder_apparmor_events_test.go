@@ -543,7 +543,9 @@ func TestHandleFileEventProducesValidPaths(t *testing.T) {
 // profilePathPattern is the pattern the AppArmorProfile API and crd2armor
 // accept for paths.
 var profilePathPattern = regexp.MustCompile(
-	`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`,
+	`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|` +
+		`ptrace\s*\((?:[rR][wW]?|[wW]|[rR][eE][aA][dD](?:[bB][yY])?|` +
+		`[tT][rR][aA][cC][eE](?:[dD][bB][yY])?)\),(?:\s*#.*)?)$`,
 )
 
 // TestRecordedPathsAreAccepted asserts that no recorded path gets the whole

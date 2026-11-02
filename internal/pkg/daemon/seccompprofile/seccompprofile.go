@@ -666,6 +666,14 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				return nil, false, err
 			}
 		}
+
+		// The local base profiles of a pulled profile resolve like the ones
+		// of the profile using it, see seccompcheck, and not in the
+		// namespace which the pulled YAML may name, like one exported from a
+		// release with namespaced profiles. The copy keeps the cached
+		// profile as pulled.
+		baseProfile = baseProfile.DeepCopy()
+		baseProfile.SetNamespace(sp.GetNamespace())
 	} else {
 		// Local base profile
 		profile, err := r.ClientGetProfile(
@@ -1476,21 +1484,41 @@ func sibling(
 }
 
 // fileOwner returns the name of the other profile which is stored in the same
-// file as sp and owns it, or an empty string. A profile which is being deleted
-// or which is not installed, because it is disabled or partial, owns nothing.
-// A profile which is being deleted but is still in use by pods keeps its file
-// for them, so it owns the file until its last pod is gone. Otherwise the
-// profile created first owns the file, and the name decides on a tie.
+// file as sp and owns it, or an empty string. A partial profile is never
+// installed and owns nothing, like a profile which is being deleted or is
+// disabled. A profile which is being deleted but still in use by pods keeps
+// its file for them though, so it owns the file until its last pod is gone.
+// So does a disabled profile in use whose file removalPending tells this node
+// still has, see common.ReconcileDisabled, unless it is being deleted, which
+// leaves its node status nothing to tell. The in-use finalizer is set for
+// the pods using the file of either profile, so a disabled one which never
+// got installed owns nothing. Otherwise the profile created first owns the
+// file, and the name decides on a tie.
 func fileOwner(
-	ctx context.Context, reader client.Reader, sp *seccompprofileapi.SeccompProfile,
+	ctx context.Context,
+	reader client.Reader,
+	sp *seccompprofileapi.SeccompProfile,
+	removalPending func(*seccompprofileapi.SeccompProfile) bool,
 ) (string, error) {
 	other, found, err := sibling(ctx, reader, sp)
 	if err != nil || !found {
 		return "", err
 	}
 
-	if (!other.GetDeletionTimestamp().IsZero() && !common.InUse(other)) || !other.IsReconcilable() {
+	switch {
+	case other.IsPartial():
 		return "", nil
+	case other.IsDisabled():
+		// The node status of a disabled profile which is being deleted
+		// turns Terminating, which tells nothing about its file any more.
+		if !other.GetDeletionTimestamp().IsZero() || !common.InUse(other) ||
+			!removalPending(other) {
+			return "", nil
+		}
+	case !other.GetDeletionTimestamp().IsZero():
+		if !common.InUse(other) {
+			return "", nil
+		}
 	}
 
 	if sp.IsReconcilable() && sp.GetDeletionTimestamp().IsZero() && !ownsFileBefore(other, sp) {
@@ -1498,6 +1526,26 @@ func fileOwner(
 	}
 
 	return other.GetName(), nil
+}
+
+// removalPending returns a function which reports whether a disabled profile
+// is still installed on this node: its node status turns Disabled once its
+// file got removed, see reconcileDisabled, and a profile created disabled
+// starts with that state. A node status which cannot be read tells nothing,
+// the profile counts as removed then, like before it got disabled.
+func (r *Reconciler) removalPending(
+	ctx context.Context,
+) func(*seccompprofileapi.SeccompProfile) bool {
+	return func(sp *seccompprofileapi.SeccompProfile) bool {
+		nodeStatus, err := nodestatus.NewForProfileOnNode(sp, r.client, r.nodeName)
+		if err != nil {
+			return false
+		}
+
+		state, err := nodeStatus.State(ctx)
+
+		return err == nil && state != secprofnodestatusapi.ProfileStateDisabled
+	}
 }
 
 // fileDiffers returns true if the file at filePath does not hold content.
@@ -1547,7 +1595,7 @@ func (r *Reconciler) handleFileConflict(
 		return false, true, nil
 	}
 
-	owner, err := fileOwner(ctx, r.apiReader(), sp)
+	owner, err := fileOwner(ctx, r.apiReader(), sp, r.removalPending(ctx))
 	if err != nil {
 		return false, false, err
 	}
@@ -1599,7 +1647,7 @@ func (r *Reconciler) handleDeletion(
 	// The file belongs to another profile, which must keep it. This is also
 	// the case if the other profile lost the file to this one, because it
 	// takes the file over once this profile is gone.
-	owner, err := fileOwner(ctx, r.apiReader(), sp)
+	owner, err := fileOwner(ctx, r.apiReader(), sp, r.removalPending(ctx))
 	if err != nil {
 		return err
 	}

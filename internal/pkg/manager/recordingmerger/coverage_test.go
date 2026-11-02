@@ -194,7 +194,7 @@ func TestSeccompCoverageAnnotation_NonSeccompExcluded(t *testing.T) {
 	t.Parallel()
 
 	selinuxPartials := []mergeableProfile{
-		&MergeableSelinuxProfile{
+		&mergeableSelinuxProfile{
 			SelinuxProfile: selinuxprofileapi.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "sel"},
 			},
@@ -568,7 +568,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			cl,
 			recording,
 			mergedName,
-			&MergeableSelinuxProfile{},
+			&mergeableSelinuxProfile{},
 			profilerecordingapi.ProfileRecordingKindSelinuxProfile,
 			partials,
 			nil,

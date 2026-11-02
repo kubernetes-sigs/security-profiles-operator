@@ -109,6 +109,11 @@ const (
 	// tells afterwards whether selinuxd may have installed the module.
 	policyWrittenAnnotation = "spo.x-k8s.io/selinux-policy-written"
 
+	// systemModuleConflictAnnotation is set on the node status of a profile
+	// which conflicts with a system module of the same name, which is the
+	// module in the store then.
+	systemModuleConflictAnnotation = "spo.x-k8s.io/selinux-system-module-conflict"
+
 	// policyInstalledAnnotation records the generation of the profile whose
 	// policy selinuxd installed, before the kernel policy gets reloaded with
 	// it. The module is in the store then, even while the reload fails.
@@ -200,6 +205,16 @@ type ReconcileSelinux struct {
 	// records the reload, may be gone already. An installation forgets the
 	// counted removal, so that the next removal counts again.
 	removalsCounted common.Reports[types.UID]
+
+	// reloadCreationReported holds the generation of the profiles whose
+	// failure to create a reload job got reported, see reloadInstalledPolicy.
+	reloadCreationReported common.Reports[profileGeneration]
+}
+
+// profileGeneration identifies a generation of a profile.
+type profileGeneration struct {
+	uid        types.UID
+	generation int64
 }
 
 // installError is an error which keeps a generation of a profile from being
@@ -502,6 +517,7 @@ func (r *ReconcileSelinux) forgetProfile(key types.NamespacedName) {
 	r.writtenStates.Forget(key)
 	r.forgetReloadFailures(key)
 	r.removalsCounted.Forget(key)
+	r.reloadCreationReported.Forget(key)
 }
 
 func (r *ReconcileSelinux) reconcilePolicy(
@@ -678,6 +694,12 @@ func (r *ReconcileSelinux) checkConflicts(
 		ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError, msg,
 	); err != nil {
 		return true, err
+	}
+
+	// The deletion of the profile tells the module in the store apart from
+	// the one of an earlier release by it, see reconcileDeletePolicy.
+	if err := nodeStatus.SetAnnotation(ctx, systemModuleConflictAnnotation, "true"); err != nil {
+		return true, fmt.Errorf("recording the system module conflict: %w", err)
 	}
 
 	r.reportInstallError(sp, reasonSystemModuleConflict, msg)
@@ -1333,16 +1355,9 @@ func (r *ReconcileSelinux) retryFailedReload(
 		"reason", reason)
 
 	if failures == 1 {
-		r.record.Eventf(
-			sp,
-			nil,
-			corev1.EventTypeWarning,
-			reasonCannotReloadPolicy,
-			kind.eventAction,
-			"Policy reload job failed on %s, retrying: %s",
-			r.nodeName,
-			reason,
-		)
+		r.reportError(sp, reasonCannotReloadPolicy, kind.eventAction, fmt.Sprintf(
+			"Policy reload job failed on %s, retrying: %s", r.nodeName, reason,
+		))
 	}
 
 	return reconcile.Result{RequeueAfter: delay}
@@ -1368,16 +1383,16 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 			err,
 			"Failed to create policy reload job, the policy is not active until it got reloaded, retrying",
 		)
-		r.record.Eventf(
-			sp,
-			nil,
-			corev1.EventTypeWarning,
-			reasonCannotReloadPolicy,
-			util.EventActionInstall,
-			"Failed to create policy reload job on %s: %s",
-			r.nodeName,
-			err.Error(),
-		)
+		// Reported once per generation of the profile, like a failed job,
+		// see retryFailedReload, while the creation gets retried.
+		if r.reloadCreationReported.ShouldReport(
+			client.ObjectKeyFromObject(sp),
+			profileGeneration{uid: sp.GetUID(), generation: sp.GetGeneration()},
+		) {
+			r.reportError(sp, reasonCannotReloadPolicy, util.EventActionInstall, fmt.Sprintf(
+				"Failed to create policy reload job on %s: %s", r.nodeName, err.Error(),
+			))
+		}
 	}
 
 	return res, err
@@ -1420,6 +1435,30 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
+	// A policy which the node status tells this node never wrote, like a
+	// partial profile of a recording or one which only failed its
+	// validation, was never installed, so it needs neither selinuxd nor a
+	// privileged reload.
+	// The module in the store of a profile which conflicted with a system
+	// module is the system one.
+	if r.policyNeverWritten(ctx, nodeStatus) {
+		gone, goneErr := r.policyGone(sp, l)
+		if goneErr != nil {
+			return reconcile.Result{}, goneErr
+		}
+
+		if !gone {
+			conflict, err := nodeStatus.GetAnnotation(ctx, systemModuleConflictAnnotation)
+			gone = err == nil && conflict != "" && r.policyFileMissing(sp)
+		}
+
+		if gone {
+			l.Info("Policy was never written on the node, not removing it")
+
+			return reconcile.Result{}, nil
+		}
+	}
+
 	selinuxdReady, err := r.selinuxdUp(ctx)
 	if (err != nil || !selinuxdReady) && !r.policyMayBeWritten(ctx, nodeStatus) {
 		// A node without SELinux never gets a ready selinuxd, but it never
@@ -1543,6 +1582,32 @@ func (r *ReconcileSelinux) policyMayBeWritten(
 		mayBeWritten(reloadInstallGenerationAnnotation)
 }
 
+// policyNeverWritten returns true if the node status exists and tells that
+// the node never wrote the policy file, see policyMayBeWritten. A node status
+// which is gone, like after a foreground deletion, or which cannot be read
+// tells nothing: the policy may have been installed and need a reload after
+// its removal.
+func (r *ReconcileSelinux) policyNeverWritten(
+	ctx context.Context, nodeStatus *nodestatus.StatusClient,
+) bool {
+	for _, key := range []string{policyWrittenAnnotation, reloadInstallGenerationAnnotation} {
+		value, err := nodeStatus.GetAnnotation(ctx, key)
+		if err != nil || value != "" {
+			return false
+		}
+	}
+
+	return true
+}
+
+// policyFileMissing returns true if the policy file of the profile is not on
+// the node.
+func (r *ReconcileSelinux) policyFileMissing(sp selinuxprofileapi.SelinuxProfileObject) bool {
+	_, err := os.Stat(r.policyPath(sp))
+
+	return errors.Is(err, os.ErrNotExist)
+}
+
 // policyGone returns true if neither the policy file nor the module of the
 // profile is on the node. A module store which cannot be read may still hold
 // the module, which is not gone then: dropping the finalizer would leave the
@@ -1596,16 +1661,9 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 		// Unlike a running job, a failure to create one may not go away, and
 		// it must not keep the profile from being removed.
 		l.Error(err, "Failed to create policy reload job after removal")
-		r.record.Eventf(
-			sp,
-			nil,
-			corev1.EventTypeWarning,
-			reasonCannotReloadPolicy,
-			util.EventActionRemove,
-			"Failed to create policy reload job after removal on %s: %s",
-			r.nodeName,
-			err.Error(),
-		)
+		r.reportError(sp, reasonCannotReloadPolicy, util.EventActionRemove, fmt.Sprintf(
+			"Failed to create policy reload job after removal on %s: %s", r.nodeName, err.Error(),
+		))
 
 		res, err = reconcile.Result{}, nil
 	}

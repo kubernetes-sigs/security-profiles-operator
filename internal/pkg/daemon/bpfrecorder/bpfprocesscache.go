@@ -138,8 +138,7 @@ func execRequestUID(env []byte, gap int) string {
 	return ""
 }
 
-type BpfProcessInfo struct {
-	Pid  int
+type bpfProcessInfo struct {
 	Args []string
 	// RequestUID is the request UID of the environment, see
 	// config.ExecRequestUIDEnvKey. The rest of the environment is not kept,
@@ -153,7 +152,7 @@ type BpfProcessInfo struct {
 type BpfProcessCache struct {
 	recorder *BpfRecorder
 	logger   logr.Logger
-	cache    *ttlcache.Cache[int, *BpfProcessInfo]
+	cache    *ttlcache.Cache[int, *bpfProcessInfo]
 	// startTime returns when the process with the PID started, a field so
 	// that tests can fake the processes.
 	startTime func(int) (time.Duration, error)
@@ -172,11 +171,11 @@ func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
 		recorder: recorder,
 		logger:   logger,
 		cache: ttlcache.New(
-			ttlcache.WithTTL[int, *BpfProcessInfo](processCacheTimeout),
-			ttlcache.WithCapacity[int, *BpfProcessInfo](maxProcessCacheItems),
+			ttlcache.WithTTL[int, *bpfProcessInfo](processCacheTimeout),
+			ttlcache.WithCapacity[int, *bpfProcessInfo](maxProcessCacheItems),
 			// The arguments of an exec do not change, so a lookup must not
 			// keep them beyond the timeout.
-			ttlcache.WithDisableTouchOnHit[int, *BpfProcessInfo](),
+			ttlcache.WithDisableTouchOnHit[int, *bpfProcessInfo](),
 		),
 		startTime: util.ProcessStartTime,
 	}
@@ -356,8 +355,7 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 		return
 	}
 
-	pInfo := &BpfProcessInfo{
-		Pid:        int(execEvent.Pid),
+	pInfo := &bpfProcessInfo{
 		Args:       execArgs(execEvent.Args),
 		RequestUID: execRequestUID(execEvent.Env, execEvent.EnvGap),
 		// The flags carry when the process started, see submit_exec_event. A

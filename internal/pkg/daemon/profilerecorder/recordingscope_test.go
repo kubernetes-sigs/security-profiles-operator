@@ -287,8 +287,9 @@ func TestAuthorizedProfilesRereadsScopeOnFirstRejection(t *testing.T) {
 	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
 
 	profiles := []profileToCollect{{
-		kind: recordingapi.ProfileRecordingKindSeccompProfile,
-		name: "recording_ctr_4bbwm_1700000000",
+		kind:      recordingapi.ProfileRecordingKindSeccompProfile,
+		name:      "recording_ctr_4bbwm_1700000000",
+		container: "ctr",
 	}}
 	authorize := func(pod *corev1.Pod) {
 		t.Helper()

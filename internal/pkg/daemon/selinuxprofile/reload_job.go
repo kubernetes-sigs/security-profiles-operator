@@ -620,7 +620,7 @@ func newReloadJob(
 				Spec: corev1.PodSpec{
 					RestartPolicy:                corev1.RestartPolicyOnFailure,
 					NodeName:                     nodeName,
-					ServiceAccountName:           "spod",
+					ServiceAccountName:           config.SPOdServiceAccount,
 					AutomountServiceAccountToken: new(false),
 					Tolerations: []corev1.Toleration{
 						{Operator: corev1.TolerationOpExists},

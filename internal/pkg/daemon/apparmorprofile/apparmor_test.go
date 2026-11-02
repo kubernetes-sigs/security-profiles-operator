@@ -89,7 +89,15 @@ func TestInstallProfile(t *testing.T) {
 			// file carries our marker and reloading it is allowed.
 			name: "updates a profile we installed",
 			sut: aaProfileManager{
-				loadProfile:        func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return true, nil },
+				loadProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) (bool, error) {
+					// Only the marker proves the ownership here, which the
+					// loader checks again for the file it replaces.
+					if ownedByUs {
+						t.Error("the profile must not be loaded as owned without the node status")
+					}
+
+					return true, nil
+				},
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return true },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return true },
 			},
@@ -105,7 +113,13 @@ func TestInstallProfile(t *testing.T) {
 			// ours. Reinstalling stamps the marker.
 			name: "adopts a profile this node already installed",
 			sut: aaProfileManager{
-				loadProfile:       func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return true, nil },
+				loadProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) (bool, error) {
+					if !ownedByUs {
+						t.Error("the node status vouches for the ownership")
+					}
+
+					return true, nil
+				},
 				checkProfileExist: func(_ logr.Logger, _ string) bool { return true },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool {
 					t.Error("ownership must not be consulted once the node status vouches for it")

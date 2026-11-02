@@ -435,7 +435,7 @@ func TestRunDropsLinesWithoutContainer(t *testing.T) {
 func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	t.Parallel()
 
-	const recordProfile = "profile"
+	const recordProfile = "profile_init_x_1"
 
 	lineChan := make(chan *types.AuditLine)
 	mock := &enricherfakes.FakeImpl{}

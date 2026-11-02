@@ -358,6 +358,11 @@ func (e *JsonEnricher) processLine(line string) {
 		// the zero value would attribute the record to root.
 		logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
 			auditLine.Executable, auditLine.Uid, auditLine.Gid, auditTime(auditLine))
+	} else {
+		// The next bucket of a process which exited needs what got seen
+		// of it, as long as it logs.
+		keepLastProcess(auditLine.ProcessID, e.processCache)
+		e.lookup.keepSeenProcess(auditLine.ProcessID)
 	}
 
 	e.processEbpf(logBucket, auditLine.ProcessID)

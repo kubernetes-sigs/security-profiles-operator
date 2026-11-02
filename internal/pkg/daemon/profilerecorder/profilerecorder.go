@@ -188,6 +188,9 @@ type attemptKey struct {
 type profileToCollect struct {
 	kind profilerecordingapi.ProfileRecordingKind
 	name string
+	// container is the container of the annotation key, which has to be the
+	// one the name names, see util.RecordingAnnotationValueContainer.
+	container string
 }
 
 type podToWatch struct {
@@ -207,12 +210,18 @@ type podToWatch struct {
 type recordingState struct {
 	partial bool
 	disable bool
+	// uid and created tell the recording apart from one with the same name
+	// which got created since, see profileTarget.mergesInto.
+	uid     types.UID
+	created metav1.Time
 }
 
 func recordingStateOf(recording *profilerecordingapi.ProfileRecording) recordingState {
 	return recordingState{
 		partial: recording.Spec.MergeStrategy == profilerecordingapi.ProfileMergeContainers,
 		disable: recording.Spec.DisableProfileAfterRecording,
+		uid:     recording.GetUID(),
+		created: recording.GetCreationTimestamp(),
 	}
 }
 
@@ -449,8 +458,12 @@ func (r *RecorderReconciler) authorizedProfiles(
 			continue
 		}
 
+		if r.ofOtherContainer(pod, profile, parsed, reject) {
+			continue
+		}
+
 		if recording := r.recordingAuthorizes(
-			recordings, podLabels, parsed, profile.kind, recorder,
+			recordings, pod, podLabels, parsed, profile.kind, recorder,
 		); recording != nil {
 			if err := validateRecordingName(profile.kind, recording.Name); err != nil {
 				r.ignoreInvalidRecordingName(pod, recording.Name, err, reject(profile.name))
@@ -464,28 +477,70 @@ func (r *RecorderReconciler) authorizedProfiles(
 			continue
 		}
 
-		if reject(profile.name) {
-			continue
+		if !reject(profile.name) {
+			r.ignoreUnmatchedAnnotation(pod, parsed)
 		}
-
-		r.log.Info(
-			"Ignoring recording annotation with no matching profile recording",
-			"pod", pod.Name, "namespace", pod.Namespace,
-			"recording", parsed.profileName, "container", parsed.cntName,
-		)
-		r.record.Eventf(
-			pod,
-			nil,
-			corev1.EventTypeWarning,
-			reasonAnnotationParsing,
-			util.EventActionRecord,
-			"%s",
-			"ignoring recording annotation with no matching profile recording: "+
-				parsed.profileName,
-		)
 	}
 
 	return authorized, states, nil
+}
+
+// ignoreUnmatchedAnnotation reports a recording annotation which no profile
+// recording asks for.
+func (r *RecorderReconciler) ignoreUnmatchedAnnotation(pod *corev1.Pod, parsed *parsedAnnotation) {
+	r.log.Info(
+		"Ignoring recording annotation with no matching profile recording",
+		"pod", pod.Name, "namespace", pod.Namespace,
+		"recording", parsed.profileName, "container", parsed.cntName,
+	)
+	r.record.Eventf(
+		pod,
+		nil,
+		corev1.EventTypeWarning,
+		reasonAnnotationParsing,
+		util.EventActionRecord,
+		"%s",
+		"ignoring recording annotation with no matching profile recording: "+
+			parsed.profileName,
+	)
+}
+
+// ofOtherContainer reports whether the value of the recording annotation names
+// another container than its key, and rejects it then, see authorizedProfiles.
+// The value which the recording webhook sets names the container of the key,
+// so a value of another container would record a container which the
+// recording may not cover.
+func (r *RecorderReconciler) ofOtherContainer(
+	pod *corev1.Pod,
+	profile profileToCollect,
+	parsed *parsedAnnotation,
+	reject func(annotation string) (warned bool),
+) bool {
+	if parsed.cntName == profile.container {
+		return false
+	}
+
+	if reject(profile.name) {
+		return true
+	}
+
+	r.log.Info(
+		"Ignoring recording annotation of another container",
+		"pod", pod.Name, "namespace", pod.Namespace,
+		"container", profile.container, "annotation", profile.name,
+	)
+	r.record.Eventf(
+		pod,
+		nil,
+		corev1.EventTypeWarning,
+		reasonAnnotationParsing,
+		util.EventActionRecord,
+		"%s",
+		"ignoring recording annotation of container "+profile.container+
+			" which names container "+parsed.cntName,
+	)
+
+	return true
 }
 
 // ignoreInvalidRecordingName reports a recording annotation of a recording
@@ -521,8 +576,14 @@ func (r *RecorderReconciler) ignoreInvalidRecordingName(
 // recordingAuthorizes returns the recording which asks for exactly this
 // profile: same name, same kind, same recorder, a selector that matches the
 // pod and a container the recording covers. It returns nil if there is none.
+//
+// The recording webhook leaves the pods alone which get created while the
+// recording is being deleted, so their annotations did not come from it. Only
+// a pod created before, like one which the daemon missed while it restarted,
+// still gets recorded for it.
 func (r *RecorderReconciler) recordingAuthorizes(
 	recordings *profilerecordingapi.ProfileRecordingList,
+	pod *corev1.Pod,
 	podLabels k8slabels.Set,
 	parsed *parsedAnnotation,
 	kind profilerecordingapi.ProfileRecordingKind,
@@ -534,6 +595,14 @@ func (r *RecorderReconciler) recordingAuthorizes(
 		if recording.Name != parsed.profileName ||
 			recording.Spec.Kind != kind ||
 			recording.Spec.Recorder != recorder {
+			continue
+		}
+
+		// The timestamps have a precision of seconds, so a pod created in
+		// the second of the deletion counts as created before.
+		created := pod.GetCreationTimestamp()
+		if deleted := recording.GetDeletionTimestamp(); deleted != nil &&
+			created.After(deleted.Time) {
 			continue
 		}
 
@@ -965,11 +1034,19 @@ func recordedBpfProfiles(
 			continue
 		}
 
+		// Another key with the value of an authorized profile must not get
+		// its container recorded into that profile, see
+		// util.RecordingAnnotationValueContainer.
+		named, ok := util.RecordingAnnotationValueContainer(value)
+		if !ok {
+			continue
+		}
+
 		for _, prefix := range []string{
 			config.SeccompProfileRecordBpfAnnotationKey,
 			config.ApparmorProfileRecordBpfAnnotationKey,
 		} {
-			if container, ok := strings.CutPrefix(key, prefix); ok {
+			if container, ok := strings.CutPrefix(key, prefix); ok && container == named {
 				recorded = append(recorded, &bpfrecorderapi.RecordedProfile{
 					Container: container, Profile: value,
 				})
@@ -1935,8 +2012,6 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 type parsedAnnotation struct {
 	profileName string
 	cntName     string
-	nonce       string
-	timestamp   string
 }
 
 func parseProfileAnnotation(annotation string) (*parsedAnnotation, error) {
@@ -1953,12 +2028,8 @@ func parseProfileAnnotation(annotation string) (*parsedAnnotation, error) {
 			)
 	}
 
-	return &parsedAnnotation{
-		profileName: parts[0],
-		cntName:     parts[1],
-		nonce:       parts[2], // unused for now, but we might need it in the future
-		timestamp:   parts[3], // unused for now, but let's keep it for future use
-	}, nil
+	// The nonce and the timestamp only keep the value unique.
+	return &parsedAnnotation{profileName: parts[0], cntName: parts[1]}, nil
 }
 
 // createProfileName returns the name of the profile which the recording
@@ -1984,6 +2055,13 @@ type profileTarget struct {
 	// any more once its recording is gone, or about to be gone without
 	// waiting for it.
 	merge bool
+	// partial stores the profile as a partial profile, see mergesInto.
+	partial bool
+	// replace replaces the stored profile instead of merging into it.
+	replace bool
+	// orphaned merges a stored partial profile, which is kept if the merge
+	// fails, see mergeOrphanedPartial.
+	orphaned bool
 	// partialName is the name of the partial profile stored if merging fails.
 	partialName types.NamespacedName
 	// pod is the recorded pod.
@@ -2062,6 +2140,7 @@ func (r *RecorderReconciler) resolveProfileTarget(
 	}
 
 	partial := target.state.partial && !target.merge
+	target.partial = partial
 
 	partialSuffix := replicaSuffix
 	if partialSuffix == "" {
@@ -2188,9 +2267,23 @@ func (r *RecorderReconciler) storeProfile(
 			maps.Copy(labels, desired.GetLabels())
 			stored.SetLabels(labels)
 
+			merge := target.mergesInto(stored)
+
+			// Like the ones stored when merging into the final profile
+			// failed, see storePartialProfile.
+			if desired.GetLabels()[profilebase.ProfilePartialLabel] == "true" {
+				annotations := stored.GetAnnotations()
+				if annotations == nil {
+					annotations = map[string]string{}
+				}
+
+				annotations[recordingmerger.RecordingUIDAnnotation] = string(target.state.uid)
+				stored.SetAnnotations(annotations)
+			}
+
 			spec := desired
-			if target.merge {
-				if spec, err = mergeStoredProfile(stored, desired); err != nil {
+			if merge {
+				if spec, err = recordingmerger.MergeIntoStored(stored, desired); err != nil {
 					return fmt.Errorf("%w: %w", errMergeFailed, err)
 				}
 			}
@@ -2203,7 +2296,37 @@ func (r *RecorderReconciler) storeProfile(
 		return kerrors.IsConflict(err) || kerrors.IsAlreadyExists(err)
 	})
 	if errors.Is(err, errMergeFailed) {
-		return r.storePartialProfile(ctx, target, profile, kind, err)
+		if target.orphaned {
+			// The stored partial profile holds what every run recorded,
+			// storing the profile as partial would replace it.
+			r.log.Error(err, "Cannot merge the partial profile, keeping it",
+				"profile", target.partialName.Name)
+			r.record.Eventf(
+				profile,
+				nil,
+				corev1.EventTypeWarning,
+				reasonProfileMergeFailed,
+				util.EventActionRecord,
+				"%s",
+				err.Error(),
+			)
+
+			return nil
+		}
+
+		if target.merge {
+			return r.storePartialProfile(ctx, target, profile, kind, err)
+		}
+
+		// A partial profile which cannot be merged with the stored one keeps
+		// what got recorded last.
+		r.log.Error(err, "Cannot merge into the stored partial profile, replacing it",
+			"profile", target.name.Name)
+
+		replace := *target
+		replace.replace = true
+
+		return r.storeProfile(ctx, &replace, profile, specBase, kind)
 	}
 
 	if err != nil {
@@ -2243,7 +2366,93 @@ func (r *RecorderReconciler) storeProfile(
 		kind+" profile created",
 	)
 
+	if target.partial {
+		return r.mergeOrphanedPartial(ctx, target, profile, kind)
+	}
+
 	return nil
+}
+
+// mergeOrphanedPartial merges the partial profile which got stored into the
+// final profile of its recording, if the recording is gone or being deleted
+// by now. The recording merger can be done with the recording right before
+// the partial profile got stored, see holdRecording, and nothing would merge
+// it then. A recording which is still being deleted merges it as well, and
+// merging it twice adds nothing, while its merger deletes the partial profile.
+// Otherwise the partial profile stays, the daemon cannot delete profiles. No
+// node installs it, and the merger of a recording with the same name, if one
+// gets deleted later on, deletes it without merging it, see
+// recordingmerger.RecordingUIDAnnotation.
+func (r *RecorderReconciler) mergeOrphanedPartial(
+	ctx context.Context, target *profileTarget, profile client.Object, kind string,
+) error {
+	// The cache can still have the recording which the merger is done with.
+	reader := r.uncachedClient
+	if reader == nil {
+		reader = r.client
+	}
+
+	recording := &profilerecordingapi.ProfileRecording{}
+
+	err := r.ClientGet(ctx, reader, client.ObjectKey{
+		Name: target.recordingName, Namespace: target.name.Namespace,
+	}, recording)
+
+	switch {
+	case kerrors.IsNotFound(err):
+	case err != nil:
+		return fmt.Errorf("get recording: %w", err)
+	case recording.GetUID() != target.state.uid:
+		// A recording with the same name, which got created since, must not
+		// get what the deleted one recorded.
+		return nil
+	case recording.GetDeletionTimestamp().IsZero():
+		return nil
+	}
+
+	final := *target
+	final.merge = true
+	final.partial = false
+	final.replace = false
+	final.orphaned = true
+	final.partialName = target.name
+	final.name = createProfileName(
+		target.labels[profilerecordingapi.ProfileToContainerLabel],
+		"",
+		target.name.Namespace,
+		target.recordingName,
+	)
+	final.labels = maps.Clone(target.labels)
+	delete(final.labels, profilebase.ProfilePartialLabel)
+
+	// The stored partial profile holds what the earlier runs of a pod with
+	// the same name recorded as well, see mergesInto.
+	merged, ok := profile.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("object %T is not a client.Object", profile)
+	}
+
+	if err := r.ClientGet(
+		ctx,
+		reader,
+		client.ObjectKey{Name: target.name.Name},
+		merged,
+	); err != nil {
+		return fmt.Errorf("get partial profile: %w", err)
+	}
+
+	merged.SetName(final.name.Name)
+	merged.SetResourceVersion("")
+	merged.SetUID("")
+	merged.SetCreationTimestamp(metav1.Time{})
+	merged.SetManagedFields(nil)
+	merged.SetAnnotations(nil)
+	merged.SetLabels(final.labels)
+
+	r.log.Info("Merging the partial profile of a recording which is done",
+		"profile", target.name.Name, "mergedProfile", final.name.Name)
+
+	return r.storeProfile(ctx, &final, merged, recordingmerger.SpecBaseOf(merged), kind)
 }
 
 // storePartialProfile stores the profile as a partial one after merging it
@@ -2350,21 +2559,41 @@ func (r *RecorderReconciler) rejectedForGood(key attemptKey, err error) bool {
 	return failedForGood(&r.forbiddenAttempts, key, maxForbiddenAttempts, r.forbiddenGracePeriod)
 }
 
-// mergeStoredProfile returns desired merged with the stored profile, the way
-// the recording merger does it for partial profiles. A new profile is stored
-// as desired. The caller rejects stored profiles of anything else than the
-// recording before, see util.CheckRecordingOwner.
-func mergeStoredProfile(stored, desired client.Object) (client.Object, error) {
-	if stored.GetResourceVersion() == "" {
-		return desired, nil
+// mergesInto reports whether the collected profile gets merged into the stored
+// one, the way the recording merger merges the partial profiles, instead of
+// replacing it. A new profile is stored as collected. The caller rejects
+// stored profiles of anything else than the recording before, see
+// util.CheckRecordingOwner.
+//
+// The final profile of a recording which got created before the recording
+// belongs to a deleted recording with the same name and gets replaced, like
+// the recording merger does it. A partial profile of a pod which got created
+// again under the same name, like a replica of a StatefulSet, keeps what the
+// earlier pod recorded, unless a deleted recording with the same name stored
+// it, see recordingmerger.RecordingUIDAnnotation. A partial profile of an
+// earlier release has no annotation, it belongs to the recording if it got
+// created after it, like the recording merger treats it.
+func (t *profileTarget) mergesInto(stored client.Object) bool {
+	if t.replace || stored.GetResourceVersion() == "" {
+		return false
 	}
 
-	merged, err := recordingmerger.MergeIntoStored(stored, desired)
-	if err != nil {
-		return nil, fmt.Errorf("merge with stored profile: %w", err)
-	}
+	storedCreated := stored.GetCreationTimestamp()
+	createdAfterRecording := !storedCreated.Before(&t.state.created)
 
-	return merged, nil
+	switch {
+	case t.merge:
+		return createdAfterRecording
+	case t.partial:
+		uid, ok := stored.GetAnnotations()[recordingmerger.RecordingUIDAnnotation]
+		if !ok {
+			return createdAfterRecording
+		}
+
+		return uid == string(t.state.uid)
+	default:
+		return false
+	}
 }
 
 // copySpec sets the spec of dst to the one of src.
@@ -2415,8 +2644,9 @@ func parseAnnotations(
 		matched := false
 
 		for _, k := range kinds {
-			if strings.HasPrefix(key, k.prefix) {
+			if container, ok := strings.CutPrefix(key, k.prefix); ok {
 				collectProfile.kind = k.kind
+				collectProfile.container = container
 				matched = true
 
 				break

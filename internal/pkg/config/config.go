@@ -17,14 +17,10 @@ limitations under the License.
 package config
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path"
 	"strconv"
-	"sync"
 
 	profilerecordingv1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
@@ -62,12 +58,6 @@ const (
 
 	// DefaultKubeletPath specifies the default kubelet path.
 	DefaultKubeletPath = "/var/lib/kubelet"
-
-	// KubeletConfigFile specifies the name of the kubelet config file
-	// which contains various configuration parameters of the kubelet.
-	// This configuration file is created by the non-root enabler container
-	// during the daemon initialization.
-	KubeletConfigFile = "kubelet-config.json"
 
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
@@ -279,12 +269,6 @@ const (
 
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
 
-// KubeletConfig stores various configuration parameters of the kubelet.
-type KubeletConfig struct {
-	// KubeletDir kubelet root directory path
-	KubeletDir string `json:"kubeletDir,omitempty"`
-}
-
 // TryToGetOperatorNamespace returns the namespace the operator runs in, which
 // the downward API provides in the environment.
 func TryToGetOperatorNamespace() (string, error) {
@@ -318,42 +302,9 @@ func EnvEnabled(key string) bool {
 	return err == nil && value
 }
 
-// KubeletDir returns the kubelet directory either from the kubelet config
-// file, which the non-root enabler writes, from an environment variable when
-// it is set, or the default Kubernetes path. The file is read on every call,
-// because the non-root enabler may write it after the daemon started.
+// KubeletDir returns the kubelet directory from the environment variable if
+// set, or the default Kubernetes path.
 func KubeletDir() string {
-	return kubeletDir(KubeletConfigFilePath())
-}
-
-// kubeletDir is KubeletDir with the kubelet config file at configPath.
-func kubeletDir(configPath string) string {
-	cfg, err := readKubeletConfig(configPath)
-	if err == nil && cfg.KubeletDir != "" {
-		return cfg.KubeletDir
-	}
-
-	// A missing file is expected without the non-root enabler, any other
-	// error falls back as well, but is worth knowing about. The callers have
-	// no logger at hand, and the path is looked up on every reconciliation,
-	// so the warning goes to stderr once.
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		warnKubeletConfig.Do(func() {
-			fmt.Fprintf(os.Stderr, "Using the default kubelet directory: %v\n", err)
-		})
-	}
-
-	return DefaultKubeletDir()
-}
-
-// warnKubeletConfig reports an unusable kubelet config file once.
-var warnKubeletConfig sync.Once
-
-// DefaultKubeletDir returns the kubelet directory from the environment
-// variable if set, or the default Kubernetes path. Unlike KubeletDir it
-// ignores the kubelet config file, which the non-root enabler persists on the
-// node and which therefore can be outdated.
-func DefaultKubeletDir() string {
 	kubeletDir := os.Getenv(KubeletDirEnvKey)
 	if kubeletDir == "" {
 		return DefaultKubeletPath
@@ -372,24 +323,4 @@ func KubeletSeccompRootPath() string {
 // profiles.
 func ProfilesRootPath() string {
 	return path.Join(KubeletSeccompRootPath(), OperatorProfilesFolder)
-}
-
-// KubeletConfigFilePath returns the kubelet config file path.
-func KubeletConfigFilePath() string {
-	return path.Join(OperatorRoot, KubeletConfigFile)
-}
-
-// readKubeletConfig reads the kubelet config from the file at configPath.
-func readKubeletConfig(configPath string) (*KubeletConfig, error) {
-	cfg, err := os.ReadFile(configPath) //nolint:gosec // the path of the operator, not user input
-	if err != nil {
-		return nil, fmt.Errorf("reading kubelet config: %w", err)
-	}
-
-	kubeletCfg := &KubeletConfig{}
-	if err := json.Unmarshal(cfg, kubeletCfg); err != nil {
-		return nil, fmt.Errorf("parsing kubelet config: %w", err)
-	}
-
-	return kubeletCfg, nil
 }

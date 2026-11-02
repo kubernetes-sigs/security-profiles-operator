@@ -59,7 +59,7 @@ import (
 const (
 	node        = "test-node"
 	validGoArch = "amd64"
-	profile     = "profile"
+	profile     = "profile_ctr_x_1"
 	namespace   = "test-namespace"
 	pod         = "test-pod"
 	crioPrefix  = "cri-o://"
@@ -1704,7 +1704,7 @@ func TestNewPidEvent(t *testing.T) {
 
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				watchPods(t, sut, podWithContainer(map[string]string{
-					config.SeccompProfileRecordBpfAnnotationKey + "ctr": "profile.json",
+					config.SeccompProfileRecordBpfAnnotationKey + "ctr": "profile.json_ctr_x_1",
 				}))
 
 				return bpfEvent{
@@ -1720,7 +1720,7 @@ func TestNewPidEvent(t *testing.T) {
 				var foundKeys []uint64
 
 				require.Eventually(t, func() bool {
-					containerIDs := sut.containerIDToProfileMap.Containers("profile.json")
+					containerIDs := sut.containerIDToProfileMap.Containers("profile.json_ctr_x_1")
 					foundKeys = sut.containerKeys.KeysOf(containerIDs)
 
 					return len(foundKeys) > 0

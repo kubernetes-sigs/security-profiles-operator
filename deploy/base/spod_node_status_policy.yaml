@@ -95,11 +95,13 @@ spec:
     reason: Forbidden
   # The daemons name the status of a node <kind>-<profile>-<node>, see
   # perNodeStatusName in internal/pkg/nodestatus. Checking the end of the name
-  # keeps a node from taking the name of the status of another node first,
-  # which would then never get its own status. Like these names themselves,
-  # the check cannot tell node "b" of profile "p-a" from node "a-b" of
-  # profile "p". Names which do not fit into a DNS label are hashed into one
-  # of 63 characters, which cannot be checked here.
+  # keeps a node from taking the name of the status of another node first.
+  # Like these names themselves, the check cannot tell node "b" of profile
+  # "p-a" from node "a-b" of profile "p". The node whose name got taken this
+  # way names its status <kind>-<profile>-<hash>-<node> instead, see
+  # alternativeStatusName, which ends with its node name as well. Names which
+  # do not fit into a DNS label are hashed into one of 63 characters, which
+  # cannot be checked here.
   - expression: >-
       request.operation != 'CREATE' || size(object.metadata.name) >= 63 ||
       object.metadata.name.endsWith('-' + object.spec.nodeName)

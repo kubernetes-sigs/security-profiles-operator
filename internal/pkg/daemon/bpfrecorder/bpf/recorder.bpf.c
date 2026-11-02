@@ -303,6 +303,10 @@ struct file_event_state {
     u64 key;
     u64 inode;
     u64 flags;
+    // dentry and mnt tell the path of the file apart from another one of the
+    // same inode, like a hard link or a bind mount.
+    u64 dentry;
+    u64 mnt;
     u32 dev;
     // overlay is set if the file is on an overlay file system.
     u32 overlay;
@@ -770,7 +774,10 @@ static __always_inline void register_fs_event_locked(
     event_data_t * event)
 {
     // Discard repeated calls of the same thread. Inode numbers are only
-    // unique per file system, so the device is part of the comparison.
+    // unique per file system, so the device is part of the comparison, and
+    // so is the path: the hard links of a file, like the applets of busybox,
+    // and its bind mounts have the inode of the file, but need rules of
+    // their own.
     //
     // Opening a file on overlayfs opens the file of the layer beneath it
     // right away, with the same inode number on another device. Its path is
@@ -779,9 +786,13 @@ static __always_inline void register_fs_event_locked(
     u32 tid = (u32)bpf_get_current_pid_tgid();
     struct file_event_state * last =
         bpf_map_lookup_elem(&last_file_event, &tid);
-    bool same_file = last && inode_number && key == last->key &&
-                     inode_number == last->inode &&
-                     (dev == last->dev || (last->overlay && !overlay));
+    u64 dentry = (u64)BPF_CORE_READ(filename, dentry);
+    u64 mnt = (u64)BPF_CORE_READ(filename, mnt);
+    bool same_file =
+        last && inode_number && key == last->key &&
+        inode_number == last->inode &&
+        ((dev == last->dev && dentry == last->dentry && mnt == last->mnt) ||
+         (last->overlay && !overlay));
     if (same_file && (flags | last->flags) == last->flags) {
         // very noisy
         // trace_hook("register_file_event skipped");
@@ -850,6 +861,8 @@ static __always_inline void register_fs_event_locked(
         last->flags = same_file ? (flags | last->flags) : flags;
         last->key = key;
         last->inode = inode_number;
+        last->dentry = dentry;
+        last->mnt = mnt;
         last->dev = dev;
         last->overlay = overlay;
         return;
@@ -859,6 +872,8 @@ static __always_inline void register_fs_event_locked(
         .key = key,
         .inode = inode_number,
         .flags = flags,
+        .dentry = dentry,
+        .mnt = mnt,
         .dev = dev,
         .overlay = overlay,
     };
@@ -882,6 +897,16 @@ static __always_inline int register_fs_event_of(struct path * filename,
                                                 u32 mntns, u64 key)
 {
     if (is_anonymous_pipe(filename)) {
+        return 0;
+    }
+
+    // The files of the runtime setup are not part of the workload, like its
+    // capabilities, see cap_capable. The ones of the first init get dropped
+    // with the exec of the entrypoint, but an exec into the running
+    // container, like a probe or kubectl exec, runs another init, whose data
+    // cannot be told apart from the one of the workload afterwards. Only the
+    // exec of the init and the files it maps for it are part of the workload.
+    if (!(flags & (FLAG_EXEC | FLAG_SPAWN)) && is_container_init()) {
         return 0;
     }
 

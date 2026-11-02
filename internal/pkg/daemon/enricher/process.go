@@ -43,11 +43,16 @@ const requestIdEnv = config.ExecRequestUIDEnvKey
 //
 // The cache is keyed by PID and process start time, so that a process reusing
 // the PID of a cached one does not get its command line and exec request. The
-// last process seen with a PID is cached under the PID alone as well: audit
-// lines are read with a delay, and the lines of a process which exited in
-// between belong to it. startedLater, if not nil, reports whether the process
-// which started the duration after the boot started after the audit line got
-// logged: then it reused the PID of the process of the line.
+// details are read again for a line of another executable, the program which
+// a process execs keeps the PID and the start time. The last process seen with a
+// PID is cached under the PID alone as well: audit lines are read with a
+// delay, and the lines of a process which exited in between belong to it. Like
+// the container of an exited process, see exitedProcessTimeout, it is only
+// kept that long after it was seen last, a process which reuses the PID can
+// log lines and exit before they get read. startedLater, if not nil, reports
+// whether the process which started the duration after the boot started after
+// the audit line got logged: then it reused the PID of the process of the
+// line.
 func GetProcessInfo(
 	pid int, executable string, uid, gid *uint32,
 	processCache *ttlcache.Cache[string, *types.ProcessInfo],
@@ -64,10 +69,16 @@ func GetProcessInfo(
 	}
 
 	lastKey := strconv.Itoa(pid)
+	lastSeen := func() *ttlcache.Item[string, *types.ProcessInfo] {
+		return processCache.Get(
+			lastKey,
+			ttlcache.WithDisableTouchOnHit[string, *types.ProcessInfo](),
+		)
+	}
 
 	startTime, err := impl.ProcessStartTime(pid)
 	if err != nil {
-		if item := processCache.Get(lastKey); item != nil {
+		if item := lastSeen(); item != nil {
 			return withLine(item.Value()), nil
 		}
 
@@ -86,7 +97,7 @@ func GetProcessInfo(
 		// The details of the running process are not the ones of the line.
 		// The last process seen with the PID is the one of the line, unless
 		// it is the running one.
-		if last := processCache.Get(lastKey); last != nil {
+		if last := lastSeen(); last != nil {
 			if running := processCache.Get(cacheKey); running == nil ||
 				running.Value() != last.Value() {
 				return withLine(last.Value()), nil
@@ -97,19 +108,40 @@ func GetProcessInfo(
 			fmt.Errorf("%w: pid %d", errProcessStartedLater, pid)
 	}
 
-	if item := processCache.Get(cacheKey); item != nil {
+	if item := processCache.Get(cacheKey); item != nil && item.Value().Executable == executable {
+		processCache.Set(lastKey, item.Value(), exitedProcessTimeout)
+
 		return withLine(item.Value()), nil
 	}
 
+	// The cached details remember the executable of the line which read them,
+	// a line of another one reads them again.
 	info, errs := processInfo(pid, impl)
+	info.Executable = executable
 	processCache.Set(cacheKey, info, ttlcache.DefaultTTL)
-	processCache.Set(lastKey, info, ttlcache.DefaultTTL)
+	processCache.Set(lastKey, info, exitedProcessTimeout)
 
 	if len(errs) > 0 {
 		return withLine(info), fmt.Errorf("get process info for pid: %w", errors.Join(errs...))
 	}
 
 	return withLine(info), nil
+}
+
+// keepLastProcess keeps the last process seen with the PID, see GetProcessInfo,
+// for a line which got added to the bucket of the process, unless it got kept
+// within the refresh interval already. Only the first line of a bucket looks
+// up the process, while the lines of a process which exited can keep coming
+// as long as its buckets, like the exit of an idle shell.
+func keepLastProcess(pid int, processCache *ttlcache.Cache[string, *types.ProcessInfo]) {
+	lastKey := strconv.Itoa(pid)
+
+	item := processCache.Get(lastKey, ttlcache.WithDisableTouchOnHit[string, *types.ProcessInfo]())
+	if item == nil || time.Until(item.ExpiresAt()) > exitedProcessTimeout-processRefreshInterval {
+		return
+	}
+
+	processCache.Set(lastKey, item.Value(), exitedProcessTimeout)
 }
 
 // processInfo reads the details of the process with the PID which do not come

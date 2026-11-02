@@ -194,9 +194,8 @@ var runtimeEnvVars = []clidocs.EnvVar{
 			"so that the manager does not create the default one",
 	},
 	{
-		Name: config.KubeletDirEnvKey,
-		Description: "kubelet root directory, used when the kubelet configuration written by the " +
-			"non-root-enabler has none, defaults to `" + config.DefaultKubeletPath + "`",
+		Name:        config.KubeletDirEnvKey,
+		Description: "kubelet root directory, defaults to `" + config.DefaultKubeletPath + "`",
 	},
 	{
 		Name: strings.Join([]string{
@@ -1705,7 +1704,7 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	logger := ctrl.Log.WithName(component)
 
 	kubeletDir, err := nonRootEnablerKubeletDir(
-		ctx.Context, logger, c, os.Getenv(config.NodeNameEnvKey), config.DefaultKubeletDir(),
+		ctx.Context, logger, c, os.Getenv(config.NodeNameEnvKey), config.KubeletDir(),
 	)
 	if err != nil {
 		return err
@@ -1717,11 +1716,9 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 
 // nonRootEnablerKubeletDir returns the kubelet directory of the node from its
 // label. The operator ignores the same missing or invalid labels, so the
-// default kubelet directory defaultDir is the one mounted for such nodes. That
-// default deliberately does not come from the kubelet configuration persisted on the
-// node, which still holds the directory of a label that got removed. Failing
-// to read the node is returned, so that the init container gets restarted
-// rather than using the wrong directory.
+// default kubelet directory defaultDir is the one mounted for such nodes.
+// Failing to read the node is returned, so that the init container gets
+// restarted rather than using the wrong directory.
 func nonRootEnablerKubeletDir(
 	ctx context.Context, logger logr.Logger, c client.Reader, nodeName, defaultDir string,
 ) (string, error) {

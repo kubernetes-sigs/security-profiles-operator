@@ -17,6 +17,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"maps"
 	"slices"
 	"sync"
 )
@@ -149,6 +150,22 @@ func (c *containerProfiles) Clear() {
 	clear(c.byContainer)
 	clear(c.byProfile)
 	clear(c.generations)
+}
+
+// ProfilesOf returns the profiles recorded for the container.
+func (c *containerProfiles) ProfilesOf(containerID string) []string {
+	c.l.RLock()
+	defer c.l.RUnlock()
+
+	return slices.Clone(c.byContainer[containerID])
+}
+
+// ContainerIDs returns the containers being recorded.
+func (c *containerProfiles) ContainerIDs() []string {
+	c.l.RLock()
+	defer c.l.RUnlock()
+
+	return slices.Collect(maps.Keys(c.byContainer))
 }
 
 // Size returns the number of containers being recorded.

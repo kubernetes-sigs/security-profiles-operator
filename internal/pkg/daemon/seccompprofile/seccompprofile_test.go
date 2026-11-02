@@ -675,3 +675,58 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, mock.PullCallCount())
 }
+
+// TestResolveSyscallsForProfilePulledLocalBaseNamespace verifies that the
+// local base profile of a pulled base profile resolves like the ones of the
+// cluster scoped profile using it, and not in the namespace which the pulled
+// YAML names.
+func TestResolveSyscallsForProfilePulledLocalBaseNamespace(t *testing.T) {
+	t.Parallel()
+
+	pulled := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "pulled", Namespace: "exported"},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			BaseProfileName: "secret",
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"second"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}
+
+	mock := &seccompprofilefakes.FakeImpl{}
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+	mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
+	mock.PullResultSeccompProfileReturns(pulled)
+	mock.ClientGetProfileReturns(&seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"third"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}, nil)
+
+	sut, ok := NewController().(*Reconciler)
+	require.True(t, ok)
+
+	sut.impl = mock
+	sut.metrics = metrics.New()
+	sut.record = events.NewFakeRecorder(10)
+
+	sp := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			BaseProfileName: config.OCIProfilePrefix + "registry/base:v1",
+		},
+	}
+
+	syscalls, _, err := resolveWithSPOD(t.Context(), sut, sp)
+	require.NoError(t, err)
+	require.Len(t, syscalls, 1)
+	require.Equal(t, []string{"second", "third"}, syscalls[0].Names)
+
+	require.Equal(t, 1, mock.ClientGetProfileCallCount())
+	_, _, key, opts := mock.ClientGetProfileArgsForCall(0)
+	require.Empty(t, opts)
+	require.Equal(t, types.NamespacedName{Name: "secret"}, key)
+	require.Equal(t, "exported", pulled.GetNamespace(), "the cached profile must stay as pulled")
+}

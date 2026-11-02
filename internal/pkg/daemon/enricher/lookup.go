@@ -307,6 +307,16 @@ func auditTime(line *types.AuditLine) time.Time {
 	return t
 }
 
+// keepSeenProcess keeps the container of a process whose line got added to the
+// bucket of the process, like keepProcessContainer. Only the first line of a
+// bucket looks up the container, while the lines of a process which exited can
+// keep coming as long as its buckets.
+func (c *containerLookup) keepSeenProcess(pid int) {
+	if item := c.processContainers.Get(pid); item != nil {
+		c.keepProcessContainer(pid, item.Value())
+	}
+}
+
 // keepProcessContainer keeps the container of a running process, unless it
 // got kept within the refresh interval already.
 func (c *containerLookup) keepProcessContainer(pid int, container processContainer) {
