@@ -36,6 +36,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          # The job doesn't build the module, and the first job to finish
+          # writes the Go cache which all jobs on the runner type share, see
+          # the coverage job of test.yml. The tools of the job never were in
+          # there either.
+          cache: false
       - name: Check the selinuxd digests and commit
         run: hack/update-selinuxd.sh --check
 
@@ -56,6 +61,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          # See the selinuxd job.
+          cache: false
       - name: Check for upstream updates
         env:
           # zeitgeist lists the releases of the GitHub upstreams, which exceeds

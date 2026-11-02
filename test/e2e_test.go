@@ -70,8 +70,9 @@ const (
 	// execEnvironmentTimeout is how long a pod gets to run and accept an exec
 	// with the environment of the exec metadata webhook.
 	execEnvironmentTimeout = 100 * time.Second
-	// spodGenerationTimeout is how long a SPOD change gets to show up as a
-	// new generation of the spod daemon set.
+	// spodGenerationTimeout is how long a change of the operator, like its
+	// upgrade, gets to show up as a new generation of the spod daemon set,
+	// see waitForSpodRollout.
 	spodGenerationTimeout = 15 * time.Second
 	// renderedManifestsDir is where the suite writes the manifests it
 	// deploys, so that the tracked ones stay untouched.
@@ -247,7 +248,7 @@ func (e *e2e) testCases() []testCase {
 		},
 		{
 			description:     "Selinux: Verify the policy can be marked as permissive: disabled",
-			fn:              func([]string) { e.testCaseSelinuxIncompleteDisabledPolicy() },
+			fn:              e.testCaseSelinuxIncompleteDisabledPolicy,
 			clusterWideOnly: true,
 		},
 		{
@@ -463,13 +464,14 @@ func (e *e2e) shardDescription() string {
 	return "in shard " + e.shard.String()
 }
 
-// shardIsEmpty reports whether the shard of the suite has no test cases of the
-// current suite method. SetupTest uses it to not prepare a cluster for
+// shardIsEmpty reports whether the shard of the suite has no runnable test
+// cases of the current suite method, see anyRunnable. SetupTest and
+// runTestCases use it to neither prepare a cluster nor deploy anything for
 // nothing.
 func (e *e2e) shardIsEmpty() bool {
 	clusterWide, namespaced := e.shardTestCases()
 
-	return len(clusterWide) == 0 && len(namespaced) == 0
+	return !e.anyRunnable("cluster-wide", clusterWide) && !e.anyRunnable("namespaced", namespaced)
 }
 
 func (e *e2e) TestSecurityProfilesOperator_Flaky() {
@@ -482,7 +484,7 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	// kind starts no cluster for an empty shard, so it gets skipped before
 	// the context is reset.
 	if e.shardIsEmpty() {
-		e.T().Skip("No quarantined test cases " + e.shardDescription())
+		e.T().Skip("No runnable quarantined test cases " + e.shardDescription())
 
 		return
 	}
@@ -497,16 +499,19 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 // runTestCases runs the test cases of the current suite method and shard, see
 // shardTestCases, against the cluster wide and then the namespaced operator.
 func (e *e2e) runTestCases() {
-	clusterWide, namespaced := e.shardTestCases()
-	if len(clusterWide) == 0 && len(namespaced) == 0 {
-		e.T().Skip("No test cases " + e.shardDescription())
+	if e.shardIsEmpty() {
+		e.T().Skip("No runnable test cases " + e.shardDescription())
 
 		return
 	}
 
+	clusterWide, namespaced := e.shardTestCases()
+
 	if e.shard.total != 0 {
-		e.logf("Running %d cluster wide and %d namespaced test cases of shard %s",
-			len(clusterWide), len(namespaced), e.shard)
+		e.logf("Running %d of %d cluster wide and %d of %d namespaced test cases of shard %s, "+
+			"the others skip themselves",
+			e.runnable("cluster-wide", clusterWide), len(clusterWide),
+			e.runnable("namespaced", namespaced), len(namespaced), e.shard)
 	}
 
 	e.waitForReadyPods()
@@ -517,7 +522,7 @@ func (e *e2e) runTestCases() {
 	// Retrieve the inputs for the test cases
 	nodes := e.getNodes()
 
-	if len(clusterWide) > 0 {
+	if e.anyRunnable("cluster-wide", clusterWide) {
 		// Deploy the operator
 		undeploy := e.deployOperatorWithCleanup(e.operatorManifest)
 
@@ -573,7 +578,7 @@ func (e *e2e) testNamespacedOperator(
 	namespacedTestCases []testCase,
 	nodes []string,
 ) {
-	if len(namespacedTestCases) == 0 {
+	if !e.anyRunnable("namespaced", namespacedTestCases) {
 		return
 	}
 

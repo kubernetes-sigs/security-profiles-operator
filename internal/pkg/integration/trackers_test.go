@@ -99,7 +99,7 @@ func TestBindingTrackerTracksAppliedPods(t *testing.T) {
 	startManager(t, bindingtracker.NewController(), managerOptions{namespaces: []string{ns}})
 
 	// The binding webhook only applies a profile which got installed.
-	profile := createSeccompProfile(t, ns+"-profile")
+	profile := createSeccompProfile(t, ns, "profile")
 	profile.Status.Status = secprofnodestatusapi.ProfileStateInstalled
 	profile.SetImplementationStatus()
 	require.NoError(t, k8sClient.Status().Update(t.Context(), profile))

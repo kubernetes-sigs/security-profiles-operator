@@ -34,12 +34,30 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-// createSeccompProfile creates a SeccompProfile with the provided name.
-func createSeccompProfile(t *testing.T, name string) *seccompprofileapi.SeccompProfile {
+// startAnnotator starts the workload annotator for the pods and profiles of
+// the test with the provided namespace.
+func startAnnotator(t *testing.T, namespace string) *podGets {
+	t.Helper()
+
+	return startManager(t, workloadannotator.NewController(), managerOptions{
+		namespaces: []string{namespace},
+		profilesOf: namespace,
+	})
+}
+
+// createSeccompProfile creates a SeccompProfile of the test with the provided
+// namespace, named after the prefix.
+func createSeccompProfile(
+	t *testing.T,
+	namespace, prefix string,
+) *seccompprofileapi.SeccompProfile {
 	t.Helper()
 
 	profile := &seccompprofileapi.SeccompProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   uniqueName(prefix, namespace),
+			Labels: namespaceLabels(namespace),
+		},
 		Spec: seccompprofileapi.SeccompProfileSpec{
 			DefaultAction: seccompprofileapi.ActAllow,
 		},
@@ -88,9 +106,9 @@ func TestWorkloadAnnotatorTracksPods(t *testing.T) {
 	requireEnv(t)
 
 	ns := newNamespace(t)
-	startManager(t, workloadannotator.NewController(), managerOptions{namespaces: []string{ns}})
+	startAnnotator(t, ns)
 
-	profile := createSeccompProfile(t, uniqueName("tracked", ns))
+	profile := createSeccompProfile(t, ns, "tracked")
 
 	pod := seccompPod(ns, "web", profile)
 	require.NoError(t, k8sClient.Create(t.Context(), pod))
@@ -114,13 +132,16 @@ func TestWorkloadAnnotatorPodCreatedBeforeProfile(t *testing.T) {
 	requireEnv(t)
 
 	ns := newNamespace(t)
-	startManager(t, workloadannotator.NewController(), managerOptions{namespaces: []string{ns}})
+	startAnnotator(t, ns)
 
 	// The pod references a profile which does not exist yet. The watch of
 	// the profiles maps the profile creation to the pods using it.
 	profile := &seccompprofileapi.SeccompProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("late", ns)},
-		Spec:       seccompprofileapi.SeccompProfileSpec{DefaultAction: seccompprofileapi.ActAllow},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   uniqueName("late", ns),
+			Labels: namespaceLabels(ns),
+		},
+		Spec: seccompprofileapi.SeccompProfileSpec{DefaultAction: seccompprofileapi.ActAllow},
 	}
 	require.NoError(t, k8sClient.Create(t.Context(), seccompPod(ns, "early", profile)))
 
@@ -133,10 +154,10 @@ func TestWorkloadAnnotatorPodReplacement(t *testing.T) {
 	requireEnv(t)
 
 	ns := newNamespace(t)
-	startManager(t, workloadannotator.NewController(), managerOptions{namespaces: []string{ns}})
+	startAnnotator(t, ns)
 
-	oldProfile := createSeccompProfile(t, uniqueName("old", ns))
-	newProfile := createSeccompProfile(t, uniqueName("new", ns))
+	oldProfile := createSeccompProfile(t, ns, "old")
+	newProfile := createSeccompProfile(t, ns, "new")
 
 	pod := seccompPod(ns, "sts-0", oldProfile)
 	require.NoError(t, k8sClient.Create(t.Context(), pod))
@@ -160,11 +181,9 @@ func TestWorkloadAnnotatorIgnoresPodStatusUpdates(t *testing.T) {
 	requireEnv(t)
 
 	ns := newNamespace(t)
-	gets := startManager(
-		t, workloadannotator.NewController(), managerOptions{namespaces: []string{ns}},
-	)
+	gets := startAnnotator(t, ns)
 
-	profile := createSeccompProfile(t, uniqueName("status", ns))
+	profile := createSeccompProfile(t, ns, "status")
 
 	pod := seccompPod(ns, "flappy", profile)
 	require.NoError(t, k8sClient.Create(t.Context(), pod))

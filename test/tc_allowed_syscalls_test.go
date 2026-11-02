@@ -19,13 +19,16 @@ limitations under the License.
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
 	"time"
 
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/seccompcheck"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -259,11 +262,52 @@ spec:
 // if the patch which added it failed. The following test cases create
 // profiles which the list does not allow. The manager and the daemons watch
 // the list on the SPOD and validate every profile again when it changes, so
-// there is no rollout of the daemon set to wait for, which patchSpod would
-// only give up on after spodGenerationTimeout.
+// there is no rollout of the daemon set to wait for, only for the manager to
+// stop enforcing the list.
 func (e *e2e) removeAllowedSyscalls() {
 	e.kubectlOperatorNS("patch", "spod", "spod", "--type=merge",
 		"-p", `{"spec":{"security":{"allowedSyscalls": null}}}`)
+	e.waitForEnforcedAllowList()
+}
+
+// waitForEnforcedAllowList waits until the manager enforced the allow lists
+// of the SPOD. A controller of its own deletes the seccomp profiles which they
+// reject, apart from the reconciliation of the SPOD which patchSpod waits for,
+// and records the hash of the lists once it is done. It enforces no lists with
+// invalid allowedSeccompActions, so there is nothing to wait for then.
+func (e *e2e) waitForEnforcedAllowList() {
+	e.requireEventually(defaultWaitDuration, time.Second, func() error {
+		output, err := e.kubectlSilentCommand(
+			"-n",
+			config.OperatorName,
+			"get",
+			"spod",
+			"spod",
+			"-o",
+			"json",
+		)
+		if err != nil {
+			return fmt.Errorf("getting the SPOD: %w", err)
+		}
+
+		spod := &spodapi.SecurityProfilesOperatorDaemon{}
+		if err := json.Unmarshal([]byte(output), spod); err != nil {
+			return fmt.Errorf("decoding the SPOD: %w", err)
+		}
+
+		if _, err := seccompcheck.CheckedActions(
+			spod.Spec.Security.AllowedSeccompActions,
+		); err != nil {
+			return nil //nolint:nilerr // invalid actions get no hash to wait for
+		}
+
+		want := seccompcheck.AllowListHash(&spod.Spec.Security)
+		if got := spod.GetAnnotations()[seccompcheck.EnforcedAllowListAnnotation]; got != want {
+			return fmt.Errorf("enforced allow lists %q, want %q", got, want)
+		}
+
+		return nil
+	})
 }
 
 // waitForSeccompProfileRemoved waits until the operator removed the seccomp

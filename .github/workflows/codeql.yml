@@ -45,7 +45,11 @@ jobs:
         with:
           persist-credentials: false
       # The cgo packages need the native libraries, see hack/install-packages.
+      # The build with AppArmor and BPF shares little with the one of the
+      # coverage job of test.yml, which is meant to write the Go cache.
       - uses: ./.github/actions/setup-go-build
+        with:
+          cache: 'false'
       # The build tags and libraries of make with AppArmor and BPF enabled, see
       # BUILDTAGS and CGO_LDFLAGS in the Makefile. Before the CodeQL tracing,
       # which only needs the build.

@@ -34,6 +34,7 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/seccompcheck"
 )
 
 func allowListProfile(name, base string, syscalls ...string) *seccompprofileapi.SeccompProfile {
@@ -245,7 +246,7 @@ func enforcedAllowList(t *testing.T, cl client.Client) (string, bool) {
 		Name: config.SPOdName, Namespace: testNamespace,
 	}, spod))
 
-	hash, ok := spod.GetAnnotations()[enforcedAllowListAnnotation]
+	hash, ok := spod.GetAnnotations()[seccompcheck.EnforcedAllowListAnnotation]
 
 	return hash, ok
 }
@@ -267,7 +268,7 @@ func TestReconcileAllowListEnforcesOnce(t *testing.T) {
 
 	hash, ok := enforcedAllowList(t, cl)
 	require.True(t, ok)
-	require.Equal(t, allowListHash(&spod.Spec.Security), hash)
+	require.Equal(t, seccompcheck.AllowListHash(&spod.Spec.Security), hash)
 
 	require.NoError(t, cl.Create(t.Context(), allowListProfile("created-later", "", "write")))
 	require.NoError(t, reconcileAllowList(t, r))
@@ -328,9 +329,11 @@ func TestReconcileAllowListNotEnforced(t *testing.T) {
 				// must not stay.
 				if previous {
 					spod.Annotations = map[string]string{
-						enforcedAllowListAnnotation: allowListHash(&spodapi.SPODSecurityConfig{
-							AllowedSyscalls: []string{"write"},
-						}),
+						seccompcheck.EnforcedAllowListAnnotation: seccompcheck.AllowListHash(
+							&spodapi.SPODSecurityConfig{
+								AllowedSyscalls: []string{"write"},
+							},
+						),
 					}
 				}
 
@@ -393,9 +396,11 @@ func TestReconcileAllowListChangedDuringReconcile(t *testing.T) {
 	spod := testSPOD()
 	spod.Spec.Security.AllowedSyscalls = allowed
 	spod.Annotations = map[string]string{
-		enforcedAllowListAnnotation: allowListHash(&spodapi.SPODSecurityConfig{
-			AllowedSyscalls: []string{"exit"},
-		}),
+		seccompcheck.EnforcedAllowListAnnotation: seccompcheck.AllowListHash(
+			&spodapi.SPODSecurityConfig{
+				AllowedSyscalls: []string{"exit"},
+			},
+		),
 	}
 
 	patched := false
@@ -428,33 +433,6 @@ func TestReconcileAllowListChangedDuringReconcile(t *testing.T) {
 	require.NoError(t, reconcileAllowList(t, r))
 
 	require.Empty(t, remainingProfiles(t, cl))
-}
-
-func TestAllowListHash(t *testing.T) {
-	t.Parallel()
-
-	require.Empty(t, allowListHash(&spodapi.SPODSecurityConfig{
-		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
-	}))
-
-	hash := allowListHash(&spodapi.SPODSecurityConfig{
-		AllowedSyscalls:       []string{"read", "write"},
-		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
-	})
-	require.NotEmpty(t, hash)
-	require.Equal(t, hash, allowListHash(&spodapi.SPODSecurityConfig{
-		AllowedSyscalls: []string{"write", "read", "read"},
-		AllowedSeccompActions: []seccompprofileapi.Action{
-			seccompprofileapi.ActLog, seccompprofileapi.ActLog,
-		},
-	}))
-	require.NotEqual(t, hash, allowListHash(&spodapi.SPODSecurityConfig{
-		AllowedSyscalls: []string{"read", "write"},
-	}))
-	require.NotEqual(t, hash, allowListHash(&spodapi.SPODSecurityConfig{
-		AllowedSyscalls:       []string{"read"},
-		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
-	}))
 }
 
 func TestRejectedByAllowLists(t *testing.T) {

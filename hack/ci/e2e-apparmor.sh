@@ -22,7 +22,9 @@ APPARMOR_PROFILE_NAME="test-recording-$PODNAME"
 APPARMOR_REFERENCE_PROFILE_FILE="hack/ci/apparmorprofile-sleep"
 APPARMOR_PROFILE_FILE_COMPLAIN_MODE="hack/ci/apparmorprofile-sleep-complain-mode.yaml"
 BPF_RECORDER_PROFILE="bpfrecorder-apparmor"
-SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
+# The seccomp BPF recording of hack/ci/e2e-seccomp.sh gets by with 3s, this
+# leaves the recorder some more time to resolve the container.
+SLEEP_INTERVAL_RECORDING="10"     # 10s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
 RUNTIMES=(runc crun)
 # Default location for CRI-O specific runtime binaries
@@ -45,6 +47,9 @@ metadata:
 spec:
   runtimeClassName: $runtime
   restartPolicy: Never
+  # sleep runs as PID 1, which ignores SIGTERM, so every delete would wait for
+  # the default grace period of 30s.
+  terminationGracePeriodSeconds: 1
   containers:
   - name: $pod_name
     image: $ALPINE_IMAGE
@@ -179,8 +184,8 @@ check_apparmor_profile_recording() {
     echo "Creating pod $PODNAME and start recording its apparmor profile"
     pod_file="${TMP_DIR}/${PODNAME}.yml"
     create_pod "$PODNAME" "$pod_file" "$SLEEP_INTERVAL_RECORDING" "$runtime"
-    # The pod sleeps for SLEEP_INTERVAL_RECORDING, which takes most of the
-    # time wait_for_pod_status waits.
+    # The pod completes once it slept for SLEEP_INTERVAL_RECORDING, the
+    # timeout leaves room for pulling the image and starting the pod.
     if ! k wait --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s "pod/$PODNAME"; then
       k describe pod "$PODNAME"
       exit 1

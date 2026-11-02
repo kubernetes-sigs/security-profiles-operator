@@ -20,6 +20,8 @@ package seccompcheck
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -225,4 +227,34 @@ func AllowListChanged(oldCfg, newCfg *spodapi.SPODSecurityConfig) bool {
 	) || !sets.New(newCfg.AllowedSyscalls...).Equal(
 		sets.New(oldCfg.AllowedSyscalls...),
 	)
+}
+
+// EnforcedAllowListAnnotation is set on the SPOD to the hash of the allow
+// lists which the manager enforced last, see AllowListHash. The SPOD passes
+// the predicate of the controller again on every restart of the manager,
+// which must not delete the profiles created since then: the daemons only
+// reject those.
+const EnforcedAllowListAnnotation = "spo.x-k8s.io/enforced-allow-list-hash"
+
+// AllowListHash returns the hash of the allow lists, or an empty string if
+// no syscalls are allowed, which does not enforce anything. Like for
+// AllowListChanged, the order and duplicates of the entries do not matter.
+func AllowListHash(security *spodapi.SPODSecurityConfig) string {
+	if len(security.AllowedSyscalls) == 0 {
+		return ""
+	}
+
+	actions := sets.List(sets.New(security.AllowedSeccompActions...))
+	actionNames := make([]string, 0, len(actions))
+
+	for _, action := range actions {
+		actionNames = append(actionNames, string(action))
+	}
+
+	hash := sha256.Sum256([]byte(
+		strings.Join(sets.List(sets.New(security.AllowedSyscalls...)), ",") +
+			"\n" + strings.Join(actionNames, ","),
+	))
+
+	return hex.EncodeToString(hash[:])
 }

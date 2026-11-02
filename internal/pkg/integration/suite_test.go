@@ -36,6 +36,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -71,6 +72,9 @@ const (
 	// operatorNamespace is the namespace of the SPOd DaemonSet, which the
 	// node status controller takes from the environment.
 	operatorNamespace = "spo-integration-operator"
+	// namespaceLabel labels the cluster scoped profiles of a test with the
+	// namespace of the test, see managerOptions.
+	namespaceLabel = "spo-integration-namespace"
 
 	eventuallyTimeout = 30 * time.Second
 	tick              = 100 * time.Millisecond
@@ -251,6 +255,17 @@ type managerOptions struct {
 	// namespaces, so that the controller does not act on the objects of
 	// other tests.
 	namespaces []string
+	// profilesOf restricts the cache of the profiles, which are cluster
+	// scoped, to the ones labeled with the namespace of the test, see
+	// namespaceLabels. The pod controllers of the other tests would see no
+	// pods using them and release them otherwise.
+	profilesOf string
+}
+
+// namespaceLabels returns the labels of the profiles of the test with the
+// provided namespace.
+func namespaceLabels(namespace string) map[string]string {
+	return map[string]string{namespaceLabel: namespace}
 }
 
 // startManager starts a manager with the controller and returns the counter
@@ -265,10 +280,26 @@ func startManager(t *testing.T, ctrlr controller.Controller, opts managerOptions
 		defaultNamespaces[ns] = cache.Config{}
 	}
 
+	cacheOptions := cache.Options{DefaultNamespaces: defaultNamespaces}
+
+	if opts.profilesOf != "" {
+		selector := labels.SelectorFromSet(namespaceLabels(opts.profilesOf))
+		cacheOptions.ByObject = map[client.Object]cache.ByObject{}
+
+		for _, obj := range []client.Object{
+			&seccompprofileapi.SeccompProfile{},
+			&selinuxprofileapi.SelinuxProfile{},
+			&selinuxprofileapi.RawSelinuxProfile{},
+			&apparmorprofileapi.AppArmorProfile{},
+		} {
+			cacheOptions.ByObject[obj] = cache.ByObject{Label: selector}
+		}
+	}
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:  newScheme(),
 		Metrics: metricsserver.Options{BindAddress: "0"},
-		Cache:   cache.Options{DefaultNamespaces: defaultNamespaces},
+		Cache:   cacheOptions,
 		// Every test registers the controllers with the same names.
 		Controller: config.Controller{SkipNameValidation: new(true)},
 		NewClient: func(config *rest.Config, options client.Options) (client.Client, error) {

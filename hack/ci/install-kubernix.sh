@@ -125,7 +125,16 @@ start_kubernix() {
   # The e2e suite waits for the pods of kube-system, which fails if the
   # controllers did not create them yet.
   kubectl wait -n kube-system --for=create --timeout=300s deployment/coredns
-  kubectl wait -n kube-system --for=condition=available --timeout=300s deployment/coredns
+  # The single replica deployment is available without a ready pod, the rollout
+  # is not. CoreDNS keeps crashing if anything else holds port 53 of the host,
+  # and the e2e tests would only fail much later on name resolution then.
+  if ! kubectl -n kube-system rollout status --timeout=180s deployment/coredns; then
+    echo "CoreDNS is not ready, listeners on port 53 of the host:"
+    sudo ss -Htulpn 'sport = :53' || true
+    kubectl -n kube-system logs --all-containers --prefix --tail=20 \
+      --selector k8s-app=coredns || true
+    exit 1
+  fi
   kubectl get nodes -o wide
 }
 

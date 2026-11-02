@@ -626,7 +626,11 @@ jobs:
           build-args: |
             UBI_REPOS_REVISION=${{ steps.repos.outputs.revision }}
           cache-from: type=gha,scope=${{ matrix.cache }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.cache }}
+          # Pull requests only read the cache of main. The build stage layers
+          # from COPY . on change with every push, and exporting them for each
+          # pull request filled most of the cache quota of the repository,
+          # which evicted the Go caches.
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=gha,mode=max,scope={0}', matrix.cache) || '' }}
       - name: Tag for the vulnerability scan
         env:
           IMAGE_ID: ${{ steps.build.outputs.imageid }}
