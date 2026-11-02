@@ -26,7 +26,11 @@ import (
 )
 
 func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
-	jsonLogFileName := "/tmp/json-logs/jsonEnricher.out"
+	// The file is on the node, where the JSON enricher only appends to it.
+	// A name per run keeps the records of an earlier run, like the one of the
+	// other operator phase or of a retry on the same node, from passing the
+	// checks of this one.
+	jsonLogFileName := fmt.Sprintf("/tmp/json-logs/jsonEnricher-%d.out", time.Now().UnixNano())
 	//nolint:lll  // long filter.
 	e.jsonEnricherOnlyTestCaseFileOptions(
 		jsonLogFileName,

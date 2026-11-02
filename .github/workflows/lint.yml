@@ -35,6 +35,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          # No job of this workflow builds the module, they only compile tools
+          # with go run, which the Go cache shared by all jobs on the runner
+          # type never held anyway. The first job to finish writes it, see the
+          # coverage job of test.yml.
+          cache: false
       - run: make verify-actions
 
   # zizmor finds security issues in the workflows, like template injection,
@@ -66,6 +71,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          cache: false
       - run: make verify-shellcheck
       - name: Test the flake report of the e2e-flakes workflow
         run: python3 test/ci/junit-flakes.py --self-test
@@ -82,6 +88,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          cache: false
       - run: make verify-dockerfiles
 
   # kubeconform on the committed manifests and the examples, kube-linter on
@@ -96,6 +103,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          cache: false
       - run: make verify-manifests
 
   # markdownlint with .markdownlint-cli2.yaml and lychee with lychee.toml.

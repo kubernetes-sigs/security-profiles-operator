@@ -51,6 +51,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The Go cache of setup-go is written once per go.sum by the first job
+      # on the runner type to finish, and is meant to be written by this one.
+      # So no other job of pushes and pull requests uses it, and the
+      # e2e-test-binary job has a cache of its own.
       - uses: ./.github/actions/setup-go-build
       - run: make test-unit
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -190,13 +194,52 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          # The first job to finish writes the Go cache of setup-go, which all
+          # jobs on the runner type share and which is meant for the build of
+          # the coverage job. The build of this one, without cgo and with the
+          # e2e tag, shares next to nothing with it, so it has a cache of its
+          # own.
+          cache: false
+      - id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-e2e-test-binary-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: go-e2e-test-binary-${{ runner.os }}-${{ runner.arch }}-
       - run: go test -c -tags e2e -o e2e.test ./test
         env:
           CGO_ENABLED: '0'
+      # Pull requests only read the cache, which the runs of main save.
+      - if: github.event_name != 'pull_request' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-test-binary
           path: e2e.test
+
+  # The e2e jobs run the unit tests of the shards before the suite, but only
+  # fail on them once their whole suite ran. This job fails within seconds
+  # instead, and as a job of its own, it doesn't keep the e2e jobs from
+  # running.
+  e2e-test-costs:
+    needs: [changes, e2e-test-binary]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: e2e-test-binary
+      # The download loses the executable bit.
+      - run: chmod +x e2e.test
+      - run: ./e2e.test -test.run '^Test(ShardCosts|AnyRunnable)$' -test.v
 
   # The SELinux tests run in VMs of their own, see hack/ci/e2e-fedora.sh. The
   # test cases of each suite get split between shards, see E2E_SHARD in
@@ -303,6 +346,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          # The job runs the prebuilt test binary, see the coverage job.
+          cache: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: e2e-test-binary
@@ -442,7 +487,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The build of spoc for the tests shares little with the one of the
+      # coverage job, which is meant to write the Go cache, see there.
       - uses: ./.github/actions/setup-go-build
+        with:
+          cache: 'false'
       - name: Run spoc E2E tests
         run: hack/ci/e2e-spoc.sh
       - name: Upload the diagnostics
@@ -612,6 +661,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
+          # The job runs the prebuilt test binary, see the coverage job.
+          cache: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: e2e-test-binary

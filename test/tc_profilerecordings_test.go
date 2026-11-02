@@ -96,6 +96,17 @@ func (e *e2e) jsonEnricherFileLogsReader(logFilePath string) func() (string, err
 			"--container="+debugContainerName, "--", "sleep", "3600")
 	}
 
+	// The log file is on the node and outlives the test, so it gets removed
+	// before the cleanups which restore the SPOD remove its mount.
+	e.cleanup(func() {
+		for _, podName := range podNames {
+			if _, err := e.kubectlCommand("-n", config.OperatorName, "exec", podName,
+				"-c", debugContainerName, "--", "rm", "-f", logFilePath); err != nil {
+				e.logf("Removing the JSON enricher log file of pod %s: %v", podName, err)
+			}
+		}
+	})
+
 	return func() (string, error) {
 		var logsBuilder strings.Builder
 

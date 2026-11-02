@@ -704,13 +704,18 @@ together with the switches each test case needs. The test cases which skip
 themselves without their switches, or which `E2E_TEST_SKIP` leaves out, count
 as nothing. The shards do not depend on `-test.run`, so that the retry of a
 failed test case by `make test-flaky-e2e` runs in the shard which failed it.
-Every test case runs in exactly one shard, so a cost which is off only makes
-the shards less balanced. `TestShardCosts` fails for a test case without a
-cost and for a cost of a test case which no longer exists,
-`go test -tags e2e -run TestShardCosts ./test` runs it in milliseconds
-without a cluster. Update the costs when test cases get much slower or faster.
-A shard without test cases skips the suite method, so it neither starts a
-cluster nor deploys the operator.
+Every test case runs in exactly one shard, so a duration which is off only
+makes the shards less balanced. Switches which are stricter than the test
+case's own skips keep it from running at all, see below. `TestShardCosts`
+fails for a test case without a cost and for a cost of a test case which no
+longer exists, `go test -tags e2e -run TestShardCosts ./test` runs it in
+milliseconds without a cluster. Update the costs when test cases get much
+slower or faster. A shard without test cases which run skips the suite method,
+so it neither starts a cluster nor deploys the operator. The same goes for the
+cluster wide and the namespaced operator, which only get deployed for test
+cases which run: test cases which skip themselves without their switches, or
+which `-test.skip` leaves out or `-test.run` does not select, like a retry of
+another test case, don't count.
 
 ### Quarantined test cases
 

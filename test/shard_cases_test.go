@@ -19,10 +19,13 @@ limitations under the License.
 package e2e_test
 
 import (
+	"flag"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // feature is a switch of the suite which a test case needs, it skips itself
@@ -56,9 +59,10 @@ type testCaseCost struct {
 const defaultTestCaseDuration = 30 * time.Second
 
 // testCaseCosts balance the shards, see E2E_SHARD, keyed by the description
-// of the test case. A cost which is off only makes the shards less balanced:
-// every test case runs in exactly one shard, also when the shards expect it
-// to skip itself. TestShardCosts checks that every test case has one.
+// of the test case. Every test case runs in exactly one shard, so a duration
+// which is off only makes the shards less balanced. Needs which are stricter
+// than the test case's own skips keep it from running at all, see
+// anyRunnable. TestShardCosts checks that every test case has a cost.
 var testCaseCosts = map[string]testCaseCost{
 	"Seccomp: Verify default and example profiles":    {6 * time.Second, needsSeccomp},
 	"Seccomp: Verify base profile merge":              {6 * time.Second, needsSeccomp},
@@ -192,6 +196,35 @@ func (e *e2e) has(needs feature) bool {
 	return true
 }
 
+// anyRunnable reports whether one of the test cases of the current suite
+// method for the operator of the prefix runs: it has the switches it needs,
+// see testCaseCosts, the -test.skip flag does not skip it and the -test.run
+// flag selects it, like a retry of a single test case by gotestsum. The others
+// skip themselves or do not run, which is not worth deploying the operator
+// for. Unlike testCaseShards, which assigns the test cases to the shards, this
+// may depend on -test.run.
+func (e *e2e) anyRunnable(prefix string, testCases []testCase) bool {
+	return e.runnable(prefix, testCases) > 0
+}
+
+// runnable returns how many of the test cases run, see anyRunnable.
+func (e *e2e) runnable(prefix string, testCases []testCase) int {
+	skip := testFlagPattern("test.skip")
+	run := testFlagPattern("test.run")
+	method := e.T().Name()
+	count := 0
+
+	for _, tc := range testCases {
+		name := method + "/" + subTestName(prefix+": "+tc.description)
+		if e.has(testCaseCosts[tc.description].needs) &&
+			!testSkipped(name, skip) && testSelected(name, run) {
+			count++
+		}
+	}
+
+	return count
+}
+
 // shardTestCases returns the test cases of the current suite method for the
 // cluster wide and the namespaced operator which run in the shard of the
 // suite, all of them without one. The shards get the test cases by their
@@ -271,4 +304,54 @@ func TestShardCosts(t *testing.T) {
 			t.Errorf("cost in testCaseCosts for unknown test case %q", description)
 		}
 	}
+}
+
+// TestAnyRunnable checks that a test case without its switches, or which the
+// -test.skip flag skips or the -test.run flag does not select, does not count
+// as runnable.
+//
+//nolint:paralleltest // it sets the -test.run and -test.skip flags
+func TestAnyRunnable(t *testing.T) {
+	for _, name := range []string{"test.run", "test.skip"} {
+		value := flag.Lookup(name).Value.String()
+
+		t.Cleanup(func() {
+			require.NoError(t, flag.Set(name, value))
+		})
+		require.NoError(t, flag.Set(name, ""))
+	}
+
+	e := &e2e{}
+	e.SetT(t)
+
+	bpf := []testCase{{description: "Seccomp: Verify profile recording bpf: parallel"}}
+	require.False(t, e.anyRunnable("cluster-wide", bpf), "without the switch")
+
+	e.bpfRecorderEnabled = true
+	require.True(t, e.anyRunnable("cluster-wide", bpf))
+
+	// Only the test cases with their switches count.
+	mixed := append(
+		slices.Clone(bpf),
+		testCase{description: "Seccomp: Verify profile recording logs: deployment"},
+	)
+	require.Equal(t, 1, e.runnable("cluster-wide", mixed))
+
+	require.NoError(
+		t,
+		flag.Set("test.skip", "/cluster-wide:_Seccomp:_Verify_profile_recording_bpf"),
+	)
+	require.False(t, e.anyRunnable("cluster-wide", bpf), "skipped by -test.skip")
+	require.True(t, e.anyRunnable("namespaced", bpf), "other prefix")
+	require.NoError(t, flag.Set("test.skip", ""))
+
+	// A retry of a namespaced test case only, the way gotestsum quotes it.
+	require.NoError(t, flag.Set("test.run",
+		`^TestAnyRunnable$/^namespaced:_Seccomp:_Verify_profile_recording_bpf:_parallel$`))
+	require.False(t, e.anyRunnable("cluster-wide", bpf), "not selected by -test.run")
+	require.True(t, e.anyRunnable("namespaced", bpf), "selected by -test.run")
+
+	// A pattern of the suite method only selects all of its test cases.
+	require.NoError(t, flag.Set("test.run", `^TestAnyRunnable$`))
+	require.True(t, e.anyRunnable("cluster-wide", bpf), "selected by the parent")
 }

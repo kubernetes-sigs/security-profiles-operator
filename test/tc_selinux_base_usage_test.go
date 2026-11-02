@@ -19,10 +19,13 @@ limitations under the License.
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 )
 
 const (
@@ -351,7 +354,7 @@ func (e *e2e) testCaseSelinuxDeniedPermissivePolicy(nodes []string) {
 	e.assertSelinuxPolicyIsInstalled(nodes, e.getSELinuxPolicyName("selinuxprofile", profileName))
 }
 
-func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
+func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy(nodes []string) {
 	e.selinuxOnlyTestCase()
 
 	disabledProfileName := "errorlogger-incomplete-disabled"
@@ -365,9 +368,19 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 		"errorlogger-policy-incomplete-disabled.yml")
 	e.kubectlCleanup("selinuxprofile", disabledProfileName)
 
-	// Let's wait for the policy to be processed, it will be ready=false
+	// The Creating condition of a pending profile is not ready either, only
+	// the status tells that the daemons processed the disabled one.
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
-		"--for", "condition=ready=false", "selinuxprofile", disabledProfileName)
+		"--for", "jsonpath={.status.status}=Disabled", "selinuxprofile", disabledProfileName)
+	e.waitForSelinuxNodeStatuses(
+		nodes,
+		disabledProfileName,
+		secprofnodestatusapi.ProfileStateDisabled,
+	)
+	e.assertSelinuxPolicyIsRemoved(
+		nodes,
+		e.getSELinuxPolicyName("selinuxprofile", disabledProfileName),
+	)
 
 	e.logf("creating workload - it should not even become ready")
 	podWithPolicy := fmt.Sprintf(
@@ -428,6 +441,51 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string) {
 			policiesRaw := e.execNode(node, "semodule", "-l")
 			if !slices.Contains(strings.Split(policiesRaw, "\n"), policy) {
 				return fmt.Errorf("the SelinuxProfile %s is not installed on node %s", policy, node)
+			}
+		}
+
+		return nil
+	})
+}
+
+// waitForSelinuxNodeStatuses waits until the daemon of every node reported the
+// state of the SelinuxProfile. The status of the profile does not tell: it is
+// the state of its node statuses which comes first in their order, and
+// Disabled comes before Pending, so a profile is Disabled once one node
+// reported it.
+func (e *e2e) waitForSelinuxNodeStatuses(
+	nodes []string, name string, state secprofnodestatusapi.ProfileState,
+) {
+	e.requireEventually(defaultWaitDuration, defaultPollInterval, func() error {
+		for _, node := range nodes {
+			output, err := e.kubectlSilentCommand(
+				"get",
+				"securityprofilenodestatus",
+				"-l",
+				fmt.Sprintf(
+					"spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SelinuxProfile-%s",
+					node,
+					name,
+				),
+				"-o",
+				"json",
+			)
+			if err != nil {
+				return fmt.Errorf("getting the node status on node %s: %w", node, err)
+			}
+
+			statuses := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
+			if err := json.Unmarshal([]byte(output), statuses); err != nil {
+				return fmt.Errorf("decoding the node status on node %s: %w", node, err)
+			}
+
+			if len(statuses.Items) != 1 || statuses.Items[0].Status.Status != state {
+				return fmt.Errorf(
+					"no %s node status of SelinuxProfile %s on node %s",
+					state,
+					name,
+					node,
+				)
 			}
 		}
 

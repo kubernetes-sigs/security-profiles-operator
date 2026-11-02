@@ -523,3 +523,30 @@ func TestResolveLocalSyscalls(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowListHash(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, AllowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
+	}))
+
+	hash := AllowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls:       []string{"read", "write"},
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
+	})
+	require.NotEmpty(t, hash)
+	require.Equal(t, hash, AllowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls: []string{"write", "read", "read"},
+		AllowedSeccompActions: []seccompprofileapi.Action{
+			seccompprofileapi.ActLog, seccompprofileapi.ActLog,
+		},
+	}))
+	require.NotEqual(t, hash, AllowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls: []string{"read", "write"},
+	}))
+	require.NotEqual(t, hash, AllowListHash(&spodapi.SPODSecurityConfig{
+		AllowedSyscalls:       []string{"read"},
+		AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActLog},
+	}))
+}

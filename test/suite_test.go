@@ -1173,13 +1173,45 @@ func (e *e2e) patchSpodWithType(patchType, patch string) {
 	generation := e.spodDaemonSetGeneration()
 
 	output := e.kubectlOperatorNS("patch", "spod", "spod", "-p", patch, "--type="+patchType)
-	// Waiting for a rollout would only run into the timeout for the daemon set
-	// generation.
 	if strings.Contains(output, "(no change)") {
 		return
 	}
 
-	e.waitForSpodRollout(generation)
+	// The operator updates the daemon set and the webhook before it records
+	// the generation of the SPOD as observed, together with the state of the
+	// update. So once it did, the ready condition is the one of the change,
+	// and a daemon set generation which stayed the same means that there is
+	// no rollout to wait for. The allow lists get enforced by a controller of
+	// their own, see waitForEnforcedAllowList.
+	e.requireEventually(defaultWaitDuration, time.Second, func() error {
+		output, err := e.kubectlSilentCommand(
+			"-n",
+			config.OperatorName,
+			"get",
+			"spod",
+			"spod",
+			"-o",
+			"jsonpath={.metadata.generation} {.status.observedGeneration}",
+		)
+		if err != nil {
+			return fmt.Errorf("getting the SPOD generations: %w", err)
+		}
+
+		if generations := strings.Fields(
+			output,
+		); len(generations) != 2 ||
+			generations[0] != generations[1] {
+			return fmt.Errorf("SPOD generation and observed generation: %v", generations)
+		}
+
+		return nil
+	})
+	e.waitForEnforcedAllowList()
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	if e.spodDaemonSetGeneration() != generation {
+		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	}
 }
 
 // randomPodName returns a name for a pod of a single command, which differs
@@ -1204,19 +1236,21 @@ func (e *e2e) spodEnv(name string) string {
 	))
 }
 
-// spodDaemonSetGeneration returns the generation of the spod daemon set, to
-// pass to waitForSpodRollout after changing the SPOD.
+// spodDaemonSetGeneration returns the generation of the spod daemon set,
+// which tells after a change whether the daemon set got updated.
 func (e *e2e) spodDaemonSetGeneration() string {
 	return e.kubectlOperatorNS("get", "ds", "spod", "-o", "jsonpath={.metadata.generation}")
 }
 
-// waitForSpodRollout waits until the operator applied a change of the SPOD to
-// the spod daemon set and the daemon set is rolled out. The ready condition of
-// the SPOD can still be the one from before the change, so the new daemon set
-// generation tells when the operator got to it. Changes which the daemon set
-// does not reflect leave the generation alone, so the wait for it only logs
-// that it gave up after spodGenerationTimeout, and the waits for the SPOD and
-// the rollout below still fail the test if those never finish.
+// waitForSpodRollout waits until the operator applied a change which does not
+// change the SPOD, like an upgrade of the operator, to the spod daemon set and
+// the daemon set is rolled out, see patchSpodWithType for changes of the SPOD.
+// The ready condition of the SPOD can still be the one from before the
+// change, so the new daemon set generation tells when the operator got to it.
+// Changes which the daemon set does not reflect leave the generation alone, so
+// the wait for it only logs that it gave up after spodGenerationTimeout, and
+// the waits for the SPOD and the rollout below still fail the test if those
+// never finish.
 func (e *e2e) waitForSpodRollout(previousGeneration string) {
 	if err := poll(spodGenerationTimeout, time.Second, func() error {
 		if generation := e.spodDaemonSetGeneration(); generation == previousGeneration {
@@ -1736,10 +1770,12 @@ func (e *e2e) podRunning(
 	namespace *string,
 	timeout time.Duration,
 ) bool {
-	args := []string{"get", "pod", name, `-o=jsonpath='{.status.phase}'`}
+	var namespaceArgs []string
 	if namespace != nil {
-		args = append(args, "-n", *namespace)
+		namespaceArgs = []string{"-n", *namespace}
 	}
+
+	args := append([]string{"get", "pod", name, `-o=jsonpath='{.status.phase}'`}, namespaceArgs...)
 
 	err := poll(timeout, defaultPollInterval, func() error {
 		output, err := e.kubectlCommand(args...)
@@ -1755,7 +1791,13 @@ func (e *e2e) podRunning(
 	})
 	if err != nil {
 		e.logf("Pod %s is not running: %v", name, err)
-		e.kubectl("describe", "pod", name)
+
+		// Only for the diagnostics, the caller reports the failure, and the
+		// pod may be gone by now.
+		if _, err := e.kubectlCommand(
+			append([]string{"describe", "pod", name}, namespaceArgs...)...); err != nil {
+			e.logf("Describing pod %s: %v", name, err)
+		}
 
 		return false
 	}

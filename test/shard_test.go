@@ -226,6 +226,20 @@ func testSkipped(name string, skip testNamePattern) bool {
 	return ok && !partial
 }
 
+// testSelected reports whether the -test.run pattern run, nil if it is not
+// set, selects the test of the name. Like the testing package, it runs a test
+// whose name matches the first elements of the pattern as well, for the sub
+// tests which the rest of the pattern may select.
+func testSelected(name string, run testNamePattern) bool {
+	if run == nil {
+		return true
+	}
+
+	ok, _ := run.matches(name)
+
+	return ok
+}
+
 // testCaseShards returns the shard of each of the test cases of the names and
 // durations, see assignTestShards, where a test case which the -test.skip flag
 // skips weighs nothing. The -test.run flag is left out on purpose: gotestsum
