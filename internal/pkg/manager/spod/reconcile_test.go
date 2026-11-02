@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -453,8 +455,11 @@ func TestReconcileAppliesSpodAdmissionPolicies(t *testing.T) {
 			)
 		}
 
-		// Without the API, no reconciliation repeats for the policies.
+		// Without the API, no reconciliation repeats for the policies, nor
+		// for a ServiceMonitor whose API is missing too.
 		r.skipAdmissionPolicies = true
+		r.serviceMonitorSynced.Store(0)
+		r.serviceMonitorMissing.Store(time.Now().UnixNano())
 
 		res, err = r.Reconcile(t.Context(), request)
 		require.NoError(t, err)
@@ -754,6 +759,91 @@ func TestReconcileRestoresDefaultProfile(t *testing.T) {
 	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
 }
 
+// A changed webhook service gets restored on its own, without the update of
+// the DaemonSet and the other operands, which would set the SPOD to Updating.
+func TestReconcileRestoresWebhookServiceWithoutUpdate(t *testing.T) {
+	t.Parallel()
+
+	r, cl, _ := newReconcileTest(t, testSPOD(), &interceptor.Funcs{})
+	reconcileUntilRunning(t, r, cl)
+
+	key := types.NamespacedName{Name: "webhook-service", Namespace: testNamespace}
+	service := &corev1.Service{}
+	require.NoError(t, cl.Get(t.Context(), key, service))
+
+	selector := maps.Clone(service.Spec.Selector)
+	service.Spec.Selector["other"] = "selector"
+	service.Spec.Type = corev1.ServiceTypeExternalName
+	service.Spec.ExternalName = "example.org"
+	require.NoError(t, cl.Update(t.Context(), service))
+
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+
+	require.NoError(t, cl.Get(t.Context(), key, service))
+	require.Equal(t, selector, service.Spec.Selector)
+	require.Equal(t, corev1.ServiceTypeClusterIP, service.Spec.Type)
+	require.Empty(t, service.Spec.ExternalName)
+}
+
+// Without the admission policies, the reconciliation only repeats for the
+// ServiceMonitor once it got patched. If its API gets installed after the
+// operator started, serviceMonitorWatcher marks it served and reconciles the
+// SPODs, which patches it and starts the resync, also when that
+// reconciliation updates the operands.
+func TestReconcileResyncsServiceMonitorWithoutAdmissionPolicies(t *testing.T) {
+	t.Parallel()
+
+	request := reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
+	}
+	monitorKey := types.NamespacedName{
+		Name: "security-profiles-operator-monitor", Namespace: testNamespace,
+	}
+
+	for _, update := range []bool{false, true} {
+		t.Run(fmt.Sprintf("update=%v", update), func(t *testing.T) {
+			t.Parallel()
+
+			r, cl, _ := newReconcileTest(t, testSPOD(), &interceptor.Funcs{})
+			r.skipAdmissionPolicies = true
+			r.serviceMonitorMissing.Store(time.Now().UnixNano())
+
+			reconcileUntilRunning(t, r, cl)
+
+			res, err := r.Reconcile(t.Context(), request)
+			require.NoError(t, err)
+			require.Zero(t, res)
+
+			// The creation of the SPOD created the ServiceMonitor already,
+			// so it gets deleted to tell whether the reconciliation writes
+			// it.
+			monitor := &monitoringv1.ServiceMonitor{}
+			require.NoError(t, cl.Get(t.Context(), monitorKey, monitor))
+			require.NoError(t, cl.Delete(t.Context(), monitor))
+
+			if update {
+				spod := &spodapi.SecurityProfilesOperatorDaemon{}
+				require.NoError(t, cl.Get(t.Context(), request.NamespacedName, spod))
+				spod.Spec.Verbosity = 1
+				require.NoError(t, cl.Update(t.Context(), spod))
+			}
+
+			// What serviceMonitorWatcher does once the API is served.
+			r.serviceMonitorMissing.Store(0)
+
+			res, err = r.Reconcile(t.Context(), request)
+			require.NoError(t, err)
+			require.Equal(t, reconcile.Result{RequeueAfter: serviceMonitorResync}, res)
+			require.NoError(t, cl.Get(t.Context(), monitorKey, monitor))
+
+			if update {
+				require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+			}
+		})
+	}
+}
+
 func TestDeletedWithName(t *testing.T) {
 	t.Parallel()
 
@@ -818,7 +908,7 @@ func TestEnsureServiceMonitorRetriesMissingAPI(t *testing.T) {
 	}}
 
 	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor))
-	require.False(t, r.serviceMonitorSynced.Load())
+	require.Zero(t, r.serviceMonitorSynced.Load())
 	require.Equal(t, 1, patches)
 
 	installed = true
@@ -831,7 +921,21 @@ func TestEnsureServiceMonitorRetriesMissingAPI(t *testing.T) {
 
 	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor))
 	require.Equal(t, 2, patches)
-	require.True(t, r.serviceMonitorSynced.Load())
+	require.NotZero(t, r.serviceMonitorSynced.Load())
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(monitor), monitor))
+
+	// A deleted ServiceMonitor gets created again after the resync.
+	require.NoError(t, cl.Delete(t.Context(), monitor))
+	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor.DeepCopy()))
+	require.Equal(t, 2, patches)
+
+	r.serviceMonitorSynced.Store(time.Now().Add(-serviceMonitorResync).UnixNano())
+
+	monitor = &monitoringv1.ServiceMonitor{ObjectMeta: metav1.ObjectMeta{
+		Name: "monitor", Namespace: testNamespace,
+	}}
+	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor))
+	require.Equal(t, 3, patches)
 	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(monitor), monitor))
 }
 

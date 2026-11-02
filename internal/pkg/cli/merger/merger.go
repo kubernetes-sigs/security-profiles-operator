@@ -18,15 +18,20 @@ package merger
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"reflect"
+	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
@@ -91,6 +96,18 @@ func (p *Merger) Run() error {
 		}
 	}
 
+	// The merged profile takes these fields from the base profile. Which one
+	// is more permissive depends on the values, so they only get warned
+	// about, and do not change the result of the check.
+	for i := 1; i < len(contents); i++ {
+		for _, field := range differingKeptFields(contents[0], contents[i]) {
+			log.Printf(
+				"WARNING: %s: the %s differs from the one of %s, which the merged profile keeps",
+				p.options.inputFiles[i], field, p.options.inputFiles[0],
+			)
+		}
+	}
+
 	baseProfile, ok := contents[0].DeepCopyObject().(client.Object)
 	if !ok {
 		return fmt.Errorf("base profile %T is not a client.Object", contents[0])
@@ -135,4 +152,104 @@ func (p *Merger) Run() error {
 	}
 
 	return nil
+}
+
+// differingKeptFields returns the fields which the merged profile takes from
+// the base profile instead of merging them, and which differ in the other
+// profile. The unset fields count with their defaults.
+func differingKeptFields(base, other client.Object) []string {
+	var fields []string
+
+	differs := func(field string, b, o any) {
+		if !reflect.DeepEqual(b, o) {
+			fields = append(fields, field)
+		}
+	}
+
+	switch b := base.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		if o, ok := other.(*seccompprofileapi.SeccompProfile); ok {
+			differs("state", specState(b.Spec.State), specState(o.Spec.State))
+			differs("defaultAction", b.Spec.DefaultAction, o.Spec.DefaultAction)
+			differs("baseProfileName", b.Spec.BaseProfileName, o.Spec.BaseProfileName)
+			differs("flags", seccompFlags(b), seccompFlags(o))
+			differs("listenerPath", b.Spec.ListenerPath, o.Spec.ListenerPath)
+			differs("listenerMetadata", b.Spec.ListenerMetadata, o.Spec.ListenerMetadata)
+		}
+	case *apparmorprofileapi.AppArmorProfile:
+		if o, ok := other.(*apparmorprofileapi.AppArmorProfile); ok {
+			differs("state", specState(b.Spec.State), specState(o.Spec.State))
+			differs("mode", appArmorMode(b), appArmorMode(o))
+		}
+	case *selinuxprofileapi.SelinuxProfile:
+		if o, ok := other.(*selinuxprofileapi.SelinuxProfile); ok {
+			differs("state", specState(b.Spec.State), specState(o.Spec.State))
+			differs("mode", selinuxMode(b), selinuxMode(o))
+			differs("inherit", selinuxInherit(b), selinuxInherit(o))
+		}
+	}
+
+	return fields
+}
+
+// specState returns the state of a profile, which defaults to Enabled.
+func specState(state profilebaseapi.SpecState) profilebaseapi.SpecState {
+	if state == "" {
+		return profilebaseapi.SpecStateEnabled
+	}
+
+	return state
+}
+
+// seccompFlags returns the flags of the profile as a set, their order does
+// not matter.
+func seccompFlags(p *seccompprofileapi.SeccompProfile) map[seccompprofileapi.Flag]struct{} {
+	flags := make(map[seccompprofileapi.Flag]struct{}, len(p.Spec.Flags))
+	for _, flag := range p.Spec.Flags {
+		flags[flag] = struct{}{}
+	}
+
+	return flags
+}
+
+func appArmorMode(p *apparmorprofileapi.AppArmorProfile) apparmorprofileapi.AppArmorMode {
+	if p.Spec.Mode == "" {
+		return apparmorprofileapi.AppArmorModeEnforce
+	}
+
+	return p.Spec.Mode
+}
+
+func selinuxMode(p *selinuxprofileapi.SelinuxProfile) selinuxprofileapi.SelinuxMode {
+	if p.Spec.Mode == "" {
+		return selinuxprofileapi.SelinuxModeEnforcing
+	}
+
+	return p.Spec.Mode
+}
+
+// selinuxInherit returns the inherited policies of the profile sorted and
+// without duplicates, their order has no effect on the policy.
+func selinuxInherit(p *selinuxprofileapi.SelinuxProfile) []selinuxprofileapi.PolicyRef {
+	if len(p.Spec.Inherit) == 0 {
+		return []selinuxprofileapi.PolicyRef{{
+			Kind: selinuxprofileapi.SystemPolicyKind, Name: "container",
+		}}
+	}
+
+	inherit := make([]selinuxprofileapi.PolicyRef, 0, len(p.Spec.Inherit))
+
+	for _, ref := range p.Spec.Inherit {
+		if ref.Kind == "" {
+			ref.Kind = selinuxprofileapi.SystemPolicyKind
+		}
+
+		inherit = append(inherit, ref)
+	}
+
+	slices.SortFunc(inherit, func(a, b selinuxprofileapi.PolicyRef) int {
+		return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Name, b.Name))
+	})
+
+	return slices.Compact(inherit)
 }

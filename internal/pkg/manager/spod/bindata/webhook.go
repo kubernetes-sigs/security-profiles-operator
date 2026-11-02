@@ -942,8 +942,9 @@ func (w *Webhook) validatingConfigNeedsUpdate(ctx context.Context, c client.Clie
 	return false, nil
 }
 
-// workloadNeedsUpdate returns true if the webhook deployment differs from the
-// configured one, or if the service is missing.
+// workloadNeedsUpdate returns true if the webhook deployment or pod
+// disruption budget is missing or differs from the configured one. The
+// service gets repaired on its own, see UpdateService.
 func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
 	existingDeployment := &appsv1.Deployment{}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(w.deployment), existingDeployment); err != nil {
@@ -961,24 +962,14 @@ func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (boo
 	}
 
 	existingPDB := &policyv1.PodDisruptionBudget{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(w.pdb), existingPDB); err != nil {
+		if errors.IsNotFound(err) {
+			w.log.V(1).Info("creating missing webhook pod disruption budget")
 
-	for _, o := range []struct {
-		key client.ObjectKey
-		obj client.Object
-	}{
-		{client.ObjectKeyFromObject(w.service), &corev1.Service{}},
-		{client.ObjectKeyFromObject(w.pdb), existingPDB},
-	} {
-		key := o.key
-		if err := c.Get(ctx, key, o.obj); err != nil {
-			if errors.IsNotFound(err) {
-				w.log.V(1).Info("creating missing webhook object", "name", key.Name)
-
-				return true, nil
-			}
-
-			return false, fmt.Errorf("getting webhook object %s: %w", key.Name, err)
+			return true, nil
 		}
+
+		return false, fmt.Errorf("getting webhook pod disruption budget: %w", err)
 	}
 
 	if !apiequality.Semantic.DeepEqual(existingPDB.Spec.MinAvailable, w.pdb.Spec.MinAvailable) ||
@@ -1226,6 +1217,12 @@ func normalizeSelector(selector *metav1.LabelSelector) *metav1.LabelSelector {
 	return res
 }
 
+// UpdateService repairs the webhook service, if it is missing or got changed,
+// without the update of the other webhook objects, see UpdateService.
+func (w *Webhook) UpdateService(ctx context.Context, c client.Client) error {
+	return UpdateService(ctx, c, w.log, w.service)
+}
+
 // Update updates the webhook objects, and creates the ones which are missing.
 func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 	for k, o := range w.objects() {
@@ -1239,8 +1236,11 @@ func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 
 // update writes the configured object and creates it if it does not exist.
 func (w *Webhook) update(ctx context.Context, c client.Client, obj client.Object) error {
-	if deployment, ok := obj.(*appsv1.Deployment); ok {
-		return updateDeployment(ctx, c, deployment)
+	switch o := obj.(type) {
+	case *appsv1.Deployment:
+		return updateDeployment(ctx, c, o)
+	case *corev1.Service:
+		return UpdateService(ctx, c, w.log, o)
 	}
 
 	if err := keepCABundles(ctx, c, obj); err != nil {
@@ -1257,12 +1257,15 @@ func (w *Webhook) update(ctx context.Context, c client.Client, obj client.Object
 
 // updateDeployment replaces the spec of the webhook deployment. A JSON merge
 // patch would keep fields which got cleared in the configuration, like the
-// tolerations or the image pull secrets.
+// tolerations or the image pull secrets. A deployment which the cache does
+// not know yet, but which exists, like right after the creation of the SPOD
+// created it, is a conflict, which the reconciliation retries once the cache
+// caught up.
 func updateDeployment(ctx context.Context, c client.Client, configured *appsv1.Deployment) error {
 	found := &appsv1.Deployment{}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(configured), found); err != nil {
 		if errors.IsNotFound(err) {
-			return c.Create(ctx, configured)
+			return createOrConflict(ctx, c, configured, appsv1.Resource("deployments"))
 		}
 
 		return fmt.Errorf("getting deployment: %w", err)

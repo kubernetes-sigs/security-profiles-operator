@@ -61,6 +61,8 @@ func FuzzGetPodExecPatch(f *testing.F) {
 		`{"command":["env","-i","` + config.ExecRequestUIDEnvKey + `=x","sh"]}`,
 		`{"command":["env","A=1","env","-u","` + config.ExecRequestUIDEnvKey + `","sh"]}`,
 		`{"command":["/usr/bin/env","--","-i"]}`,
+		`{"command":["env","--unset"]}`,
+		`{"command":["env","--chdir"]}`,
 		`{"command":["env","-S","` + config.ExecRequestUIDEnvKey + `=x sh"]}`,
 		`{"command":[]}`,
 		`{"command":null}`,

@@ -52,7 +52,8 @@ func Flags() []ucli.Flag {
 			Name:    FlagCheck,
 			Aliases: []string{"c"},
 			Usage: "do not write an output file, " +
-				"but exit with an error if the first profile is not a superset of all others",
+				"but exit with an error if the rules of the first profile are not a superset " +
+				"of the rules of all others",
 		},
 	}
 }

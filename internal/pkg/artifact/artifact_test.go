@@ -1405,7 +1405,7 @@ func TestRuntimeSpecSeccompProfileSpec(t *testing.T) {
 		}}
 
 		runtimeSpec, isRuntimeSpec, err := sut.runtimeSpecSeccompProfile(
-			[]byte(rawSeccompArgJSON),
+			[]byte(rawSeccompArgJSON), "profile.json",
 		)
 		require.NoError(t, err)
 		require.True(t, isRuntimeSpec)
@@ -1415,6 +1415,45 @@ func TestRuntimeSpecSeccompProfileSpec(t *testing.T) {
 		require.ErrorIs(t, specErr, ErrCRDConversion)
 		require.Nil(t, spec)
 	})
+}
+
+// TestRuntimeSpecSeccompProfileUnknownFields verifies that push warns about
+// the fields of a profile CRD which this version does not know, and still
+// publishes it.
+func TestRuntimeSpecSeccompProfileUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		content string
+		warns   bool
+	}{
+		"known fields":     {content: profileCRDYAML + "spec:\n  defaultAction: SCMP_ACT_ERRNO\n"},
+		"misspelled field": {content: profileCRDYAML + "spec:\n  defaultActon: SCMP_ACT_ERRNO\n", warns: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			logs := &bytes.Buffer{}
+			sut := New(funcr.New(func(_, args string) {
+				logs.WriteString(args + "\n")
+			}, funcr.Options{}))
+
+			runtimeSpec, isRuntimeSpec, err := sut.runtimeSpecSeccompProfile(
+				[]byte(tc.content), "profile.yaml",
+			)
+			require.NoError(t, err)
+			require.False(t, isRuntimeSpec)
+			require.Nil(t, runtimeSpec)
+
+			if tc.warns {
+				require.Contains(t, logs.String(), "fields this version does not know")
+				require.Contains(t, logs.String(), "defaultActon")
+				require.Contains(t, logs.String(), "profile.yaml")
+			} else {
+				require.Empty(t, logs.String())
+			}
+		})
+	}
 }
 
 func TestPullResultValuesTheCRDCannotHold(t *testing.T) {

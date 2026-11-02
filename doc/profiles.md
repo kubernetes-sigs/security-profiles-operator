@@ -266,7 +266,10 @@ of anybody who signs it keyless through the public Sigstore instance. The
 signature then only proves that the artifact was signed, not who signed it.
 Unlike `signatureVerification`, the regexps apply to the official base profiles
 too once either of them differs from `.*`, so the official base profiles then
-fail to verify unless the regexps also match the official signers. Pin the
+fail to verify unless the regexps also match the official signers. The
+regexps are not anchored: they accept an identity or issuer which contains a
+match, so `@my-org\.com` also accepts `x@my-org.com.example.org`. Anchor them
+with `^` and `$`, like `^ci@my-org\.com$`, to match the whole value. Pin the
 signer of your private base profiles with the `signatureVerification` settings
 below instead, for example to the workflow which signs them:
 
@@ -595,15 +598,19 @@ policy does not declare a block itself and its process type is
 udica generates come wrapped in a `(block <name> ...)`: remove that outer
 block and keep its content.
 
-A raw policy may only inherit the container templates of udica, for example
-with `(blockinherit container)` or `(blockinherit net_container)`. Statements
-which change the policy of the whole node are rejected, among them `block`,
-`blockstart`, `optional`, `typepermissive`, `booleanif`, `tunable`, the
-labeling statements like `filecon`, `portcon` and `genfscon`, and the
-declarations of classes, roles, users, sensitivities and categories. The
+A raw policy may only inherit the container templates of udica, for example with
+`(blockinherit container)` or `(blockinherit net_container)`. A list of
+statements which change the policy of the whole node is rejected, among them
+`block`, `blockstart`, `optional`, `typepermissive`, `booleanif`, `tunable`,
+`tunableif`, `policycap`, the labeling statements `filecon`, `portcon`,
+`genfscon`, `netifcon` and `nodecon`, the `sid`, `sidcontext`, `sidorder` and
+`context` statements, and the declarations of classes and class maps, roles,
+users, sensitivities, categories and MLS levels, and `mls` and `dominance`. The
 `rawselinuxprofile-validation.spo.io` webhook rejects such policies when they
 are created or updated, and the daemon checks them again before it installs
-them.
+them. Not every statement with an effect on the whole node is rejected:
+`fsuse`, the device labeling statements, `constrain`, `validatetrans` and the
+`default*` statements, among others, are accepted.
 
 The statements may still refer to global types, attributes and blocks: allow
 rules for global types like `container_t`, `typeattributeset` and `in`
@@ -1111,7 +1118,9 @@ globs.
 Entries of the form `ptrace (read),` in the path lists of `filesystem` or
 `executable` are deprecated and will be removed in a future API version. They
 are still accepted and rendered as ptrace rules for every peer, and the daemon
-logs a warning for them. Use `ptrace` instead:
+logs a warning for them. Their access is one of `r`, `w`, `rw`, `read`,
+`readby`, `trace` and `tracedby`, in any case, other accesses are rejected.
+Use `ptrace` instead:
 
 ```yaml
 spec:

@@ -67,6 +67,9 @@ const (
 	// while its API is missing, as every attempt costs a discovery request,
 	// and how often serviceMonitorWatcher checks for the API.
 	serviceMonitorRetry = 5 * time.Minute
+	// serviceMonitorResync is the time after which the ServiceMonitor gets
+	// patched again, which recreates a deleted one, see ensureServiceMonitor.
+	serviceMonitorResync = 10 * time.Minute
 
 	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
@@ -111,9 +114,9 @@ var _ reconcile.Reconciler = &ReconcileSPOd{}
 
 // ReconcileSPOd reconciles the SPOD and its operands, like the SPOd DaemonSet.
 type ReconcileSPOd struct {
-	// serviceMonitorSynced is set once the ServiceMonitor got patched by this
-	// process, see ensureServiceMonitor.
-	serviceMonitorSynced atomic.Bool
+	// serviceMonitorSynced is the time in Unix nanoseconds when this process
+	// last patched the ServiceMonitor, see ensureServiceMonitor.
+	serviceMonitorSynced atomic.Int64
 	// serviceMonitorMissing is the time in Unix nanoseconds of the last
 	// attempt which found the ServiceMonitor API missing.
 	serviceMonitorMissing atomic.Int64
@@ -332,14 +335,27 @@ func (r *ReconcileSPOd) Reconcile(
 		return reconcile.Result{}, err
 	}
 
-	// Nothing watches the spod admission policies, so the reconciliation
-	// repeats to create deleted ones again, see bindata.SpodAdmissionPolicies.
-	// Like any reconciliation, it only changes operands which differ.
+	return reconcile.Result{RequeueAfter: r.resyncInterval()}, nil
+}
+
+// resyncInterval returns the time after which the SPOD gets reconciled again
+// to create the deleted operands which nothing watches, or zero if there are
+// none: the spod admission policies, see bindata.SpodAdmissionPolicies, and
+// the ServiceMonitor once it got patched, see ensureServiceMonitor. Without
+// its API, serviceMonitorWatcher reconciles the SPODs once it gets installed.
+// Like any reconciliation, the next one only changes operands which differ.
+func (r *ReconcileSPOd) resyncInterval() time.Duration {
+	var interval time.Duration
+
 	if !r.skipAdmissionPolicies && r.spodPolicies != nil {
-		return reconcile.Result{RequeueAfter: bindata.SpodPolicyResync}, nil
+		interval = bindata.SpodPolicyResync
 	}
 
-	return reconcile.Result{}, nil
+	if r.serviceMonitorSynced.Load() != 0 && (interval == 0 || serviceMonitorResync < interval) {
+		interval = serviceMonitorResync
+	}
+
+	return interval
 }
 
 // statusResult turns the error of a status write which ends the reconcile
@@ -520,9 +536,16 @@ func (r *ReconcileSPOd) reconcileOperands(
 		return r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
-	// An update patches the metrics service anyway.
-	if err := r.ensureMetricsService(ctx, spod, ops.metricsService); err != nil {
-		return err
+	// An update patches the metrics service and the webhook service anyway.
+	// The SPOD owns the metrics service, so that its deletion is noticed.
+	if err := bindata.UpdateService(ctx, r.client, r.log, ops.metricsService); err != nil {
+		return fmt.Errorf("updating metrics service: %w", err)
+	}
+
+	if !ptr.Deref(spod.Spec.Webhook.StaticConfig, false) {
+		if err := ops.webhook.UpdateService(ctx, r.client); err != nil {
+			return fmt.Errorf("updating webhook service: %w", err)
+		}
 	}
 
 	// An update patches the ServiceMonitor anyway.
@@ -573,49 +596,16 @@ func daemonSetRolledOut(ds *appsv1.DaemonSet) bool {
 		status.NumberReady == status.DesiredNumberScheduled
 }
 
-// ensureMetricsService creates the metrics service if it is missing, for
-// example because it got deleted, and makes the SPOD its owner, so that its
-// deletion is noticed.
-func (r *ReconcileSPOd) ensureMetricsService(
-	ctx context.Context,
-	spod *spodapi.SecurityProfilesOperatorDaemon,
-	metricsService *corev1.Service,
-) error {
-	found := &corev1.Service{}
-
-	err := r.client.Get(ctx, client.ObjectKeyFromObject(metricsService), found)
-	if errors.IsNotFound(err) {
-		r.log.Info("Creating missing metrics service")
-
-		if err := r.client.Create(ctx, metricsService.DeepCopy()); err != nil &&
-			!errors.IsAlreadyExists(err) {
-			return fmt.Errorf("creating metrics service: %w", err)
-		}
-
-		return nil
-	}
-
-	if err != nil {
-		return fmt.Errorf("getting metrics service: %w", err)
-	}
-
-	if !metav1.IsControlledBy(found, spod) {
-		if err := r.client.Patch(ctx, metricsService.DeepCopy(), client.Merge); err != nil {
-			return fmt.Errorf("updating metrics service owner: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// ensureServiceMonitor patches the ServiceMonitor once per operator process.
-// The operator may not read it, so it cannot tell whether it is current, and
-// an upgrade which changes neither the DaemonSet nor the webhook would keep
-// the one of the previous version otherwise.
+// ensureServiceMonitor patches the ServiceMonitor once per operator process,
+// and again serviceMonitorResync later, which recreates it if it got
+// deleted. The operator may not read it, so it cannot tell whether it is
+// current, and an upgrade which changes neither the DaemonSet nor the webhook
+// would keep the one of the previous version otherwise.
 func (r *ReconcileSPOd) ensureServiceMonitor(
 	ctx context.Context, serviceMonitor *monitoringv1.ServiceMonitor,
 ) error {
-	if r.serviceMonitorSynced.Load() {
+	if synced := r.serviceMonitorSynced.Load(); synced != 0 &&
+		time.Since(time.Unix(0, synced)) < serviceMonitorResync {
 		return nil
 	}
 
@@ -637,7 +627,7 @@ func (r *ReconcileSPOd) ensureServiceMonitor(
 		return fmt.Errorf("updating service monitor: %w", err)
 	}
 
-	r.serviceMonitorSynced.Store(true)
+	r.serviceMonitorSynced.Store(time.Now().UnixNano())
 
 	return nil
 }
@@ -1092,7 +1082,7 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	r.log.Info("Updating metrics service")
 
-	if err := patchOrCreate(ctx, r.client, ops.metricsService); err != nil {
+	if err := bindata.UpdateService(ctx, r.client, r.log, ops.metricsService); err != nil {
 		return fmt.Errorf("updating metrics service: %w", err)
 	}
 
@@ -1104,6 +1094,9 @@ func (r *ReconcileSPOd) handleUpdate(
 		} else {
 			return fmt.Errorf("updating service monitor: %w", err)
 		}
+	} else {
+		// Like ensureServiceMonitor, so that the resync starts.
+		r.serviceMonitorSynced.Store(time.Now().UnixNano())
 	}
 
 	return nil

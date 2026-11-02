@@ -56,6 +56,20 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 		{
+			name: "success with the oci:// prefix",
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
+				require.NoError(t, set.Parse([]string{"oci://registry.example.com/profiles/crun:v1"}))
+			},
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				require.Equal(t, "registry.example.com/profiles/crun:v1", options.image)
+			},
+		},
+		{
 			name: "success with flags",
 			prepare: func(t *testing.T, set *flag.FlagSet) {
 				t.Helper()

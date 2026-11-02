@@ -216,7 +216,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		return nil, errors.New("no remote image provided")
 	}
 
-	options.pullFrom = args[0]
+	options.pullFrom = cli.RegistryReference(args[0])
 	cli.WarnExtraArgs(args, 1)
 
 	if ctx.IsSet(FlagOutputFile) {

@@ -675,10 +675,15 @@ controlling a different enricher:
 - `jsonEnricherFilters` applies to the
   [JSON enricher](audit-logging-guide.md).
 
-Both fields are limited to 64 KiB. An enricher whose filters are not valid
-JSON fails to start, so check the logs of its container after changing them.
-For example, to enable the log enricher with an empty filter list (no custom
-filtering):
+Both fields are limited to 65536 characters. Each gets passed as a single
+command line argument, which the kernel limits to 32 pages, so the limit in
+bytes depends on the page size of the node. A filter of more than 131047 bytes,
+for example one with many characters outside of ASCII, keeps the enricher
+container from starting with `argument list too long` on nodes with 4 KiB pages.
+Nodes with larger pages accept more. An enricher whose filters are not valid
+JSON fails to start as well, so check the status and the logs of its container
+after changing them. For example, to enable the log enricher with an empty
+filter list (no custom filtering):
 
 ```shell
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherFilters":"[]"}}}'

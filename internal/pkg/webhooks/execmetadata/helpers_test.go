@@ -246,6 +246,16 @@ func TestSetExecRequestUID(t *testing.T) {
 			in:   []string{"env", "-u"},
 			want: []string{"env", repl, "env", "-u"},
 		},
+		{
+			name: "missing long unset argument",
+			in:   []string{"env", "--unset"},
+			want: []string{"env", repl, "env", "--unset"},
+		},
+		{
+			name: "missing long chdir argument",
+			in:   []string{"env", "--chdir"},
+			want: []string{"env", repl, "env", "--chdir"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

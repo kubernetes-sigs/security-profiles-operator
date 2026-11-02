@@ -40,8 +40,8 @@ type AppArmorExecutablesRules struct {
 	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
-	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables and other ptrace accesses never loaded
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\((?:[rR][wW]?|[wW]|[rR][eE][aA][dD](?:[bB][yY])?|[tT][rR][aA][cC][eE](?:[dD][bB][yY])?)\),(?:\s*#.*)?)$`
 	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
 	// allowedLibraries is a list of allowed libraries.
 	// Entries of the form "ptrace (read)," are deprecated: use
@@ -49,8 +49,8 @@ type AppArmorExecutablesRules struct {
 	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
-	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables and other ptrace accesses never loaded
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\((?:[rR][wW]?|[wW]|[rR][eE][aA][dD](?:[bB][yY])?|[tT][rR][aA][cC][eE](?:[dD][bB][yY])?)\),(?:\s*#.*)?)$`
 	AllowedLibraries []string `json:"allowedLibraries,omitempty"`
 }
 
@@ -62,8 +62,8 @@ type AppArmorFsRules struct {
 	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
-	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables and other ptrace accesses never loaded
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\((?:[rR][wW]?|[wW]|[rR][eE][aA][dD](?:[bB][yY])?|[tT][rR][aA][cC][eE](?:[dD][bB][yY])?)\),(?:\s*#.*)?)$`
 	ReadOnlyPaths []string `json:"readOnlyPaths,omitempty"`
 	// writeOnlyPaths is a list of allowed write only file paths.
 	// Entries of the form "ptrace (read)," are deprecated: use
@@ -71,8 +71,8 @@ type AppArmorFsRules struct {
 	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
-	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables and other ptrace accesses never loaded
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\((?:[rR][wW]?|[wW]|[rR][eE][aA][dD](?:[bB][yY])?|[tT][rR][aA][cC][eE](?:[dD][bB][yY])?)\),(?:\s*#.*)?)$`
 	WriteOnlyPaths []string `json:"writeOnlyPaths,omitempty"`
 	// readWritePaths is a list of allowed read write file paths.
 	// Entries of the form "ptrace (read)," are deprecated: use
@@ -80,8 +80,8 @@ type AppArmorFsRules struct {
 	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
-	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables and other ptrace accesses never loaded
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\((?:[rR][wW]?|[wW]|[rR][eE][aA][dD](?:[bB][yY])?|[tT][rR][aA][cC][eE](?:[dD][bB][yY])?)\),(?:\s*#.*)?)$`
 	ReadWritePaths []string `json:"readWritePaths,omitempty"`
 }
 

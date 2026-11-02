@@ -104,7 +104,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		return nil, errors.New("no remote location provided")
 	}
 
-	options.pushTo = args[0]
+	options.pushTo = cli.RegistryReference(args[0])
 	cli.WarnExtraArgs(args, 1)
 
 	inputFiles, err := inputFiles(ctx.StringSlice(FlagProfiles), ctx.StringSlice(FlagPlatforms))

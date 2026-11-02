@@ -26,7 +26,6 @@ import (
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 // setRepoCredentials configures the registry authentication of the
@@ -71,7 +70,7 @@ func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, passwor
 	}
 
 	repo.Client = &auth.Client{
-		Client:     retry.DefaultClient,
+		Client:     HTTPClient(),
 		Cache:      auth.DefaultCache,
 		Credential: credential,
 	}

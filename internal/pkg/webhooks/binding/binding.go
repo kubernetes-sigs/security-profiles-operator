@@ -920,18 +920,7 @@ func (p *podBinder) getProfile(
 			defer cancel()
 		}
 
-		backoff := p.budget.newBackoff()
-
-		switch profileKind {
-		case profilebindingapi.ProfileBindingKindSeccompProfile:
-			return lookupProfile(lookupCtx, key, retry, backoff, p.GetSeccompProfile)
-		case profilebindingapi.ProfileBindingKindSelinuxProfile:
-			return lookupProfile(lookupCtx, key, retry, backoff, p.GetSelinuxProfile)
-		case profilebindingapi.ProfileBindingKindAppArmorProfile:
-			return lookupProfile(lookupCtx, key, retry, backoff, p.GetAppArmorProfile)
-		default:
-			return nil, errUnsupportedKind
-		}
+		return p.lookupProfileOfKind(lookupCtx, profileKind, key, retry)
 	}
 
 	missingKey := missingProfileKey(profileKind, key.Name)
@@ -1259,6 +1248,30 @@ func retryProfileLookup(
 			return err
 		case <-timer.C:
 		}
+	}
+}
+
+// lookupProfileOfKind looks up the profile of the kind and the key with
+// lookupProfile, see there. It returns errUnsupportedKind for a kind which no
+// profile has, so that the mutating webhook and the validation of image
+// updates agree on the kinds.
+func (p *podBinder) lookupProfileOfKind(
+	ctx context.Context,
+	kind profilebindingapi.ProfileBindingKind,
+	key types.NamespacedName,
+	retry bool,
+) (any, error) {
+	backoff := p.budget.newBackoff()
+
+	switch kind {
+	case profilebindingapi.ProfileBindingKindSeccompProfile:
+		return lookupProfile(ctx, key, retry, backoff, p.GetSeccompProfile)
+	case profilebindingapi.ProfileBindingKindSelinuxProfile:
+		return lookupProfile(ctx, key, retry, backoff, p.GetSelinuxProfile)
+	case profilebindingapi.ProfileBindingKindAppArmorProfile:
+		return lookupProfile(ctx, key, retry, backoff, p.GetAppArmorProfile)
+	default:
+		return nil, errUnsupportedKind
 	}
 }
 

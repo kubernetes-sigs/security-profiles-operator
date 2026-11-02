@@ -59,7 +59,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		return nil, errors.New("too many arguments, sign one image at a time")
 	}
 
-	options.image = args[0]
+	options.image = cli.RegistryReference(args[0])
 
 	username, password, err := cli.RegistryCredentials(ctx, os.Stdin, os.Getenv)
 	if err != nil {

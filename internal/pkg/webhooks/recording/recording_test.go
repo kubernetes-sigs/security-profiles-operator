@@ -1092,6 +1092,8 @@ func TestHandleSkipsBoundContainers(t *testing.T) {
 		// pod is the created pod, the test pod if unset.
 		pod    *corev1.Pod
 		dryRun bool
+		// also is a second recording of the pod.
+		also *profilerecordingapi.ProfileRecordingSpec
 	}{
 		{
 			name:     "logs recording removes the annotation of the author on a bound container",
@@ -1197,20 +1199,45 @@ func TestHandleSkipsBoundContainers(t *testing.T) {
 			},
 			recorded: []string{"bound", "other"},
 		},
+		{
+			name:     "logs recording only skips the containers of applied bindings",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", "other-image", profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			unapplied: []profilebindingapi.ProfileBinding{
+				binding("unapplied", profilebindingapi.SelectAllContainersImage,
+					profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			recorded: []string{"bound"},
+			warnings: 1,
+		},
+		{
+			// The logs recording, which comes first, lists the bindings,
+			// which the bpf recording of the bound kind must not skip
+			// containers for.
+			name:     "bpf recording records bound containers next to a logs recording",
+			kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			bindings: []profilebindingapi.ProfileBinding{
+				binding("seccomp", profilebindingapi.SelectAllContainersImage,
+					profilebindingapi.ProfileBindingKindSeccompProfile),
+			},
+			also: &profilerecordingapi.ProfileRecordingSpec{
+				Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				Recorder:    profilerecordingapi.ProfileRecorderBpf,
+				PodSelector: selectAll,
+			},
+			recorded: []string{"bound", "bound", "other", "other"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			mock := &recordingfakes.FakeImpl{}
 			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
-				Items: []profilerecordingapi.ProfileRecording{{
-					ObjectMeta: metav1.ObjectMeta{Name: "rec"},
-					Spec: profilerecordingapi.ProfileRecordingSpec{
-						Kind:        tc.kind,
-						Recorder:    tc.recorder,
-						PodSelector: selectAll,
-					},
-				}},
+				Items: boundTestRecordings(tc.kind, tc.recorder, tc.also),
 			}, nil)
 			mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 				Items: slices.Concat(tc.bindings, tc.unapplied),
@@ -1281,6 +1308,33 @@ func TestHandleSkipsBoundContainers(t *testing.T) {
 			require.ElementsMatch(t, tc.recorded, recorded)
 		})
 	}
+}
+
+// boundTestRecordings returns the recording of TestHandleSkipsBoundContainers,
+// and the second one with also, if it is set.
+func boundTestRecordings(
+	kind profilerecordingapi.ProfileRecordingKind,
+	recorder profilerecordingapi.ProfileRecorder,
+	also *profilerecordingapi.ProfileRecordingSpec,
+) []profilerecordingapi.ProfileRecording {
+	recordings := []profilerecordingapi.ProfileRecording{{
+		ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+		Spec: profilerecordingapi.ProfileRecordingSpec{
+			Kind:        kind,
+			Recorder:    recorder,
+			PodSelector: selectAll,
+		},
+	}}
+
+	if also != nil {
+		// Named to come after the first one, see Handle.
+		recordings = append(recordings, profilerecordingapi.ProfileRecording{
+			ObjectMeta: metav1.ObjectMeta{Name: "rec2"},
+			Spec:       *also,
+		})
+	}
+
+	return recordings
 }
 
 // The webhook gets invoked again on its own output if another webhook changed

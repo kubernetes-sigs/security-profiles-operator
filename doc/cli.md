@@ -228,20 +228,25 @@ chmod: changing permissions of 'profile-chmod.json': Operation not permitted
 
 `spoc merge` combines multiple seccomp, SELinux or AppArmor profile CRDs of the
 same kind into one profile. Permissions are additive, and for AppArmor the
-first profile may additionally contain glob paths:
+first profile may additionally contain glob paths. The merged profile keeps the
+`state`, the seccomp `defaultAction`, `baseProfileName`, `flags`,
+`listenerPath` and `listenerMetadata`, the AppArmor `mode` and the SELinux
+`mode` and `inherit` of the first profile. `spoc merge` logs a warning for each profile whose ones
+differ, since which value is more permissive depends on the values:
 
 ```shell
 spoc merge -o /tmp/merged.yaml /tmp/profile-a.yaml /tmp/profile-b.yaml
 ```
 
 The output defaults to `profile.yaml`. With `--check` / `-c`, no output
-file is written. Instead, `spoc merge` exits with code `1` if the first profile
-is not a superset of all others, which is useful to check whether a base
-profile is up to date, and prints the merged profile to the standard error, so
-that it can be compared with the base profile. Other failures, like an
-unreadable input file, exit with code `1` as well. The log tells both apart:
-an outdated base profile logs `Base profile needs an update.`, a failure logs
-`Unable to run: …`.
+file is written. Instead, `spoc merge` exits with code `1` if the rules of the
+first profile are not a superset of the rules of all others, which is useful to
+check whether a base profile is up to date, and prints the merged profile to
+the standard error, so that it can be compared with the base profile. The
+fields which the merged profile keeps only get the warnings above, they do not
+change the exit code. Other failures, like an unreadable input file, exit with
+code `1` as well. The log tells both apart: an outdated base profile logs
+`Base profile needs an update.`, a failure logs `Unable to run: …`.
 
 ## Convert profiles to their raw format
 
@@ -308,7 +313,9 @@ $ spoc pull registry.k8s.io/security-profiles-operator/base/runc:<version>
 
 The profile can now be found in `profile.yaml` in the current directory, or in
 `profile.json` for runtime format artifacts like the base profile above, unless
-the output file is specified with `--output-file` / `-o`. Artifacts whose
+the output file is specified with `--output-file` / `-o`. `spoc pull`,
+`spoc push` and `spoc sign` also take the reference with the `oci://` prefix of
+a `baseProfileName`, which they remove. Artifacts whose
 profile is followed by more YAML documents are rejected, since they would be
 saved along with it. New files are created with the permissions `0644` minus
 the umask, an existing file keeps its permissions. If username and password
@@ -325,8 +332,9 @@ restricted with `--allowed-identity-regexp` / `-i` (or the
 `SPOC_ALLOWED_IDENTITY_REGEXP` environment variable) and
 `--allowed-oidc-issuer-regexp` (or `SPOC_ALLOWED_OIDC_ISSUER_REGEXP`), see
 [verifying the released artifacts](verification.md) for the values of the
-official profiles. The verification can be disabled with
-`--disable-signature-verification` / `-s` (or
+official profiles. The regexps are not anchored, so anchor them with `^` and
+`$` to match the whole identity or issuer. The verification can be disabled
+with `--disable-signature-verification` / `-s` (or
 `SPOC_DISABLE_SIGNATURE_VERIFICATION`). The former names of these variables
 without the `SPOC_` prefix, `ALLOWED_IDENTITIES_REGEXP`,
 `ALLOWED_OIDC_ISSUER_REGEXP` and `DISABLE_SIGNATURE_VERIFICATION`, still work,

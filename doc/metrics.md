@@ -266,6 +266,11 @@ resource within its namespace. This monitor allows automatic metrics discovery
 within the cluster, which is pointing to the right service, TLS certificates as
 well as bearer token secret.
 
+The operator writes the `ServiceMonitor` again every 10 minutes, so a deleted
+one comes back, and so do the fields the operator sets, like
+`spec.endpoints`, after they got edited. Labels, annotations and other fields
+added to it are kept. There is no setting to turn the `ServiceMonitor` off.
+
 On OpenShift, the upstream manifests label the operator namespace with
 `openshift.io/cluster-monitoring: "true"` and let the `prometheus-k8s` service
 account of the `openshift-monitoring` namespace discover the metrics

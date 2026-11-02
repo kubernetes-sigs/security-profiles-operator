@@ -327,7 +327,7 @@ func (a *Artifact) profileEntries(
 			layerMediaType: v1.MediaTypeImageLayer,
 		}
 
-		runtimeSpec, isRuntimeSpec, err := a.runtimeSpecSeccompProfile(content)
+		runtimeSpec, isRuntimeSpec, err := a.runtimeSpecSeccompProfile(content, file)
 		if err != nil {
 			return nil, 0, fmt.Errorf("profile %s: %w", file, err)
 		}
