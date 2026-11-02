@@ -30,7 +30,6 @@ import (
 	"cloud.google.com/go/compute/metadata"
 	"github.com/sigstore/sigstore/pkg/oauthflow"
 	"golang.org/x/term"
-	"oras.land/oras-go/v2/registry/remote/retry"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 )
@@ -240,7 +239,7 @@ func githubActionsToken(ctx context.Context) (token string, ok bool, err error) 
 
 	req.Header.Set("Authorization", "bearer "+requestToken)
 
-	resp, err := retry.DefaultClient.Do(req) //nolint:gosec // see above
+	resp, err := artifact.HTTPClient().Do(req) //nolint:gosec // see above
 	if err != nil {
 		return "", false, err
 	}

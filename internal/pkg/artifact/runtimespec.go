@@ -32,12 +32,26 @@ import (
 // runtimeSpecSeccompProfile reports whether content is a raw OCI runtime-spec
 // seccomp profile and returns it if so. A profile CRD is not one, but content
 // which is neither is an error, publishing it would create an artifact no
-// consumer understands.
+// consumer understands. The fields of a profile CRD which this version does
+// not know get logged, like ReadSingleProfile does for the other commands: a
+// misspelled field would get published without a word, and the consumers
+// ignore it.
 func (a *Artifact) runtimeSpecSeccompProfile(
-	content []byte,
+	content []byte, path string,
 ) (*specs.LinuxSeccomp, bool, error) {
-	_, profileErr := a.ReadProfile(content)
+	profile, profileErr := a.ReadProfile(content)
 	if profileErr == nil {
+		if profile != nil {
+			if err := unknownFields(content, profile); err != nil {
+				a.logger.Info(
+					"WARNING: Profile has fields this version does not know, "+
+						"which the consumers ignore",
+					"file", path,
+					"error", err.Error(),
+				)
+			}
+		}
+
 		return nil, false, nil
 	}
 

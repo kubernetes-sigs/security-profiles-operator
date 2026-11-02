@@ -90,6 +90,9 @@ func (s *ConditionedStatus) SetConditions(c ...metav1.Condition) {
 
 // Equal returns true if the status is identical to the supplied status,
 // ignoring the LastTransitionTimes and order of statuses.
+//
+// Deprecated: the operator does not use it anymore, it is only kept for
+// existing callers of this package.
 func (s *ConditionedStatus) Equal(other *ConditionedStatus) bool {
 	if s == nil || other == nil {
 		return s == nil && other == nil

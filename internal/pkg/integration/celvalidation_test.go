@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -184,6 +185,47 @@ func TestSeccompProfileValidation(t *testing.T) {
 			tc.mutate(&profile.Spec)
 
 			requireCreate(t, profile, tc.wantErr)
+		})
+	}
+}
+
+// TestAppArmorProfileValidation asserts that the deprecated ptrace rules in
+// the paths only accept the accesses which the daemons install.
+func TestAppArmorProfileValidation(t *testing.T) {
+	t.Parallel()
+	requireEnv(t)
+
+	for _, tc := range []struct {
+		entry   string
+		invalid bool
+	}{
+		{entry: "/usr/bin/sleep"},
+		{entry: "ptrace (read),"},
+		{entry: "ptrace(TRACEDBY), # the peer of the profile"},
+		{entry: "ptrace (rw),"},
+		{entry: "ptrace (foo),", invalid: true},
+		{entry: "ptrace (readbyfoo),", invalid: true},
+	} {
+		t.Run(tc.entry, func(t *testing.T) {
+			t.Parallel()
+
+			profile := &apparmorprofileapi.AppArmorProfile{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "cel-apparmor-"},
+				Spec: apparmorprofileapi.AppArmorProfileSpec{
+					Abstract: apparmorprofileapi.AppArmorAbstract{
+						Filesystem: &apparmorprofileapi.AppArmorFsRules{
+							ReadOnlyPaths: []string{tc.entry},
+						},
+					},
+				},
+			}
+
+			wantErr := ""
+			if tc.invalid {
+				wantErr = "readOnlyPaths"
+			}
+
+			requireCreate(t, profile, wantErr)
 		})
 	}
 }

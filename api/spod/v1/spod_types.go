@@ -349,7 +349,12 @@ type SPODEnricherConfig struct {
 	EnableLogEnricher *bool `json:"enableLogEnricher,omitempty"`
 	// logEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the log-enricher. It is
-	// passed as a single command line argument, so it is limited to 64 KiB.
+	// passed as a single command line argument, so it is limited to 65536
+	// characters. The kernel limits a command line argument to 32 pages
+	// including the flag name and the terminating NUL, so the limit in bytes
+	// depends on the page size of the node: 131047 bytes for the filter with
+	// 4 KiB pages, more with larger pages. A longer filter keeps the
+	// enricher container from starting with "argument list too long".
 	// +optional
 	// +kubebuilder:validation:MaxLength=65536
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
@@ -367,7 +372,12 @@ type SPODEnricherConfig struct {
 	EnableJsonEnricher *bool `json:"enableJsonEnricher,omitempty"`
 	// jsonEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the json-enricher. It is
-	// passed as a single command line argument, so it is limited to 64 KiB.
+	// passed as a single command line argument, so it is limited to 65536
+	// characters. The kernel limits a command line argument to 32 pages
+	// including the flag name and the terminating NUL, so the limit in bytes
+	// depends on the page size of the node: 131047 bytes for the filter with
+	// 4 KiB pages, more with larger pages. A longer filter keeps the
+	// enricher container from starting with "argument list too long".
 	// +optional
 	// +kubebuilder:validation:MaxLength=65536
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
@@ -452,9 +462,11 @@ type SPODSecurityConfig struct {
 	// the base profiles. A profile whose defaultAction is one of the checked
 	// actions is not allowed either, because it allows every syscall, which
 	// by default applies to SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and
-	// SCMP_ACT_NOTIFY. The operator deletes the SeccompProfiles which are not
-	// allowed from the cluster as soon as the list is set or changed, and the
-	// nodes do not install them.
+	// SCMP_ACT_NOTIFY. The nodes do not install the SeccompProfiles which are
+	// not allowed. When the list is set or changed, the operator also deletes
+	// the existing ones which are not allowed from the cluster, except for the
+	// profiles built on OCI base profiles, which only the nodes pull and
+	// reject. Profiles created later are only rejected by the nodes.
 	// +optional
 	// +listType=set
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
@@ -481,7 +493,10 @@ type SPODSecurityConfig struct {
 	// not by somebody trusted. Once this or allowedOidcIssuerRegexp differs
 	// from ".*", both apply to the official base profiles too, which then
 	// fail to verify unless they match the official signers. Pin the signer
-	// of the other base profiles with signatureVerification instead.
+	// of the other base profiles with signatureVerification instead. The
+	// regexp is not anchored, it matches an identity which contains a match,
+	// so "@my-org.com" also matches "x@my-org.com.example.org". Anchor it
+	// with "^" and "$" to match the whole identity.
 	// +optional
 	// +default=".*"
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
@@ -489,7 +504,8 @@ type SPODSecurityConfig struct {
 
 	// allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OCI
 	// image used to distribute the base profile in the cluster.
-	// As with allowedIdentityRegexp, the default ".*" matches any issuer.
+	// As with allowedIdentityRegexp, the default ".*" matches any issuer,
+	// and the regexp is not anchored.
 	// +optional
 	// +default=".*"
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests

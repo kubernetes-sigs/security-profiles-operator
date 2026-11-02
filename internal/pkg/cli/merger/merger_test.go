@@ -394,3 +394,167 @@ func TestRunCheckWarnsAboutOutputFile(t *testing.T) {
 	)
 	require.Zero(t, mock.WriteFileCallCount())
 }
+
+// The merged profile keeps the default action, the flags, the listener and
+// the mode of the base profile. Which value is more permissive depends on the
+// values, so a differing one only gets warned about, and the check result
+// only depends on the merged rules.
+//
+//nolint:paralleltest // The test replaces the output of the global logger.
+func TestRunCheckKeptFields(t *testing.T) {
+	const seccompFlagsListener = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  flags:
+    - SECCOMP_FILTER_FLAG_LOG
+    - SECCOMP_FILTER_FLAG_SPEC_ALLOW
+  listenerPath: /run/listener.sock
+  listenerMetadata: metadata
+  syscalls:
+    - action: SCMP_ACT_ALLOW
+      names:
+        - foo
+`
+
+	const seccompFlagsReordered = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  flags:
+    - SECCOMP_FILTER_FLAG_SPEC_ALLOW
+    - SECCOMP_FILTER_FLAG_LOG
+  listenerPath: /run/listener.sock
+  listenerMetadata: metadata
+`
+
+	const seccompAllow = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ALLOW
+`
+
+	const seccompDisabled = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  state: Disabled
+`
+
+	const seccompEnabled = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  state: Enabled
+`
+
+	const appArmorComplain = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+spec:
+  mode: Complain
+`
+
+	const appArmorEnforce = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+spec:
+  mode: Enforce
+`
+
+	const selinuxSystemContainer = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SelinuxProfile
+spec:
+  inherit:
+    - kind: System
+      name: container
+  allow:
+    var_log_t:
+      dir:
+        - open
+`
+
+	const selinuxInheritTwo = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SelinuxProfile
+spec:
+  inherit:
+    - name: container
+    - kind: SelinuxProfile
+      name: other
+`
+
+	const selinuxInheritTwoReordered = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SelinuxProfile
+spec:
+  inherit:
+    - kind: SelinuxProfile
+      name: other
+    - kind: System
+      name: container
+    - name: container
+`
+
+	for _, tc := range []struct {
+		name        string
+		base, other string
+		// fields are the fields which differ.
+		fields []string
+	}{
+		{name: "seccomp default action", base: SeccompA, other: seccompAllow, fields: []string{"defaultAction"}},
+		{name: "state", base: SeccompA, other: seccompDisabled, fields: []string{"state"}},
+		{name: "default state", base: SeccompA, other: seccompEnabled},
+		{
+			name: "seccomp flags and listener", base: seccompFlagsListener, other: SeccompA,
+			fields: []string{"flags", "listenerPath", "listenerMetadata"},
+		},
+		{name: "reordered seccomp flags", base: seccompFlagsListener, other: seccompFlagsReordered},
+		{name: "apparmor mode", base: AppArmorBase, other: appArmorComplain, fields: []string{"mode"}},
+		{name: "default apparmor mode", base: AppArmorBase, other: appArmorEnforce},
+		{name: "default selinux inherit kind", base: SelinuxA, other: selinuxSystemContainer},
+		{name: "reordered selinux inherit", base: selinuxInheritTwo, other: selinuxInheritTwoReordered},
+		{name: "selinux inherit", base: SelinuxA, other: selinuxInheritTwo, fields: []string{"inherit"}},
+	} {
+		for _, check := range []bool{true, false} {
+			logs := &bytes.Buffer{}
+			log.SetOutput(logs)
+
+			mock := &mergerfakes.FakeImpl{}
+			mock.ReadFileReturnsOnCall(0, []byte(tc.base), nil)
+			mock.ReadFileReturnsOnCall(1, []byte(tc.other), nil)
+
+			options := Default()
+			options.inputFiles = []string{"base.yaml", "other.yaml"}
+			options.check = check
+
+			sut := New(options)
+			sut.impl = mock
+
+			err := sut.Run()
+
+			log.SetOutput(os.Stderr)
+
+			// The other profile adds no rules, so the base profile stays
+			// up to date.
+			require.NoError(t, err, tc.name)
+
+			if len(tc.fields) == 0 {
+				require.NotContains(t, logs.String(), "differs from", tc.name)
+			}
+
+			for _, field := range tc.fields {
+				require.Contains(
+					t, logs.String(),
+					"WARNING: other.yaml: the "+field+" differs from the one of base.yaml", tc.name,
+				)
+			}
+		}
+	}
+}

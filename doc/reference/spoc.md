@@ -52,7 +52,7 @@ Merge multiple security profiles into a combined profile. Permissions are additi
 
 >spoc merge [command options] PROFILE...
 
-**--check, -c**: do not write an output file, but exit with an error if the first profile is not a superset of all others
+**--check, -c**: do not write an output file, but exit with an error if the rules of the first profile are not a superset of the rules of all others
 
 **--output-file, -o**="": the output file path for the combined profile (default: profile.yaml)
 
@@ -102,7 +102,7 @@ Run a command confined by the seccomp profile of --profile, and print the denial
 
 push profiles to a container registry
 
-Push the profiles of --profiles to IMAGE. Profile CRDs are pushed as YAML artifacts for oci:// base profiles. A raw OCI runtime-spec seccomp profile in JSON is pushed in the KEP-6061 runtime format for container runtimes (single JSON layer, media type application/vnd.cncf.seccomp-profile.config.v1+json); exactly one profile is allowed in that format.
+Push the profiles of --profiles to IMAGE. Profile CRDs are pushed as YAML artifacts, which spoc pull fetches and which SeccompProfiles can use as oci:// base profiles. A raw OCI runtime-spec seccomp profile in JSON is pushed in the KEP-6061 runtime format for container runtimes (single JSON layer, media type application/vnd.cncf.seccomp-profile.config.v1+json); exactly one profile is allowed in that format.
 
 >spoc push [command options] IMAGE
 

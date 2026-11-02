@@ -451,7 +451,8 @@ spec:
 
 Constraining `allowedIdentityRegexp` and `allowedOidcIssuerRegexp` instead
 applies to the official base profiles too, so the regexps then also have to
-match the official signers.
+match the official signers. The regexps are not anchored, a regexp without
+`^` and `$` accepts any identity or issuer which contains a match.
 
 The operator logs a warning when it recognises an unconstrained signer pattern,
 such as the shipped default, so an unintentionally permissive configuration is

@@ -170,24 +170,12 @@ func (p *podBinder) bindingApplies(
 	// Profiles are cluster scoped, so the key carries no namespace.
 	key := types.NamespacedName{Name: pb.Spec.ProfileRef.Name}
 
-	var err error
-
-	// The lookup is not retried, so the backoff does not matter.
-	backoff := p.budget.newBackoff()
-
-	switch profileKind {
-	case profilebindingapi.ProfileBindingKindSeccompProfile:
-		_, err = lookupProfile(ctx, key, false, backoff, p.GetSeccompProfile)
-	case profilebindingapi.ProfileBindingKindSelinuxProfile:
-		_, err = lookupProfile(ctx, key, false, backoff, p.GetSelinuxProfile)
-	case profilebindingapi.ProfileBindingKindAppArmorProfile:
-		_, err = lookupProfile(ctx, key, false, backoff, p.GetAppArmorProfile)
-	default:
-		// The mutating webhook skips the unsupported kinds.
-		return false, nil
-	}
+	_, err := p.lookupProfileOfKind(ctx, profileKind, key, false)
 
 	switch {
+	case errors.Is(err, errUnsupportedKind):
+		// The mutating webhook skips the unsupported kinds.
+		return false, nil
 	case err == nil:
 		return true, nil
 	case kerrors.IsNotFound(err):

@@ -268,21 +268,23 @@ for `oc debug node`.
 ## Installation on AKS
 
 On an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview),
-[configure the webhooks](configuration.md#configure-the-webhooks) to skip the
-namespaces with the
+the operator needs no webhook options. The AKS admissions enforcer adds match
+expressions for the
 [`control-plane`](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks-)
-label. The `namespaceSelector` replaces the default one of the webhook, so it
-has to keep the `spo.x-k8s.io/enable-binding` and
-`spo.x-k8s.io/enable-recording` requirements, otherwise the webhooks apply to
-every namespace. The patch replaces all entries of `webhook.options`:
+and `kubernetes.azure.com/managedby` labels to the namespace selectors of
+every webhook, so that the webhooks skip the system namespaces of the cluster.
+The operator ignores these expressions when it compares its webhook
+configuration with the one in the cluster.
 
-```shell
-kubectl -n security-profiles-operator patch spod spod --type=merge \
-  -p='{"spec":{"webhook":{"options":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"spo.x-k8s.io/enable-binding","operator":"Exists"},{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"spo.x-k8s.io/enable-recording","operator":"Exists"},{"key":"control-plane","operator":"DoesNotExist"}]}}]}}}'
-```
+Do not configure expressions for these two labels in the `namespaceSelector`
+of [`webhook.options`](configuration.md#configure-the-webhooks). The operator
+then compares the expressions which AKS injects with the configured ones, finds
+them differing, and keeps rewriting the webhook configuration, which leaves
+the SPOD in the `Updating` state. Installations which configured
+`{"key":"control-plane","operator":"DoesNotExist"}` like an earlier version of
+this guide said should remove that expression again.
 
-Afterwards, check that the SPOD got patched successfully by ensuring the
-`Running` state:
+Check that the SPOD reaches the `Running` state:
 
 ```console
 $ kubectl -n security-profiles-operator get spod spod

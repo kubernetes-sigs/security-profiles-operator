@@ -207,7 +207,9 @@ func tufOptions() (*tuf.Options, error) {
 	opts := tuf.DefaultOptions()
 
 	if defaultFetcher, ok := opts.Fetcher.(*fetcher.DefaultFetcher); ok {
-		defaultFetcher.SetHTTPClient(&http.Client{Timeout: tufRequestTimeout})
+		defaultFetcher.SetHTTPClient(
+			&http.Client{Transport: Transport(), Timeout: tufRequestTimeout},
+		)
 	}
 
 	if cachePath := os.Getenv(envTUFRoot); cachePath != "" {

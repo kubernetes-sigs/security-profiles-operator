@@ -181,7 +181,8 @@ func newApp() *cli.App {
 			Aliases: []string{"p"},
 			Usage:   "push profiles to a container registry",
 			Description: "Push the profiles of --profiles to IMAGE. " +
-				"Profile CRDs are pushed as YAML artifacts for oci:// base profiles. " +
+				"Profile CRDs are pushed as YAML artifacts, which spoc pull fetches and which " +
+				"SeccompProfiles can use as oci:// base profiles. " +
 				"A raw OCI runtime-spec seccomp profile in JSON is pushed in the KEP-6061 " +
 				"runtime format for container runtimes (single JSON layer, media type " +
 				"application/vnd.cncf.seccomp-profile.config.v1+json); exactly one profile " +

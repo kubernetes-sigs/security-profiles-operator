@@ -122,12 +122,14 @@ type RawSelinuxProfileSpec struct {
 // letter and must not contain dots. Existing objects are exempt, so that they
 // can still be updated and deleted.
 //
-// The policy is placed into that block. Statements which change the global
-// policy, like typepermissive, are rejected, but the statements may still
-// refer to global types, attributes and blocks: allow rules for global types
-// like container_t, typeattributeset and in statements can affect other
-// workloads. Only cluster admins should be allowed to write raw SELinux
-// profiles.
+// The policy is placed into that block. A list of statements which change the
+// global policy, like typepermissive, genfscon or class declarations, is
+// rejected. Not every statement with an effect on the whole node is
+// rejected, statements like fsuse, the device labeling statements, constrain
+// and the default statements are accepted, and the statements may refer to
+// global types, attributes and blocks: allow rules for global types like
+// container_t, typeattributeset and in statements can affect other workloads.
+// Only cluster admins should be allowed to write raw SELinux profiles.
 //
 // +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')",optionalOldSelf=true,message="name must start with a letter and may only contain lowercase alphanumeric characters and '-'"
 // +kubebuilder:storageversion

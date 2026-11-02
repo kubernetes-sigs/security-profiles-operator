@@ -19,6 +19,8 @@ package cli
 import (
 	"log"
 	"strings"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // WarnExtraArgs logs the positional arguments after the first n, which the
@@ -29,4 +31,21 @@ func WarnExtraArgs(args []string, n int) {
 	if len(args) > n {
 		log.Printf("Ignoring extra arguments: %s", strings.Join(args[n:], " "))
 	}
+}
+
+// RegistryReference returns the registry reference of the argument without
+// the oci:// prefix of a base profile name, which gets copied from the
+// baseProfileName of a profile. The reference parser would otherwise take the
+// prefix for a part of the repository and fail on it.
+func RegistryReference(arg string) string {
+	ref, ok := strings.CutPrefix(arg, config.OCIProfilePrefix)
+	if ok {
+		log.Printf(
+			"Removing the %s prefix of a base profile name from %s",
+			config.OCIProfilePrefix,
+			arg,
+		)
+	}
+
+	return ref
 }

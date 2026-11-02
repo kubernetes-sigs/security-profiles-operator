@@ -89,9 +89,10 @@ func bundleOptions(
 
 	opts := &sign.BundleOptions{
 		CertificateProvider: sign.NewFulcio(&sign.FulcioOptions{
-			BaseURL: fulcio.URL,
-			Timeout: signingServiceTimeout,
-			Retries: 1,
+			BaseURL:   fulcio.URL,
+			Timeout:   signingServiceTimeout,
+			Retries:   1,
+			Transport: artifact.Transport(),
 		}),
 		CertificateProviderOptions: &sign.CertificateProviderOptions{IDToken: token},
 		TrustedRoot:                material,
@@ -140,9 +141,10 @@ func timestampAuthorities(
 	for _, authority := range authorities {
 		result = append(result, sign.NewTimestampAuthority(
 			&sign.TimestampAuthorityOptions{
-				URL:     authority.URL,
-				Timeout: signingServiceTimeout,
-				Retries: 1,
+				URL:       authority.URL,
+				Timeout:   signingServiceTimeout,
+				Retries:   1,
+				Transport: artifact.Transport(),
 			},
 		))
 	}
@@ -173,6 +175,9 @@ func transparencyLogs(
 
 	for _, log := range logs {
 		rekorV2 = rekorV2 || log.MajorAPIVersion == 2
+		// Unlike Fulcio and the timestamp authorities, the Rekor clients
+		// take no transport: the one of Rekor v1 clones http.DefaultTransport
+		// itself, the one of Rekor v2 uses it.
 		result = append(result, sign.NewRekor(&sign.RekorOptions{
 			BaseURL: log.URL,
 			Timeout: rekorTimeout,
