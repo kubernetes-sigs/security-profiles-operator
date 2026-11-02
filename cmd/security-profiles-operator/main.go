@@ -1357,12 +1357,12 @@ func newTLSConfig(
 				initialTLSAdherencePolicy,
 			)
 
-			tlsConfigFunc, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(initialTLSProfile)
-			if len(unsupportedCiphers) > 0 {
+			tlsConfigFunc, unsupported := tlspkg.NewTLSConfigFromProfile(initialTLSProfile)
+			if len(unsupported) > 0 {
 				setupLog.Info(
-					"TLS profile contains unsupported ciphers",
-					"ciphers",
-					unsupportedCiphers,
+					"TLS profile contains unsupported ciphers or groups",
+					"unsupported",
+					unsupported,
 				)
 			}
 
@@ -1376,14 +1376,14 @@ func newTLSConfig(
 			// Apply OpenShift's default TLS profile when adherence policy does not require honoring cluster settings
 			defaultProfile := configv1.TLSProfiles[libgocrypto.DefaultTLSProfileType]
 			if defaultProfile != nil {
-				defaultTLSConfig, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(
+				defaultTLSConfig, unsupported := tlspkg.NewTLSConfigFromProfile(
 					*defaultProfile,
 				)
-				if len(unsupportedCiphers) > 0 {
+				if len(unsupported) > 0 {
 					setupLog.Info(
-						"default TLS configuration contains unsupported ciphers",
-						"ciphers",
-						unsupportedCiphers,
+						"default TLS configuration contains unsupported ciphers or groups",
+						"unsupported",
+						unsupported,
 					)
 				}
 
