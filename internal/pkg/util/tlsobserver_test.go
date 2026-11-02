@@ -125,12 +125,18 @@ func TestTLSWatcherGroupsChangeCallback(t *testing.T) {
 					Custom: &configv1.CustomTLSProfile{TLSProfileSpec: updatedProfile},
 				}},
 			}
-			fakeClient := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).WithObjects(apiServer).Build()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithObjects(apiServer).
+				Build()
+
 			var profileChanged bool
+
 			watcher := newTLSWatcher(
 				fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion,
 				func(_ context.Context, oldProfile, newProfile configv1.TLSProfileSpec) {
 					profileChanged = true
+
 					require.Equal(t, initialProfile, oldProfile)
 					require.Equal(t, updatedProfile, newProfile)
 				}, nil,
