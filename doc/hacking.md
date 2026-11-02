@@ -767,6 +767,13 @@ of the container runtime and the kubelet of each node. They get logged, or
 written to a directory per test below `E2E_ARTIFACTS_DIR` if it is set, which
 the CI jobs upload when they fail.
 
+Some CI runners are several times slower than usual, and the cluster of a VM
+starves on them: its probes and lease renewals time out, and every test case
+runs into its timeouts. The Fedora and Debian VM jobs therefore fail right
+after the boot when `kubeadm init` took more than 60 seconds, see
+[setup-vm-env.sh](../hack/ci/setup-vm-env.sh). Such a job only needs a rerun,
+which gets another runner.
+
 ### Running the Ubuntu e2e tests on kubernix
 
 The Ubuntu based e2e tests and the seccomp base profile recording run on a

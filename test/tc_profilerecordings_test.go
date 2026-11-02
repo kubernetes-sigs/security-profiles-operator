@@ -475,7 +475,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 
 	e.profileRecordingStaticPod(
 		exampleRecordingSeccompLogsPath, seccompNginx,
-		enricherLogLine("syscallName", "listen"),
+		nginxRecordedLogLine(recordingTestPod),
 	)
 }
 
@@ -522,12 +522,32 @@ type recordedNginx struct {
 	check func(e *e2e, profile string)
 }
 
+// nginxRecordedSyscall is the syscall of the nginx container which the log
+// based seccomp recording and merging tests wait for and expect in the
+// recorded profile. Logging every syscall of the starting containers
+// overflows the audit backlog, and the kernel then drops whole batches of
+// records before auditd writes them. A raised backlog does not help, since
+// the log enricher then falls behind. A syscall like listen, which nginx does
+// only once on startup, can be among the dropped records, while nginx calls
+// epoll_wait again on each readiness probe of the test workloads.
+const nginxRecordedSyscall = "epoll_wait"
+
+// recordingTestPod is the name of the pod of createRecordingTestPod.
+const recordingTestPod = "recording"
+
+// nginxRecordedLogLine matches a line of the log enricher with the recorded
+// syscall of the nginx container of the pod. Other workloads call epoll_wait
+// as well, unlike listen.
+func nginxRecordedLogLine(pod string) *regexp.Regexp {
+	return enricherLogLine("pod", pod, "container", "nginx", "syscallName", nginxRecordedSyscall)
+}
+
 var (
 	seccompNginx = recordedNginx{
 		recording: recordingName,
 		resource:  "sp",
 		check: func(e *e2e, profile string) {
-			e.Contains(e.retryGetSeccompProfile(profile), "listen")
+			e.Contains(e.retryGetSeccompProfile(profile), nginxRecordedSyscall)
 		},
 	}
 
@@ -584,7 +604,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 	e.profileRecordingMultiContainer(
 		exampleRecordingSeccompLogsPath,
-		enricherLogLine("container", "nginx", "syscallName", "listen"),
+		enricherLogLine("container", "nginx", "syscallName", nginxRecordedSyscall),
 		enricherLogLine("container", "redis", "syscallName", "epoll_wait"),
 	)
 }
@@ -596,7 +616,7 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 	defer restoreNs()
 
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
-		enricherLogLine("container", "nginx", "syscallName", "epoll_wait"),
+		enricherLogLine("container", "nginx", "syscallName", nginxRecordedSyscall),
 	)
 }
 
@@ -739,7 +759,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 
 	e.profileRecordingDeployment(
 		exampleRecordingSeccompLogsPath, seccompNginx,
-		"container", "nginx", "syscallName", "listen",
+		"container", "nginx", "syscallName", nginxRecordedSyscall,
 	)
 }
 
@@ -751,7 +771,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 
 	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
-		"container", "nginx", "syscallName", "listen",
+		"container", "nginx", "syscallName", nginxRecordedSyscall,
 	)
 }
 
@@ -778,7 +798,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	e.createRecording(exampleRecordingSeccompLogsPath, "sp", recordingName)
 
 	since, podName := e.createRecordingTestPod()
-	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "listen"))
+	e.waitForEnricherLogs(since, nginxRecordedLogLine(podName))
 
 	// Check that the recording's status contains the resource. Retry to avoid
 	// test races.
@@ -832,7 +852,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "listen")
+	e.Contains(profile, nginxRecordedSyscall)
 }
 
 func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
@@ -846,7 +866,7 @@ func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
 
 	e.profileRecordingStaticPod(
 		exampleRecordingSeccompLogsPath, seccompNginx,
-		enricherLogLine("syscallName", "listen"),
+		nginxRecordedLogLine(recordingTestPod),
 	)
 }
 
@@ -949,7 +969,7 @@ func (e *e2e) retryGetSelinuxJsonpath(jsonpath string, args ...string) string {
 func (e *e2e) createRecordingTestPod() (since time.Time, podName string) {
 	e.logf("Creating test pod")
 
-	podName = "recording"
+	podName = recordingTestPod
 
 	const testPod = `
 apiVersion: v1
@@ -1078,7 +1098,7 @@ func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...strin
 	for _, sfx := range suffixes {
 		recordedProfileName := recordingName + "-nginx-" + sfx
 		profile := e.retryGetSeccompProfile(recordedProfileName)
-		e.Contains(profile, "listen")
+		e.Contains(profile, nginxRecordedSyscall)
 	}
 }
 

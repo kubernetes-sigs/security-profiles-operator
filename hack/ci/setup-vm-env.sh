@@ -47,8 +47,30 @@ flatcar)
 esac
 run="./hack/ci/run-$VM.sh"
 
+# On a slow CI runner the cluster in the VM starves: its probes and lease
+# renewals time out, every test case runs into its timeouts and the suite
+# fails after an hour. kubeadm init with the images pulled before, see
+# hack/ci/install-kubernetes.sh, tells such a runner apart: it takes up to 35
+# seconds on the Fedora and Debian VMs of a usual runner, and 100 to 210
+# seconds on a slow one. Rerunning the job gets another runner. The check comes
+# before the node wait, which can time out on such a runner as well.
+if [[ "$VM" != flatcar ]]; then
+  max_kubeadm_init_seconds=60
+  kubeadm_init_seconds=$("$run" cat /var/lib/kubeadm-init-seconds | tr -d '[:space:]') || true
+  if [[ ! "$kubeadm_init_seconds" =~ ^[0-9]+$ ]]; then
+    echo "::error::No duration of kubeadm init in the VM: $kubeadm_init_seconds"
+    exit 1
+  fi
+  echo "kubeadm init took ${kubeadm_init_seconds}s"
+  if ((kubeadm_init_seconds > max_kubeadm_init_seconds)); then
+    echo "::error::kubeadm init took ${kubeadm_init_seconds}s, more than ${max_kubeadm_init_seconds}s: the runner is too slow for the e2e tests, rerun the job"
+    exit 1
+  fi
+fi
+
 "$run" kubectl wait --for=condition=ready --timeout="$node_timeout" nodes --all
 "$run" kubectl get nodes -o wide
+
 if [[ "$VM" != flatcar ]]; then
   "$run" git config --global --add safe.directory /vagrant
 fi

@@ -26,7 +26,13 @@ echo "Number of CPUs: $(nproc)"
 # test/tc_profilerecordings_test.go.
 PATCHES=$(mktemp -d)
 echo "containerLogMaxSize: 50Mi" >"$PATCHES/kubeletconfiguration+merge.yaml"
+# hack/ci/setup-vm-env.sh tells a slow CI runner apart by the duration of
+# kubeadm init, so the images get pulled before, which depends on the
+# registry rather than on the runner.
+kubeadm config images pull
+start=$SECONDS
 kubeadm init --apiserver-cert-extra-sans="$IP" --patches "$PATCHES"
+echo $((SECONDS - start)) >/var/lib/kubeadm-init-seconds
 rm -rf "$PATCHES"
 
 # Setup kubectl
