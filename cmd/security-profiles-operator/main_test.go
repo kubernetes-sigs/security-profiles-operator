@@ -579,6 +579,7 @@ func TestFetchClusterTLSGroups(t *testing.T) {
 				},
 			}
 			objects := []client.Object{apiServer}
+
 			if !tc.kubernetes {
 				objects = append(objects, &configv1.ClusterOperator{
 					ObjectMeta: metav1.ObjectMeta{Name: "openshift-apiserver"},
@@ -612,10 +613,12 @@ func TestFetchClusterTLSGroups(t *testing.T) {
 //nolint:paralleltest // This test replaces the package logger.
 func TestUnsupportedTLSGroupsLogged(t *testing.T) {
 	var logs strings.Builder
+
 	previousLog := setupLog
 	setupLog = funcr.New(func(_, message string) {
 		logs.WriteString(message)
 	}, funcr.Options{})
+
 	t.Cleanup(func() { setupLog = previousLog })
 
 	profile := configv1.TLSProfileSpec{
