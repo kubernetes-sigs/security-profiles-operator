@@ -1,6 +1,6 @@
 # al.essio.dev/pkg/shellescape v1.6.0
 ## explicit; go 1.18
-# cel.dev/expr v0.25.2
+# cel.dev/expr v0.25.3
 ## explicit; go 1.23.0
 cel.dev/expr
 # cloud.google.com/go/compute/metadata v0.10.0
@@ -813,8 +813,8 @@ google.golang.org/genproto/googleapis/api/httpbody
 ## explicit; go 1.26.0
 google.golang.org/genproto/googleapis/rpc/errdetails
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.84.0
-## explicit; go 1.25.0
+# google.golang.org/grpc v1.85.0
+## explicit; go 1.26.0
 google.golang.org/grpc
 google.golang.org/grpc/attributes
 google.golang.org/grpc/backoff
