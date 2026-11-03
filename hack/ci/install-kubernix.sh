@@ -18,7 +18,7 @@ set -euo pipefail
 # shellcheck source=hack/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-KUBERNIX_VERSION=v0.4.3
+KUBERNIX_VERSION=v1.0.0
 KUBERNIX_ROOT=/var/lib/kubernix
 KUBERNIX_NODE=kubernix
 KUBERNIX_LOG=${RUNNER_TEMP:-/tmp}/kubernix.log
@@ -26,16 +26,15 @@ KUBERNIX_LOG=${RUNNER_TEMP:-/tmp}/kubernix.log
 export SPO_KUBELET_DIR=$KUBERNIX_ROOT/kubelet/$KUBERNIX_NODE/run
 
 declare -A KUBERNIX_SHA256=(
-  [x86_64]=f52d8e90282468a11ba585cca36b6110104c5573395dacdd101953d055e5677f
-  [aarch64]=fa03f7cfbf21e7ba210603eb6aa459830ab9b55b5d5bb3558a5db632dec7cccb
+  [x86_64]=f49601e95b2326a9833478644b102efa7550011c3854665fa5f993767b0d296c
+  [aarch64]=2253813bc8714d395555c96c35de797ce63beb7093daf3c44bb5ce376f479ba4
 )
 
-# Runs a command in the Nix environment of the cluster, which provides the
-# exact binaries the cluster runs on, like the OCI runtimes. Only the PATH is
-# passed on to root, so that nothing gets written into the home of the user.
+# Runs a command in the Nix environment of the running cluster, which provides
+# the exact binaries the cluster runs on, like the OCI runtimes. Only the PATH
+# is passed on to root, so that nothing gets written into the home of the user.
 kubernix_env() {
-  sudo env "PATH=$PATH" nix develop "$KUBERNIX_ROOT/nix" \
-    --no-update-lock-file --command "$@"
+  sudo env "PATH=$PATH" kubernix --root "$KUBERNIX_ROOT" shell -- "$@"
 }
 
 install_kubernix() {
@@ -58,23 +57,6 @@ start_kubernix() {
   # The node is named after the hostname, which has to resolve.
   echo "127.0.0.1 $KUBERNIX_NODE" | sudo tee -a /etc/hosts
   sudo hostnamectl set-hostname "$KUBERNIX_NODE"
-
-  # CoreDNS binds port 53 of the host. systemd-networkd hands the DNS
-  # settings of every new pod veth to systemd-resolved over D-Bus, which can
-  # start it again, and a restarted CoreDNS fails to bind the port then. So
-  # its stub listener gets turned off, which a restart of a running
-  # systemd-resolved applies right away, besides disabling, stopping and
-  # masking it. Each of these may fail on hosts without it.
-  # /etc/resolv.conf links to its stub file, so it gets replaced rather than
-  # written through.
-  sudo mkdir -p /etc/systemd/resolved.conf.d
-  printf '[Resolve]\nDNSStubListener=no\n' |
-    sudo tee /etc/systemd/resolved.conf.d/no-stub-listener.conf >/dev/null
-  sudo systemctl try-restart systemd-resolved.service || true
-  sudo systemctl disable --now systemd-resolved.service || true
-  sudo systemctl mask systemd-resolved.service || true
-  sudo rm -f /etc/resolv.conf
-  echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
 
   echo "Starting kubernix, logging to $KUBERNIX_LOG"
   # kubernix loads the kernel modules and sets the network sysctls on its own.
@@ -126,11 +108,10 @@ start_kubernix() {
   # controllers did not create them yet.
   kubectl wait -n kube-system --for=create --timeout=300s deployment/coredns
   # The single replica deployment is available without a ready pod, the rollout
-  # is not. CoreDNS keeps crashing if anything else holds port 53 of the host,
-  # and the e2e tests would only fail much later on name resolution then.
+  # is not. Without it, the e2e tests would only fail much later on name
+  # resolution.
   if ! kubectl -n kube-system rollout status --timeout=180s deployment/coredns; then
-    echo "CoreDNS is not ready, listeners on port 53 of the host:"
-    sudo ss -Htulpn 'sport = :53' || true
+    echo "CoreDNS is not ready"
     kubectl -n kube-system logs --all-containers --prefix --tail=20 \
       --selector k8s-app=coredns || true
     exit 1
