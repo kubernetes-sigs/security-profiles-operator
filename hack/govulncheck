@@ -8,9 +8,10 @@
 #
 # Vulnerabilities that maintainers assessed as not_affected or fixed for
 # pkg:oci/security-profiles-operator in .openvex.json don't fail either,
-# like in the trivy check and the staging attestations. An assessment claiming
-# that the vulnerable code or component is not present is ignored with a
-# warning, because a reachable finding shows that it is outdated. Assessments of
+# like in the staging attestations. The trivy check matches the module product
+# of the same statement instead. An assessment claiming that the vulnerable code
+# or component is not present is ignored with a warning, because a reachable
+# finding shows that it is outdated. Assessments of
 # vulnerabilities that govulncheck no longer reports at all, not even at module
 # level, get a warning too, so that they can be removed.
 set -euo pipefail

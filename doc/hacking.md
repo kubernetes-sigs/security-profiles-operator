@@ -355,7 +355,7 @@ vexctl add --in-place .openvex.json \
   --status not_affected \
   --justification vulnerable_code_not_in_execute_path \
   --impact-statement "Why the code can't be reached, with links to upstream issues." \
-  --product pkg:oci/security-profiles-operator,pkg:oci/security-profiles-operator-amd64,pkg:oci/security-profiles-operator-arm64,pkg:oci/security-profiles-operator-ppc64le \
+  --product pkg:oci/security-profiles-operator,pkg:oci/security-profiles-operator-amd64,pkg:oci/security-profiles-operator-arm64,pkg:oci/security-profiles-operator-ppc64le,pkg:golang/example.com/vulnerable/module \
   --subcomponents pkg:golang/example.com/vulnerable/module
 ```
 
@@ -363,12 +363,18 @@ A statement:
 
 - names the vulnerability as reported by govulncheck or trivy, an alias like
   the CVE works for govulncheck as well
-- lists the images as products without version, each with the affected
-  package as subcomponent, like the golden templates of
+- lists the images as products without version, each with the affected Go
+  module, or the OS package, as subcomponent, like the golden templates of
   [`vexctl generate`](https://github.com/openvex/vexctl):
-  `pkg:oci/security-profiles-operator` for both checks, the per-arch
+  `pkg:oci/security-profiles-operator` for govulncheck and the per-arch
   `pkg:oci/security-profiles-operator-{amd64,arm64,ppc64le}` for the staging
   attestations
+- lists the affected Go module, or the OS package, itself as product for the
+  image scans: trivy derives the `pkg:oci` purl of an image from its
+  repository digest, which the images built in CI and image archives don't
+  have, so it never matches the image products there. trivy names Go
+  components by their module path, so a package path like
+  `pkg:golang/golang.org/x/crypto/openpgp` never matches
 - has a `status`, and for `not_affected` a
   [justification](https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md#status-justifications)
   plus an `impact_statement` that explains the assessment
