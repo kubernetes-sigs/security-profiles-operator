@@ -3,8 +3,8 @@
   "@id": "https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/.openvex.json",
   "author": "Security Profiles Operator maintainers",
   "timestamp": "2026-09-17T16:00:00Z",
-  "last_updated": "2026-09-30T00:00:00Z",
-  "version": 2,
+  "last_updated": "2026-11-03T00:00:00Z",
+  "version": 3,
   "statements": [
     {
       "vulnerability": {
@@ -42,10 +42,18 @@
               "@id": "pkg:golang/golang.org/x/crypto"
             }
           ]
+        },
+        {
+          "@id": "pkg:golang/golang.org/x/crypto",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto"
+            }
+          ]
         }
       ],
       "status": "not_affected",
-      "last_updated": "2026-09-30T00:00:00Z",
+      "last_updated": "2026-11-03T00:00:00Z",
       "justification": "vulnerable_code_not_present",
       "impact_statement": "The golang.org/x/crypto/openpgp packages are not linked since github.com/sigstore/rekor v1.5.4, which uses github.com/ProtonMail/go-crypto instead. Other golang.org/x/crypto packages are still used, so module based scanners still report the module."
     }
