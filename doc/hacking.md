@@ -792,7 +792,7 @@ The Ubuntu based e2e tests and the seccomp base profile recording run on a
 GitHub Actions runner, which is the only node of the cluster. The same works
 on a Linux machine with [Nix](https://nixos.org/download) installed, but only
 use a disposable one: `hack/ci/start-kubernix.sh` runs the cluster as root and
-changes the host, for example its hostname and DNS resolver.
+changes the host, for example its hostname.
 
 ```shell
 make image
@@ -805,7 +805,8 @@ hack/ci/e2e-ubuntu.sh
 `hack/ci/e2e-ubuntu.sh` sets the kubelet directory of kubernix in
 `deploy/operator.yaml` and `deploy/namespace-operator.yaml`, restore them with
 `git checkout deploy` afterwards. The logs of the cluster components are below
-`/var/lib/kubernix`.
+`/var/lib/kubernix`. Stop the cluster with
+`sudo env "PATH=$PATH" kubernix --root /var/lib/kubernix stop`.
 
 ### Running the Fedora e2e tests on a local VM
 

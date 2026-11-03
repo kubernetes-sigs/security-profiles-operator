@@ -679,7 +679,7 @@ dependencies:
       match: "# runc arm64"
 
   - name: kubernix
-    version: v0.4.3
+    version: v1.0.0
     upstream:
       flavour: github
       url: saschagrunert/kubernix
@@ -690,13 +690,13 @@ dependencies:
   # Must be bumped together with kubernix above, the checksums of its release
   # binaries.
   - name: kubernix-sha256-x86_64
-    version: f52d8e90282468a11ba585cca36b6110104c5573395dacdd101953d055e5677f
+    version: f49601e95b2326a9833478644b102efa7550011c3854665fa5f993767b0d296c
     refPaths:
     - path: hack/ci/install-kubernix.sh
       match: "\\[x86_64\\]="
 
   - name: kubernix-sha256-aarch64
-    version: fa03f7cfbf21e7ba210603eb6aa459830ab9b55b5d5bb3558a5db632dec7cccb
+    version: 2253813bc8714d395555c96c35de797ce63beb7093daf3c44bb5ce376f479ba4
     refPaths:
     - path: hack/ci/install-kubernix.sh
       match: "\\[aarch64\\]="
