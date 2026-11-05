@@ -291,6 +291,12 @@ func (err *MessageDigestMismatchError) Error() string {
 }
 
 func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x509.SignatureAlgorithm, error) {
+	if algorithm, ok := mlDSAAlgorithmForOID(digestEncryption.Algorithm); ok {
+		if algorithmIdentifierParametersPresent(digestEncryption.Parameters) {
+			return -1, fmt.Errorf("pkcs7: ML-DSA AlgorithmIdentifier parameters must be absent")
+		}
+		return algorithm.signatureAlgorithm, nil
+	}
 	switch {
 	case digestEncryption.Algorithm.Equal(OIDDigestAlgorithmECDSASHA1):
 		return x509.ECDSAWithSHA1, nil
@@ -300,6 +306,15 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 		return x509.ECDSAWithSHA384, nil
 	case digestEncryption.Algorithm.Equal(OIDDigestAlgorithmECDSASHA512):
 		return x509.ECDSAWithSHA512, nil
+	case digestEncryption.Algorithm.Equal(OIDPublicKeyAlgorithmEC):
+		// Windows CNG and historical NSS versions have emitted the public-key
+		// algorithm OID in SignerInfo.signatureAlgorithm. RFC 5753 requires an
+		// ecdsa-with-SHA* OID, but accepting this legacy form is safe when the
+		// digest is explicit and the public key is still checked by x509.
+		if !algorithmIdentifierParametersAbsentOrNull(digestEncryption.Parameters) {
+			return -1, errors.New("pkcs7: id-ecPublicKey AlgorithmIdentifier parameters must be absent or NULL")
+		}
+		return getECDSASignatureAlgorithm(digest, digestEncryption.Algorithm)
 	case digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSA),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA1),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA256),
@@ -324,25 +339,44 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 	case digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmECDSAP256),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmECDSAP384),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmECDSAP521):
-		switch {
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1):
-			return x509.ECDSAWithSHA1, nil
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA256):
-			return x509.ECDSAWithSHA256, nil
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA384):
-			return x509.ECDSAWithSHA384, nil
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA512):
-			return x509.ECDSAWithSHA512, nil
-		default:
-			return -1, fmt.Errorf("pkcs7: unsupported digest %q for encryption algorithm %q",
-				digest.Algorithm.String(), digestEncryption.Algorithm.String())
-		}
+		return getECDSASignatureAlgorithm(digest, digestEncryption.Algorithm)
 	case digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmEDDSA25519):
 		return x509.PureEd25519, nil
 	default:
 		return -1, fmt.Errorf("pkcs7: unsupported algorithm %q",
 			digestEncryption.Algorithm.String())
 	}
+}
+
+func getECDSASignatureAlgorithm(digest pkix.AlgorithmIdentifier, signatureOID asn1.ObjectIdentifier) (x509.SignatureAlgorithm, error) {
+	switch {
+	case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1):
+		return x509.ECDSAWithSHA1, nil
+	case digest.Algorithm.Equal(OIDDigestAlgorithmSHA256):
+		return x509.ECDSAWithSHA256, nil
+	case digest.Algorithm.Equal(OIDDigestAlgorithmSHA384):
+		return x509.ECDSAWithSHA384, nil
+	case digest.Algorithm.Equal(OIDDigestAlgorithmSHA512):
+		return x509.ECDSAWithSHA512, nil
+	default:
+		return -1, fmt.Errorf("pkcs7: unsupported digest %q for signature algorithm %q",
+			digest.Algorithm.String(), signatureOID.String())
+	}
+}
+
+func algorithmIdentifierParametersPresent(parameters asn1.RawValue) bool {
+	return parameters.Class != 0 || parameters.Tag != 0 || parameters.IsCompound ||
+		len(parameters.Bytes) != 0 || len(parameters.FullBytes) != 0
+}
+
+func algorithmIdentifierParametersAbsentOrNull(parameters asn1.RawValue) bool {
+	if !algorithmIdentifierParametersPresent(parameters) {
+		return true
+	}
+	if len(parameters.FullBytes) != 0 {
+		return len(parameters.FullBytes) == 2 && parameters.FullBytes[0] == 0x05 && parameters.FullBytes[1] == 0x00
+	}
+	return parameters.Class == 0 && parameters.Tag == asn1.TagNull && !parameters.IsCompound && len(parameters.Bytes) == 0
 }
 
 func getCertFromCertsByIssuerAndSerial(certs []*x509.Certificate, ias issuerAndSerial) *x509.Certificate {

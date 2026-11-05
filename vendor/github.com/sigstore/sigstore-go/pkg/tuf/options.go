@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 
 	"github.com/sigstore/sigstore-go/pkg/util"
+	"github.com/sigstore/sigstore/pkg/httpretry"
 	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 )
 
@@ -140,11 +141,16 @@ func DefaultOptions() *Options {
 	}
 	opts.CachePath = filepath.Join(home, ".sigstore", "root")
 	opts.RepositoryBaseURL = DefaultMirror
-	fetcher := fetcher.NewDefaultFetcher()
-	fetcher.SetHTTPUserAgent(util.ConstructUserAgent())
-	opts.Fetcher = fetcher
+	opts.Fetcher = newDefaultFetcher()
 
 	return &opts
+}
+
+func newDefaultFetcher() fetcher.Fetcher {
+	defaultFetcher := fetcher.NewDefaultFetcher()
+	defaultFetcher.SetHTTPUserAgent(util.ConstructUserAgent())
+	defaultFetcher.SetHTTPClient(httpretry.NewClient())
+	return defaultFetcher
 }
 
 // DefaultRoot returns the root.json for the public good instance

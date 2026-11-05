@@ -62,7 +62,7 @@ func (k PublicKey) PublicKey() crypto.PublicKey {
 }
 
 func (k PublicKey) Identity() (identity.Identity, error) {
-	pkixKey, err := cryptoutils.MarshalPublicKeyToDER(k.key)
+	pkixKey, err := x509.MarshalPKIXPublicKey(k.key)
 	if err != nil {
 		return identity.Identity{}, err
 	}

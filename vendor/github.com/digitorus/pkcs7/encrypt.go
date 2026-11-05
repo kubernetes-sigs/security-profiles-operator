@@ -16,7 +16,7 @@ import (
 
 type envelopedData struct {
 	Version              int
-	RecipientInfos       []recipientInfo `asn1:"set"`
+	RecipientInfos       []asn1.RawValue `asn1:"set"`
 	EncryptedContentInfo encryptedContentInfo
 }
 
@@ -248,8 +248,10 @@ func encryptAESCBC(content []byte, key []byte) ([]byte, *encryptedContentInfo, e
 	return key, &eci, nil
 }
 
-// Encrypt creates and returns an envelope data PKCS7 structure with encrypted
-// recipient keys for each recipient public key.
+// Encrypt creates and returns an enveloped-data PKCS7 structure with encrypted
+// recipient keys for each recipient public key. RSA certificates use CMS key
+// transport. RFC 9935 ML-KEM-768 and ML-KEM-1024 certificates use the RFC 9629
+// KEMRecipientInfo structure and require an AES-CBC content-encryption algorithm.
 //
 // The algorithm used to perform encryption is determined by the current value
 // of the global ContentEncryptionAlgorithm package variable. By default, the
@@ -285,21 +287,20 @@ func Encrypt(content []byte, recipients []*x509.Certificate) ([]byte, error) {
 		return nil, err
 	}
 
-	// Prepare each recipient's encrypted cipher key
-	recipientInfos := make([]recipientInfo, len(recipients))
+	defer clear(key)
+
+	// Prepare each recipient's encrypted cipher key. RecipientInfo is a CHOICE:
+	// RSA uses KeyTransRecipientInfo, while KEM recipients use the
+	// OtherRecipientInfo alternative defined by RFC 9629.
+	recipientInfos := make([]asn1.RawValue, len(recipients))
+	envelopeVersion := 0
 	for i, recipient := range recipients {
-		encrypted, err := encryptKey(key, recipient)
+		info, usesOtherRecipientInfo, err := makeRecipientInfo(key, recipient)
 		if err != nil {
 			return nil, err
 		}
-		ias := cert2issuerAndSerial(recipient)
-		info := recipientInfo{
-			Version:               0,
-			IssuerAndSerialNumber: ias,
-			KeyEncryptionAlgorithm: pkix.AlgorithmIdentifier{
-				Algorithm: OIDEncryptionAlgorithmRSA,
-			},
-			EncryptedKey: encrypted,
+		if usesOtherRecipientInfo {
+			envelopeVersion = 3
 		}
 		recipientInfos[i] = info
 	}
@@ -307,7 +308,7 @@ func Encrypt(content []byte, recipients []*x509.Certificate) ([]byte, error) {
 	// Prepare envelope content
 	envelope := envelopedData{
 		EncryptedContentInfo: *eci,
-		Version:              0,
+		Version:              envelopeVersion,
 		RecipientInfos:       recipientInfos,
 	}
 	innerContent, err := asn1.Marshal(envelope)
@@ -376,11 +377,27 @@ func marshalEncryptedContent(content []byte) asn1.RawValue {
 	return asn1.RawValue{Tag: 0, Class: 2, Bytes: asn1Content, IsCompound: true}
 }
 
-func encryptKey(key []byte, recipient *x509.Certificate) ([]byte, error) {
-	if pub := recipient.PublicKey.(*rsa.PublicKey); pub != nil {
-		return rsa.EncryptPKCS1v15(rand.Reader, pub, key)
+func makeRecipientInfo(key []byte, recipient *x509.Certificate) (asn1.RawValue, bool, error) {
+	if pub, ok := recipient.PublicKey.(*rsa.PublicKey); ok {
+		//nolint:staticcheck // PKCS #1 v1.5 is required by the existing CMS RSA key-transport format.
+		encrypted, err := rsa.EncryptPKCS1v15(rand.Reader, pub, key)
+		if err != nil {
+			return asn1.RawValue{}, false, err
+		}
+		info := recipientInfo{
+			Version:               0,
+			IssuerAndSerialNumber: cert2issuerAndSerial(recipient),
+			KeyEncryptionAlgorithm: pkix.AlgorithmIdentifier{
+				Algorithm: OIDEncryptionAlgorithmRSA,
+			},
+			EncryptedKey: encrypted,
+		}
+		raw, err := marshalRecipientInfo(info)
+		return raw, false, err
 	}
-	return nil, ErrUnsupportedAlgorithm
+
+	raw, err := makeKEMRecipientInfo(key, recipient)
+	return raw, true, err
 }
 
 func pad(data []byte, blocklen int) ([]byte, error) {

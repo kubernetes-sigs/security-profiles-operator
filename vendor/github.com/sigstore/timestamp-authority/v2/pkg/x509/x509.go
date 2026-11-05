@@ -16,18 +16,26 @@ package x509
 
 import (
 	"crypto"
+	"crypto/mldsa"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
+	"slices"
 
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
-	"github.com/sigstore/sigstore/pkg/cryptoutils/goodkey"
 )
 
 var (
 	// EKUOID is the Extended Key Usage OID, per RFC 5280
 	EKUOID             = asn1.ObjectIdentifier{2, 5, 29, 37}
 	EKUTimestampingOID = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 8}
+
+	// PolicyOID is the sigstore TSA's baseline time-stamp policy OID, used by
+	// classical signers.
+	PolicyOID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 2}
+	// PolicyOIDPQC is the sigstore TSA's post-quantum time-stamp policy OID,
+	// used by ML-DSA signers.
+	PolicyOIDPQC = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 2, 1}
 )
 
 // VerifyCertChain verifies that the certificate chain is valid for issuing
@@ -107,11 +115,8 @@ func VerifyCertChain(certs []*x509.Certificate, signer crypto.Signer, enforceInt
 		// usage includes the extended key usage timestamping for EKU chaining
 		for _, c := range certs[1 : len(certs)-1] {
 			var hasExtKeyUsageTimeStamping bool
-			for _, extKeyUsage := range c.ExtKeyUsage {
-				if extKeyUsage == x509.ExtKeyUsageTimeStamping {
-					hasExtKeyUsageTimeStamping = true
-					break
-				}
+			if slices.Contains(c.ExtKeyUsage, x509.ExtKeyUsageTimeStamping) {
+				hasExtKeyUsageTimeStamping = true
 			}
 			if !hasExtKeyUsageTimeStamping {
 				return errors.New(`certificate must have extended key usage timestamping set to sign timestamping certificates`)
@@ -124,6 +129,13 @@ func VerifyCertChain(certs []*x509.Certificate, signer crypto.Signer, enforceInt
 		return err
 	}
 
-	// Verify the key's strength
-	return goodkey.ValidatePubKey(signer.Public())
+	// Verify that the chain does not mix ML-DSA and non-ML-DSA public keys.
+	_, signerIsMLDSA := signer.Public().(*mldsa.PublicKey)
+	for _, c := range certs {
+		if _, certIsMLDSA := c.PublicKey.(*mldsa.PublicKey); certIsMLDSA != signerIsMLDSA {
+			return errors.New("certificate chain must not mix ML-DSA and non-ML-DSA public keys")
+		}
+	}
+
+	return nil
 }

@@ -21,10 +21,7 @@ import (
 	"time"
 
 	"github.com/theupdateframework/go-tuf/v2/metadata/config"
-	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 	"github.com/theupdateframework/go-tuf/v2/metadata/updater"
-
-	"github.com/sigstore/sigstore-go/pkg/util"
 )
 
 // Client is a Sigstore TUF client
@@ -60,9 +57,7 @@ func New(opts *Options) (*Client, error) {
 	if opts.Fetcher != nil {
 		c.cfg.Fetcher = opts.Fetcher
 	} else {
-		fetcher := fetcher.NewDefaultFetcher()
-		fetcher.SetHTTPUserAgent(util.ConstructUserAgent())
-		c.cfg.Fetcher = fetcher
+		c.cfg.Fetcher = newDefaultFetcher()
 	}
 
 	// Upon client creation, we may not perform a full TUF update,

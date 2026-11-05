@@ -18,6 +18,7 @@ package verification
 import (
 	"bytes"
 	"crypto"
+	"crypto/mldsa"
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
@@ -29,6 +30,8 @@ import (
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
 	"github.com/pkg/errors"
+
+	tsx509 "github.com/sigstore/timestamp-authority/v2/pkg/x509"
 )
 
 var (
@@ -213,6 +216,47 @@ func verifyLeafAndIntermediatesTimestampingEKU(leafCert *x509.Certificate, verif
 	return nil
 }
 
+func verifyCertPolicyOIDKeyType(policyOID asn1.ObjectIdentifier, cert *x509.Certificate) error {
+	_, isMLDSACert := cert.PublicKey.(*mldsa.PublicKey)
+	switch {
+	case policyOID.Equal(tsx509.PolicyOID):
+		if isMLDSACert {
+			return fmt.Errorf("policy OID %s does not support ML-DSA certificates, expected %s", policyOID, tsx509.PolicyOIDPQC)
+		}
+	case policyOID.Equal(tsx509.PolicyOIDPQC):
+		if !isMLDSACert {
+			return fmt.Errorf("policy OID %s requires an ML-DSA certificate chain", policyOID)
+		}
+	}
+	return nil
+}
+
+func verifyPolicyOIDMatchesSignerKeyType(policyOID asn1.ObjectIdentifier, signerCert *x509.Certificate, verifiedChains [][]*x509.Certificate) error {
+	if err := verifyCertPolicyOIDKeyType(policyOID, signerCert); err != nil {
+		return fmt.Errorf("failed to verify policy OID on leaf certificate: %w", err)
+	}
+
+	var lastErr error
+	for _, chain := range verifiedChains {
+		chainOK := true
+		// Skip the leaf cert (index 0)
+		for i := 1; i < len(chain); i++ {
+			if err := verifyCertPolicyOIDKeyType(policyOID, chain[i]); err != nil {
+				chainOK = false
+				lastErr = err
+				break
+			}
+		}
+		if chainOK {
+			return nil // Found at least one fully valid chain matching the policy OID
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("no verified certificate chain matched policy OID %s: %w", policyOID, lastErr)
+	}
+	return nil
+}
+
 // Verify the OID of the TSR matches an expected OID
 func verifyOID(oid []int, opts VerifyOpts) error {
 	if opts.OID == nil {
@@ -289,6 +333,10 @@ func VerifyTimestampResponse(tsrBytes []byte, artifact io.Reader, opts VerifyOpt
 	}
 
 	if err = verifyOID(ts.Policy, opts); err != nil {
+		return nil, err
+	}
+
+	if err = verifyPolicyOIDMatchesSignerKeyType(ts.Policy, signerCert, verifiedChains); err != nil {
 		return nil, err
 	}
 

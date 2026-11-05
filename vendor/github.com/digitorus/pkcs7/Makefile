@@ -1,10 +1,10 @@
 all: vet test
 
 test:
-	go test -covermode=count -coverprofile=coverage.out .
+	go test -race -count=1 -covermode=atomic -coverprofile=coverage.out .
 
 test-legacy:
-	GODEBUG=x509sha1=1 go test -tags=legacy -covermode=count -coverprofile=coverage.out .
+	go test -race -tags=legacy -count=1 -covermode=atomic -coverprofile=coverage.out .
 
 showcoverage: test
 	go tool cover -html=coverage.out
