@@ -71,7 +71,7 @@ ARG SOURCE_DATE_EPOCH
 RUN make
 
 # Dependabot keeps the digest up to date.
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:bba2b4bbf0ed15cfe7dd72a1e17ae7d2015a141f306b304e1a2785c41400e39c
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:4b79c93106c14ad1c234907f83441ff0e4f8d24e78426a36e159098e9f7e6fa5
 ARG version
 # The OCI image annotations, see Dockerfile.
 ARG source=https://github.com/kubernetes-sigs/security-profiles-operator
