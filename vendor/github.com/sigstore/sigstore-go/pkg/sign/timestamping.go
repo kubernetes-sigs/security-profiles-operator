@@ -21,24 +21,23 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"time"
 
 	"github.com/digitorus/timestamp"
-
-	"github.com/sigstore/sigstore-go/pkg/util"
 )
 
 type TimestampAuthorityOptions struct {
 	// Full URL (with path) of Timestamp Authority endpoint
 	URL string
-	// Optional timeout for network requests (default 30s; use negative value for no timeout)
+	// Optional timeout for the whole request including retries (default 30s; use negative value for no timeout)
 	Timeout time.Duration
-	// Optional number of times to retry on HTTP 5XX
+	// Optional number of times to retry on transient failures (connection errors, HTTP 429, HTTP 5xx other than 501); zero disables retries
 	Retries uint
-	// Optional Transport (for dependency injection)
+	// Optional base Transport (for dependency injection); it is wrapped by the retrying transport, so set Retries to 0 if it already retries
 	Transport http.RoundTripper
+	// Optional User-Agent prefix for requests; sigstore-go/<version> is always appended
+	UserAgent string
 }
 
 type TimestampAuthority struct {
@@ -51,7 +50,7 @@ var TimestampAuthorityAPIVersions = []uint32{1}
 func NewTimestampAuthority(opts *TimestampAuthorityOptions) *TimestampAuthority {
 	ta := &TimestampAuthority{options: opts}
 	ta.client = &http.Client{
-		Transport: opts.Transport,
+		Transport: newRetryTransport(opts.Transport, opts.Retries),
 	}
 
 	if opts.Timeout >= 0 {
@@ -76,42 +75,20 @@ func (ta *TimestampAuthority) GetTimestamp(ctx context.Context, signature []byte
 		return nil, err
 	}
 
-	attempts := uint(0)
-	var response *http.Response
-
-	for attempts <= ta.options.Retries {
-		request, err := http.NewRequest("POST", ta.options.URL, bytes.NewReader(reqBytes))
-		if err != nil {
-			return nil, err
-		}
-		request.Header.Add("Content-Type", "application/timestamp-query")
-		request.Header.Add("User-Agent", util.ConstructUserAgent())
-
-		response, err = ta.client.Do(request) // #nosec G704 -- Client controls the URL
-		if err != nil {
-			return nil, err
-		}
-
-		if (response.StatusCode < 500 || response.StatusCode >= 600) && response.StatusCode != 429 {
-			// Not a retryable HTTP status code, so don't retry
-			break
-		}
-
-		response.Body.Close()
-
-		delay := time.Duration(math.Pow(2, float64(attempts)))
-		timer := time.NewTimer(delay * time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-		attempts++
+	// Transient failures are retried by the client's transport; see
+	// newRetryTransport.
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, ta.options.URL, bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, err
 	}
-	if response != nil && response.Body != nil {
-		defer response.Body.Close()
+	request.Header.Add("Content-Type", "application/timestamp-query")
+	request.Header.Add("User-Agent", userAgent(ta.options.UserAgent))
+
+	response, err := ta.client.Do(request) // #nosec G704 -- Client controls the URL
+	if err != nil {
+		return nil, err
 	}
+	defer response.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {

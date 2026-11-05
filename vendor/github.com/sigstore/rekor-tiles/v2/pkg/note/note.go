@@ -24,22 +24,27 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/options"
+	"github.com/transparency-dev/formats/log"
+	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/mod/sumdb/note"
 )
 
 const (
 	algEd25519 = 1
+	algMLDSA44 = 6
 	algUndef   = 255
 	rsaID      = "PKIX-RSA-PKCS#1v1.5"
 )
@@ -108,7 +113,6 @@ func genConformantKeyHash(name string, sigType, key []byte) (uint32, []byte) {
 }
 
 // ed25519KeyHash generates the 4-byte key ID for an Ed25519 public key.
-// Ed25519 keys are the only key type compatible with witnessing.
 func ed25519KeyHash(name string, key []byte) (uint32, []byte) {
 	return genConformantKeyHash(name, []byte{algEd25519}, key)
 }
@@ -136,6 +140,15 @@ func rsaKeyHash(name string, key *rsa.PublicKey) (uint32, []byte, error) {
 	return id, hash, nil
 }
 
+// mldsaKeyHash generates the 4-byte key ID for an ML-DSA-44 public key.
+func mldsaKeyHash(name string, key *mldsa.PublicKey) (uint32, []byte, error) {
+	if key.Parameters() != mldsa.MLDSA44() {
+		return 0, nil, fmt.Errorf("unsupported ML-DSA parameter set %v, only ML-DSA-44 is supported", key.Parameters())
+	}
+	id, hash := genConformantKeyHash(name, []byte{algMLDSA44}, key.Bytes())
+	return id, hash, nil
+}
+
 // KeyHash generates a truncated (4-byte) and non-truncated identifier for a
 // public key/origin
 func KeyHash(origin string, key crypto.PublicKey) (uint32, []byte, error) {
@@ -156,11 +169,45 @@ func KeyHash(origin string, key crypto.PublicKey) (uint32, []byte, error) {
 		if err != nil {
 			return 0, nil, fmt.Errorf("getting RSA key hash: %w", err)
 		}
+	case *mldsa.PublicKey:
+		keyID, logID, err = mldsaKeyHash(origin, pk)
+		if err != nil {
+			return 0, nil, fmt.Errorf("getting ML-DSA key hash: %w", err)
+		}
 	default:
 		return 0, nil, fmt.Errorf("unsupported key type: %T", key)
 	}
 
 	return keyID, logID, nil
+}
+
+// formatCosignatureV1 formats a checkpoint into a c2sp.org/tlog-cosignature subtree/v1 message.
+func formatCosignatureV1(origin string, timestamp uint64, msg []byte) ([]byte, error) {
+	var c log.Checkpoint
+	rest, err := c.Unmarshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("invalid checkpoint format: %w", err)
+	}
+	if len(rest) > 0 {
+		return nil, fmt.Errorf("checkpoint has unexpected trailing data")
+	}
+	if len(c.Hash) != sha256.Size {
+		return nil, fmt.Errorf("invalid checkpoint hash length: %d", len(c.Hash))
+	}
+
+	b := cryptobyte.NewBuilder(nil)
+	b.AddBytes([]byte("subtree/v1\n\x00"))
+	b.AddUint8LengthPrefixed(func(child *cryptobyte.Builder) {
+		child.AddBytes([]byte(origin)) // 1 byte length-prefixed origin
+	})
+	b.AddUint64(timestamp) // timestamp
+	b.AddUint8LengthPrefixed(func(child *cryptobyte.Builder) {
+		child.AddBytes([]byte(c.Origin)) // 1 byte length-prefixed log origin
+	})
+	b.AddUint64(0)      // start, always zero for a checkpoint
+	b.AddUint64(c.Size) // end, always size of a log for a checkpoint
+	b.AddBytes(c.Hash)  // current root hash
+	return b.Bytes()
 }
 
 // NewNoteSigner converts a sigstore/sigstore/pkg/signature.Signer into a note.Signer.
@@ -180,6 +227,30 @@ func NewNoteSigner(ctx context.Context, origin string, signer signature.Signer) 
 	}
 
 	sign := func(msg []byte) ([]byte, error) {
+		if _, isMLDSA := pubKey.(*mldsa.PublicKey); isMLDSA {
+			// For ML-DSA, the format of the signed message is defined in c2sp.org/tlog-cosignature
+			now := time.Now().Unix()
+			if now < 0 {
+				return nil, fmt.Errorf("invalid timestamp")
+			}
+			t := uint64(now)
+			formattedMsg, err := formatCosignatureV1(origin, t, msg)
+			if err != nil {
+				return nil, err
+			}
+
+			sig, err := signer.SignMessage(bytes.NewReader(formattedMsg), options.WithContext(ctx))
+			if err != nil {
+				return nil, err
+			}
+
+			// signature is the raw signature prefixed with the timestamp
+			finalSig := make([]byte, 8, 8+len(sig))
+			binary.BigEndian.PutUint64(finalSig, t)
+			finalSig = append(finalSig, sig...)
+			return finalSig, nil
+		}
+		// For Ed25519 and other algorithms, signature is over the note text as defined in c2sp.org/tlog-checkpoint
 		return signer.SignMessage(bytes.NewReader(msg), options.WithContext(ctx))
 	}
 
@@ -210,6 +281,20 @@ func NewNoteVerifier(origin string, verifier signature.Verifier) (note.Verifier,
 		name: origin,
 		hash: keyID,
 		verify: func(msg, sig []byte) bool {
+			if mldsaPub, isMLDSA := pubKey.(*mldsa.PublicKey); isMLDSA {
+				if len(sig) != 8+mldsaPub.Parameters().SignatureSize() {
+					return false
+				}
+				t := binary.BigEndian.Uint64(sig[:8])
+				sig = sig[8:]
+
+				formattedMsg, err := formatCosignatureV1(origin, t, msg)
+				if err != nil {
+					return false
+				}
+				msg = formattedMsg
+			}
+
 			if err := verifier.VerifySignature(bytes.NewReader(sig), bytes.NewReader(msg)); err != nil {
 				return false
 			}

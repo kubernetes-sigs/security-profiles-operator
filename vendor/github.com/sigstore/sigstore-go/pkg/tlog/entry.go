@@ -31,7 +31,6 @@ import (
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag/conv"
 	protocommon "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	v1 "github.com/sigstore/protobuf-specs/gen/pb-go/rekor/v1"
 	rekortilespb "github.com/sigstore/rekor-tiles/v2/pkg/generated/protobuf"
@@ -225,11 +224,11 @@ func ParseEntry(protoEntry *v1.TransparencyLogEntry) (entry *Entry, err error) {
 		}
 
 		inclusionProof = &models.InclusionProof{
-			LogIndex:   conv.Pointer(protoEntry.InclusionProof.LogIndex),
+			LogIndex:   new(protoEntry.InclusionProof.LogIndex),
 			RootHash:   &rootHash,
-			TreeSize:   conv.Pointer(protoEntry.InclusionProof.TreeSize),
+			TreeSize:   new(protoEntry.InclusionProof.TreeSize),
 			Hashes:     hashes,
-			Checkpoint: conv.Pointer(protoEntry.InclusionProof.Checkpoint.Envelope),
+			Checkpoint: new(protoEntry.InclusionProof.Checkpoint.Envelope),
 		}
 	}
 
@@ -473,16 +472,16 @@ func VerifyInclusion(entry *Entry, verifier signature.Verifier) error {
 	rootHash := hex.EncodeToString(entry.tle.GetInclusionProof().GetRootHash())
 	logEntry := models.LogEntryAnon{
 		IntegratedTime: &entry.tle.IntegratedTime,
-		LogID:          conv.Pointer(string(entry.tle.GetLogId().KeyId)),
-		LogIndex:       conv.Pointer(entry.tle.GetInclusionProof().GetLogIndex()),
+		LogID:          new(string(entry.tle.GetLogId().KeyId)),
+		LogIndex:       new(entry.tle.GetInclusionProof().GetLogIndex()),
 		Body:           base64.StdEncoding.EncodeToString(entry.tle.GetCanonicalizedBody()),
 		Verification: &models.LogEntryAnonVerification{
 			InclusionProof: &models.InclusionProof{
-				Checkpoint: conv.Pointer(entry.tle.GetInclusionProof().GetCheckpoint().GetEnvelope()),
+				Checkpoint: new(entry.tle.GetInclusionProof().GetCheckpoint().GetEnvelope()),
 				Hashes:     hashes,
-				LogIndex:   conv.Pointer(entry.tle.GetInclusionProof().GetLogIndex()),
+				LogIndex:   new(entry.tle.GetInclusionProof().GetLogIndex()),
 				RootHash:   &rootHash,
-				TreeSize:   conv.Pointer(entry.tle.GetInclusionProof().GetTreeSize()),
+				TreeSize:   new(entry.tle.GetInclusionProof().GetTreeSize()),
 			},
 			SignedEntryTimestamp: strfmt.Base64(entry.signedEntryTimestamp),
 		},

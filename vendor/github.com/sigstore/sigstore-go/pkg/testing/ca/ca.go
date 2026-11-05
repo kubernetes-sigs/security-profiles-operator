@@ -39,7 +39,6 @@ import (
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/digitorus/timestamp"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/swag/conv"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 	v1 "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	protorekor "github.com/sigstore/protobuf-specs/gen/pb-go/rekor/v1"
@@ -550,11 +549,11 @@ func (ca *VirtualSigstore) GetInclusionProof(rekorBodyRaw []byte) (*models.Inclu
 	}
 
 	return &models.InclusionProof{
-		TreeSize:   conv.Pointer(int64(len(pathHashes) + 1)),
+		TreeSize:   new(int64(len(pathHashes) + 1)),
 		RootHash:   &encodedRootHash,
-		LogIndex:   conv.Pointer(int64(len(pathHashes))),
+		LogIndex:   new(int64(len(pathHashes))),
 		Hashes:     pathHashes,
-		Checkpoint: conv.Pointer(string(scBytes)),
+		Checkpoint: new(string(scBytes)),
 	}, nil
 }
 

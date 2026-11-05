@@ -7,6 +7,7 @@ import (
 	"crypto/dsa"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -63,6 +64,9 @@ var (
 	OIDDigestAlgorithmECDSASHA384 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 3}
 	OIDDigestAlgorithmECDSASHA512 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 4}
 
+	// Public Key Algorithms
+	OIDPublicKeyAlgorithmEC = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
+
 	// Signature Algorithms
 	OIDEncryptionAlgorithmRSA       = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 	OIDEncryptionAlgorithmRSASHA1   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 5}
@@ -75,6 +79,9 @@ var (
 	OIDEncryptionAlgorithmECDSAP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
 
 	OIDEncryptionAlgorithmEDDSA25519 = asn1.ObjectIdentifier{1, 3, 101, 112}
+	OIDSignatureAlgorithmMLDSA44     = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 17}
+	OIDSignatureAlgorithmMLDSA65     = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 18}
+	OIDSignatureAlgorithmMLDSA87     = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 19}
 
 	// Encryption Algorithms
 	OIDEncryptionAlgorithmDESCBC     = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 7}
@@ -83,6 +90,15 @@ var (
 	OIDEncryptionAlgorithmAES128GCM  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 6}
 	OIDEncryptionAlgorithmAES128CBC  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 2}
 	OIDEncryptionAlgorithmAES256GCM  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 46}
+
+	// KEM recipient and ML-KEM algorithms (RFC 9629 and RFC 9936).
+	OIDOtherRecipientInfoKEM = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 13, 3}
+	OIDKeyAlgorithmMLKEM512  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 4, 1}
+	OIDKeyAlgorithmMLKEM768  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 4, 2}
+	OIDKeyAlgorithmMLKEM1024 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 4, 3}
+	OIDKDFHKDFSHA256         = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 3, 28}
+	OIDKeyWrapAES128         = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 5}
+	OIDKeyWrapAES256         = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 45}
 )
 
 func getHashForOID(oid asn1.ObjectIdentifier) (crypto.Hash, error) {
@@ -111,7 +127,8 @@ func GetDigestOIDForSignatureAlgorithm(digestAlg x509.SignatureAlgorithm) (asn1.
 		return OIDDigestAlgorithmSHA256, nil
 	case x509.SHA384WithRSA, x509.ECDSAWithSHA384:
 		return OIDDigestAlgorithmSHA384, nil
-	case x509.SHA512WithRSA, x509.ECDSAWithSHA512, x509.PureEd25519:
+	case x509.SHA512WithRSA, x509.ECDSAWithSHA512, x509.PureEd25519,
+		x509.MLDSA44, x509.MLDSA65, x509.MLDSA87:
 		return OIDDigestAlgorithmSHA512, nil
 	}
 	return nil, fmt.Errorf("pkcs7: cannot convert hash to oid, unknown hash algorithm")
@@ -158,8 +175,48 @@ func getOIDForEncryptionAlgorithm(keyOrSigner interface{}, OIDDigestAlg asn1.Obj
 		}
 	case ed25519.PublicKey:
 		return OIDEncryptionAlgorithmEDDSA25519, nil
+	case *mldsa.PublicKey:
+		algorithm, ok := mlDSAAlgorithmForPublicKey(signer.Public())
+		if !ok {
+			return nil, fmt.Errorf("pkcs7: unsupported ML-DSA parameter set %s", signer.Public().(*mldsa.PublicKey).Parameters())
+		}
+		return algorithm.oid, nil
 	}
 	return nil, fmt.Errorf("pkcs7: cannot convert encryption algorithm to oid, unknown key type %T", signer.Public())
+}
+
+type mlDSAAlgorithm struct {
+	parameters         mldsa.Parameters
+	oid                asn1.ObjectIdentifier
+	signatureAlgorithm x509.SignatureAlgorithm
+}
+
+var mlDSAAlgorithms = [...]mlDSAAlgorithm{
+	{mldsa.MLDSA44(), OIDSignatureAlgorithmMLDSA44, x509.MLDSA44},
+	{mldsa.MLDSA65(), OIDSignatureAlgorithmMLDSA65, x509.MLDSA65},
+	{mldsa.MLDSA87(), OIDSignatureAlgorithmMLDSA87, x509.MLDSA87},
+}
+
+func mlDSAAlgorithmForPublicKey(publicKey crypto.PublicKey) (mlDSAAlgorithm, bool) {
+	public, ok := publicKey.(*mldsa.PublicKey)
+	if !ok {
+		return mlDSAAlgorithm{}, false
+	}
+	for _, algorithm := range mlDSAAlgorithms {
+		if public.Parameters() == algorithm.parameters {
+			return algorithm, true
+		}
+	}
+	return mlDSAAlgorithm{}, false
+}
+
+func mlDSAAlgorithmForOID(oid asn1.ObjectIdentifier) (mlDSAAlgorithm, bool) {
+	for _, algorithm := range mlDSAAlgorithms {
+		if oid.Equal(algorithm.oid) {
+			return algorithm, true
+		}
+	}
+	return mlDSAAlgorithm{}, false
 }
 
 // Parse decodes a DER encoded PKCS7 package

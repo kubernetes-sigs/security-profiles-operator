@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/dsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"time"
 )
 
@@ -48,6 +50,11 @@ type SignerInfoConfig struct {
 	ExtraSignedAttributes   []Attribute
 	ExtraUnsignedAttributes []Attribute
 	SkipCertificates        bool
+	// SkipSigningTime omits the signing-time signed attribute, dropping any
+	// signing-time entry found in ExtraSignedAttributes, as required by
+	// ETSI EN 319 142-1. Otherwise, the first explicit signing-time entry
+	// replaces the default and any additional entries are ignored.
+	SkipSigningTime bool
 }
 
 type signedData struct {
@@ -67,6 +74,21 @@ type signerInfo struct {
 	DigestEncryptionAlgorithm pkix.AlgorithmIdentifier
 	EncryptedDigest           []byte
 	UnauthenticatedAttributes []attribute `asn1:"optional,omitempty,tag:1"`
+}
+
+type cmsSigningMode uint8
+
+const (
+	cmsSigningModePreHashed cmsSigningMode = iota
+	cmsSigningModeDSA
+	cmsSigningModeEd25519
+	cmsSigningModeMLDSA
+)
+
+type cmsSignerAlgorithm struct {
+	digestOID    asn1.ObjectIdentifier
+	signatureOID asn1.ObjectIdentifier
+	mode         cmsSigningMode
 }
 
 type attribute struct {
@@ -129,6 +151,10 @@ func (sd *SignedData) AddSigner(ee *x509.Certificate, keyOrSigner interface{}, c
 // The signature algorithm used to hash the data is the one of the end-entity
 // certificate. The signer can be either a crypto.Signer or crypto.PrivateKey.
 func (sd *SignedData) AddSignerChain(ee *x509.Certificate, keyOrSigner interface{}, parents []*x509.Certificate, config SignerInfoConfig) error {
+	algorithm, err := getCMSSignerAlgorithm(keyOrSigner, sd.digestOid, nil)
+	if err != nil {
+		return err
+	}
 	// Following RFC 2315, 9.2 SignerInfo type, the distinguished name of
 	// the issuer of the end-entity signer is stored in the issuerAndSerialNumber
 	// section of the SignedData.SignerInfo, alongside the serial number of
@@ -147,24 +173,33 @@ func (sd *SignedData) AddSignerChain(ee *x509.Certificate, keyOrSigner interface
 		ias.IssuerName = asn1.RawValue{FullBytes: parents[0].RawSubject}
 	}
 	sd.sd.DigestAlgorithmIdentifiers = append(sd.sd.DigestAlgorithmIdentifiers,
-		pkix.AlgorithmIdentifier{Algorithm: sd.digestOid},
+		pkix.AlgorithmIdentifier{Algorithm: algorithm.digestOID},
 	)
-	hash, err := getHashForOID(sd.digestOid)
+	hash, err := getHashForOID(algorithm.digestOID)
 	if err != nil {
 		return err
 	}
 	h := hash.New()
 	h.Write(sd.data)
 	sd.messageDigest = h.Sum(nil)
-	encryptionOid, err := getOIDForEncryptionAlgorithm(keyOrSigner, sd.digestOid)
-	if err != nil {
-		return err
-	}
 	attrs := &attributes{}
 	attrs.Add(OIDAttributeContentType, sd.sd.ContentInfo.ContentType)
 	attrs.Add(OIDAttributeMessageDigest, sd.messageDigest)
-	attrs.Add(OIDAttributeSigningTime, time.Now().UTC())
+	hasExplicitSigningTime := slices.ContainsFunc(
+		config.ExtraSignedAttributes,
+		func(attr Attribute) bool { return attr.Type.Equal(OIDAttributeSigningTime) },
+	)
+	if !config.SkipSigningTime && !hasExplicitSigningTime {
+		attrs.Add(OIDAttributeSigningTime, time.Now().UTC())
+	}
+	addedExplicitSigningTime := false
 	for _, attr := range config.ExtraSignedAttributes {
+		if attr.Type.Equal(OIDAttributeSigningTime) {
+			if config.SkipSigningTime || addedExplicitSigningTime {
+				continue
+			}
+			addedExplicitSigningTime = true
+		}
 		attrs.Add(attr.Type, attr.Value)
 	}
 	finalAttrs, err := attrs.ForMarshalling()
@@ -180,15 +215,19 @@ func (sd *SignedData) AddSignerChain(ee *x509.Certificate, keyOrSigner interface
 		return err
 	}
 	// create signature of signed attributes
-	signature, err := signAttributes(finalAttrs, keyOrSigner, hash)
+	attrBytes, err := marshalAttributes(finalAttrs)
+	if err != nil {
+		return err
+	}
+	signature, err := algorithm.sign(keyOrSigner, attrBytes, hash)
 	if err != nil {
 		return err
 	}
 	signerInfo := signerInfo{
 		AuthenticatedAttributes:   finalAttrs,
 		UnauthenticatedAttributes: finalUnsignedAttrs,
-		DigestAlgorithm:           pkix.AlgorithmIdentifier{Algorithm: sd.digestOid},
-		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: encryptionOid},
+		DigestAlgorithm:           pkix.AlgorithmIdentifier{Algorithm: algorithm.digestOID},
+		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: algorithm.signatureOID},
 		IssuerAndSerialNumber:     ias,
 		EncryptedDigest:           signature,
 		Version:                   1,
@@ -211,9 +250,12 @@ func (sd *SignedData) AddSignerChain(ee *x509.Certificate, keyOrSigner interface
 // shouldn't do unless you're maintaining backward compatibility for old
 // applications. The signer can be either a crypto.Signer or crypto.PrivateKey.
 func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, keyOrSigner interface{}, config SignerInfoConfig) error {
-	var signature []byte
-	sd.sd.DigestAlgorithmIdentifiers = append(sd.sd.DigestAlgorithmIdentifiers, pkix.AlgorithmIdentifier{Algorithm: sd.digestOid})
-	hash, err := getHashForOID(sd.digestOid)
+	algorithm, err := getCMSSignerAlgorithm(keyOrSigner, sd.digestOid, sd.encryptionOid)
+	if err != nil {
+		return err
+	}
+	sd.sd.DigestAlgorithmIdentifiers = append(sd.sd.DigestAlgorithmIdentifiers, pkix.AlgorithmIdentifier{Algorithm: algorithm.digestOID})
+	hash, err := getHashForOID(algorithm.digestOID)
 	if err != nil {
 		return err
 	}
@@ -221,51 +263,18 @@ func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, keyOrSigner interfac
 	h.Write(sd.data)
 	sd.messageDigest = h.Sum(nil)
 
-	switch pkey := keyOrSigner.(type) {
-	case *dsa.PrivateKey:
-		// dsa doesn't implement crypto.Signer so we make a special case
-		// https://github.com/golang/go/issues/27889
-		r, s, err := dsa.Sign(rand.Reader, pkey, sd.messageDigest)
-		if err != nil {
-			return err
-		}
-		signature, err = asn1.Marshal(dsaSignature{r, s})
-		if err != nil {
-			return err
-		}
-	default:
-		signer, ok := keyOrSigner.(crypto.Signer)
-		if !ok {
-			return errors.New("pkcs7: private key does not implement crypto.Signer")
-		}
-
-		// special case for Ed25519, which hashes as part of the signing algorithm
-		_, ok = signer.Public().(ed25519.PublicKey)
-		if ok {
-			signature, err = signer.Sign(rand.Reader, sd.data, crypto.Hash(0))
-		} else {
-			signature, err = signer.Sign(rand.Reader, sd.messageDigest, hash)
-			if err != nil {
-				return err
-			}
-		}
+	signature, err := algorithm.sign(keyOrSigner, sd.data, hash)
+	if err != nil {
+		return err
 	}
 
 	var ias issuerAndSerial
 	ias.SerialNumber = ee.SerialNumber
 	// no parent, the issue is the end-entity cert itself
 	ias.IssuerName = asn1.RawValue{FullBytes: ee.RawIssuer}
-	if sd.encryptionOid == nil {
-		// if the encryption algorithm wasn't set by SetEncryptionAlgorithm,
-		// infer it from the digest algorithm
-		sd.encryptionOid, err = getOIDForEncryptionAlgorithm(keyOrSigner, sd.digestOid)
-	}
-	if err != nil {
-		return err
-	}
 	signerInfo := signerInfo{
-		DigestAlgorithm:           pkix.AlgorithmIdentifier{Algorithm: sd.digestOid},
-		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: sd.encryptionOid},
+		DigestAlgorithm:           pkix.AlgorithmIdentifier{Algorithm: algorithm.digestOID},
+		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: algorithm.signatureOID},
 		IssuerAndSerialNumber:     ias,
 		EncryptedDigest:           signature,
 		Version:                   1,
@@ -371,39 +380,58 @@ func cert2issuerAndSerial(cert *x509.Certificate) issuerAndSerial {
 	return ias
 }
 
-// signs the DER encoded form of the attributes with the private key
-func signAttributes(attrs []attribute, keyOrSigner interface{}, digestAlg crypto.Hash) ([]byte, error) {
-	attrBytes, err := marshalAttributes(attrs)
-	if err != nil {
-		return nil, err
+func getCMSSignerAlgorithm(keyOrSigner interface{}, digestOID, configuredSignatureOID asn1.ObjectIdentifier) (cmsSignerAlgorithm, error) {
+	if _, ok := keyOrSigner.(*dsa.PrivateKey); ok {
+		signatureOID, err := getOIDForEncryptionAlgorithm(keyOrSigner, digestOID)
+		return cmsSignerAlgorithm{digestOID, signatureOID, cmsSigningModeDSA}, err
 	}
-	h := digestAlg.New()
-	h.Write(attrBytes)
-	hash := h.Sum(nil)
 
-	// dsa doesn't implement crypto.Signer so we make a special case
-	// https://github.com/golang/go/issues/27889
-	switch pkey := keyOrSigner.(type) {
-	case *dsa.PrivateKey:
-		r, s, err := dsa.Sign(rand.Reader, pkey, hash)
+	signer, ok := keyOrSigner.(crypto.Signer)
+	if !ok {
+		return cmsSignerAlgorithm{}, errors.New("pkcs7: private key does not implement crypto.Signer")
+	}
+	if algorithm, ok := mlDSAAlgorithmForPublicKey(signer.Public()); ok {
+		return cmsSignerAlgorithm{OIDDigestAlgorithmSHA512, algorithm.oid, cmsSigningModeMLDSA}, nil
+	}
+
+	signatureOID := configuredSignatureOID
+	if signatureOID == nil {
+		var err error
+		signatureOID, err = getOIDForEncryptionAlgorithm(keyOrSigner, digestOID)
+		if err != nil {
+			return cmsSignerAlgorithm{}, err
+		}
+	}
+	mode := cmsSigningModePreHashed
+	if _, ok := signer.Public().(ed25519.PublicKey); ok {
+		mode = cmsSigningModeEd25519
+	}
+	return cmsSignerAlgorithm{digestOID, signatureOID, mode}, nil
+}
+
+func (algorithm cmsSignerAlgorithm) sign(keyOrSigner interface{}, data []byte, digestAlg crypto.Hash) ([]byte, error) {
+	if algorithm.mode == cmsSigningModeDSA {
+		pkey := keyOrSigner.(*dsa.PrivateKey)
+		h := digestAlg.New()
+		h.Write(data)
+		r, s, err := dsa.Sign(rand.Reader, pkey, h.Sum(nil))
 		if err != nil {
 			return nil, err
 		}
 		return asn1.Marshal(dsaSignature{r, s})
 	}
 
-	signer, ok := keyOrSigner.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("pkcs7: private key does not implement crypto.Signer")
+	signer := keyOrSigner.(crypto.Signer)
+	switch algorithm.mode {
+	case cmsSigningModeEd25519:
+		return signer.Sign(rand.Reader, data, crypto.Hash(0))
+	case cmsSigningModeMLDSA:
+		return signer.Sign(rand.Reader, data, &mldsa.Options{})
+	default:
+		h := digestAlg.New()
+		h.Write(data)
+		return signer.Sign(rand.Reader, h.Sum(nil), digestAlg)
 	}
-
-	// special case for Ed25519, which hashes as part of the signing algorithm
-	_, ok = signer.Public().(ed25519.PublicKey)
-	if ok {
-		return signer.Sign(rand.Reader, attrBytes, crypto.Hash(0))
-	}
-
-	return signer.Sign(rand.Reader, hash, digestAlg)
 }
 
 type dsaSignature struct {

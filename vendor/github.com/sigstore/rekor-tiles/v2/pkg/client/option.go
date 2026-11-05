@@ -17,6 +17,8 @@ package client
 
 import (
 	"crypto/tls"
+	"errors"
+	"net/http"
 	"time"
 )
 
@@ -25,6 +27,7 @@ type Config struct {
 	UserAgent string
 	Timeout   time.Duration
 	TLSConfig *tls.Config
+	Transport http.RoundTripper
 }
 
 // Option customizes the client Config.
@@ -48,5 +51,34 @@ func WithTimeout(timeout time.Duration) Option {
 func WithTLSConfig(tlsConfig *tls.Config) Option {
 	return func(c *Config) {
 		c.TLSConfig = tlsConfig
+	}
+}
+
+// WithTransport sets the base http.RoundTripper used for requests, for
+// example to add retries or to inject a mock in tests. The client still wraps
+// it to set the User-Agent. It is mutually exclusive with WithTLSConfig.
+func WithTransport(transport http.RoundTripper) Option {
+	return func(c *Config) {
+		c.Transport = transport
+	}
+}
+
+// BaseTransport returns the http.RoundTripper selected by the config: the
+// transport set with WithTransport, otherwise an http.Transport using the TLS
+// config set with WithTLSConfig, otherwise http.DefaultTransport. It returns an
+// error if both a transport and a TLS config were set, since a TLS config
+// cannot be applied to an arbitrary RoundTripper.
+func (c *Config) BaseTransport() (http.RoundTripper, error) {
+	switch {
+	case c.Transport != nil && c.TLSConfig != nil:
+		return nil, errors.New("WithTransport and WithTLSConfig are mutually exclusive")
+	case c.Transport != nil:
+		return c.Transport, nil
+	case c.TLSConfig != nil:
+		return &http.Transport{
+			TLSClientConfig: c.TLSConfig,
+		}, nil
+	default:
+		return http.DefaultTransport, nil
 	}
 }

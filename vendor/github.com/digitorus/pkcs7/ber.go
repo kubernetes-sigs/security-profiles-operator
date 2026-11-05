@@ -172,11 +172,11 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 	}
 	indefinite := false
 	if l > 0x80 {
-		numberOfBytes := (int)(l & 0x7F)
+		numberOfBytes := int(l & 0x7F)
 		if numberOfBytes > 4 { // int is only guaranteed to be 32bit
 			return nil, 0, errors.New("ber2der: BER tag length too long")
 		}
-		if numberOfBytes == 4 && (int)(ber[offset]) > 0x7F {
+		if numberOfBytes == 4 && int(ber[offset]) > 0x7F {
 			return nil, 0, errors.New("ber2der: BER tag length is negative")
 		}
 		if offset+numberOfBytes > berLen {
@@ -184,20 +184,20 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 			// compared with the remaining available bytes (`contentEnd > berLen`)
 			return nil, 0, errors.New("ber2der: cannot move offset forward, end of ber data reached")
 		}
-		if (int)(ber[offset]) == 0x0 && (numberOfBytes == 1 || ber[offset+1] <= 0x7F) {
+		if int(ber[offset]) == 0x0 && (numberOfBytes == 1 || ber[offset+1] <= 0x7F) {
 			// `numberOfBytes == 1` is an important conditional to avoid a potential out of bounds panic with `ber[offset+1]`
 			return nil, 0, errors.New("ber2der: BER tag length has leading zero")
 		}
 		debugprint("--> (compute length) indicator byte: %x\n", l)
 		// debugprint("--> (compute length) length bytes: %x\n", ber[offset:offset+numberOfBytes])
 		for i := 0; i < numberOfBytes; i++ {
-			length = length*256 + (int)(ber[offset])
+			length = length*256 + int(ber[offset])
 			offset++
 		}
 	} else if l == 0x80 {
 		indefinite = true
 	} else {
-		length = (int)(l)
+		length = int(l)
 	}
 	if length < 0 {
 		return nil, 0, errors.New("ber2der: invalid negative value found in BER tag length")
@@ -261,7 +261,9 @@ func isIndefiniteTermination(ber []byte, offset int) (bool, error) {
 		return false, errors.New("ber2der: Invalid BER format")
 	}
 
-	return bytes.Index(ber[offset:], []byte{0x0, 0x0}) == 0, nil
+	// An end-of-contents marker terminates the current indefinite-length object
+	// only when it begins at the current offset.
+	return ber[offset] == 0 && ber[offset+1] == 0, nil
 }
 
 func debugprint(format string, a ...interface{}) {

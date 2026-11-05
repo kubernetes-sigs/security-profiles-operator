@@ -23,6 +23,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/http"
 	"path"
 	"time"
 
@@ -48,8 +49,6 @@ import (
 	// To initialize rekor types
 	_ "github.com/sigstore/rekor/pkg/types/dsse/v0.0.1"
 	_ "github.com/sigstore/rekor/pkg/types/hashedrekord/v0.0.1"
-
-	"github.com/sigstore/sigstore-go/pkg/util"
 )
 
 const (
@@ -58,8 +57,8 @@ const (
 )
 
 type RekorClient interface {
-	CreateLogEntry(params *entries.CreateLogEntryParams, opts ...entries.ClientOption) (*entries.CreateLogEntryCreated, error)
-	GetLogEntryByUUID(params *entries.GetLogEntryByUUIDParams, opts ...entries.ClientOption) (*entries.GetLogEntryByUUIDOK, error)
+	CreateLogEntryContext(ctx context.Context, params *entries.CreateLogEntryParams, opts ...entries.ClientOption) (*entries.CreateLogEntryCreated, error)
+	GetLogEntryByUUIDContext(ctx context.Context, params *entries.GetLogEntryByUUIDParams, opts ...entries.ClientOption) (*entries.GetLogEntryByUUIDOK, error)
 }
 
 type RekorV2Client interface {
@@ -72,6 +71,8 @@ type Transparency interface {
 
 type Rekor struct {
 	options *RekorOptions
+	// HTTP client for Rekor v1 requests when Transport is set
+	httpClient *http.Client
 }
 
 type RekorOptions struct {
@@ -85,6 +86,11 @@ type RekorOptions struct {
 	Client   RekorClient
 	ClientV2 RekorV2Client
 	Version  uint32
+	// Optional User-Agent prefix for requests; sigstore-go/<version> is always appended
+	UserAgent string
+	// Optional transport for Rekor requests; existing options such as
+	// Retries and UserAgent still apply
+	Transport http.RoundTripper
 }
 
 var RekorAPIVersions = []uint32{1, 2}
@@ -211,7 +217,11 @@ func (r *Rekor) getRekorV2TLE(ctx context.Context, keyOrCertPEM []byte, b *proto
 		return nil, fmt.Errorf("unable to find signature in bundle")
 	}
 	if r.options.ClientV2 == nil {
-		client, err := write.NewWriter(r.options.BaseURL, rekortilesclient.WithUserAgent(util.ConstructUserAgent()))
+		writerOpts := []rekortilesclient.Option{rekortilesclient.WithUserAgent(userAgent(r.options.UserAgent))}
+		if r.options.Transport != nil {
+			writerOpts = append(writerOpts, rekortilesclient.WithTransport(r.options.Transport))
+		}
+		client, err := write.NewWriter(r.options.BaseURL, writerOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("creating rekor v2 client: %w", err)
 		}
@@ -288,25 +298,35 @@ func (r *Rekor) getRekorV1TLE(ctx context.Context, keyOrCertPEM []byte, b *proto
 		params.SetTimeout(r.options.Timeout)
 	}
 	params.SetProposedEntry(proposedEntry)
-	params.SetContext(ctx)
 
 	if r.options.Client == nil {
-		client, err := client.GetRekorClient(r.options.BaseURL, client.WithUserAgent(util.ConstructUserAgent()), client.WithRetryCount(r.options.Retries))
+		client, err := client.GetRekorClient(r.options.BaseURL, client.WithUserAgent(userAgent(r.options.UserAgent)), client.WithRetryCount(r.options.Retries))
 		if err != nil {
 			return nil, err
 		}
 		r.options.Client = client.Entries
+		if r.options.Transport != nil {
+			// Use Transport with the configured Retries and UserAgent.
+			r.httpClient = &http.Client{
+				Transport: userAgentTransport{base: newRetryTransport(r.options.Transport, r.options.Retries), userAgent: userAgent(r.options.UserAgent)},
+			}
+		}
+	}
+	if r.httpClient != nil {
+		params.SetHTTPClient(r.httpClient)
 	}
 
-	resp, err := r.options.Client.CreateLogEntry(params)
+	resp, err := r.options.Client.CreateLogEntryContext(ctx, params)
 	var entry models.LogEntryAnon
 	if err != nil {
-		var conflictErr *entries.CreateLogEntryConflict
-		if errors.As(err, &conflictErr) {
+		if conflictErr, ok := errors.AsType[*entries.CreateLogEntryConflict](err); ok {
 			uuid := path.Base(conflictErr.Location.String())
-			getParams := entries.NewGetLogEntryByUUIDParamsWithContext(ctx)
+			getParams := entries.NewGetLogEntryByUUIDParams()
 			getParams.SetEntryUUID(uuid)
-			getResp, getErr := r.options.Client.GetLogEntryByUUID(getParams)
+			if r.httpClient != nil {
+				getParams.SetHTTPClient(r.httpClient)
+			}
+			getResp, getErr := r.options.Client.GetLogEntryByUUIDContext(ctx, getParams)
 			if getErr != nil {
 				return nil, fmt.Errorf("failed to fetch conflicting entry: %w", getErr)
 			}

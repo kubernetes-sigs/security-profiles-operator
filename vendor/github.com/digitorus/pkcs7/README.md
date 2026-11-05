@@ -1,9 +1,71 @@
 # pkcs7
 
-[![GoDoc](https://godoc.org/go.mozilla.org/pkcs7?status.svg)](https://godoc.org/go.mozilla.org/pkcs7)
-[![Build Status](https://github.com/mozilla-services/pkcs7/workflows/CI/badge.svg?branch=master&event=push)](https://github.com/mozilla-services/pkcs7/actions/workflows/ci.yml?query=branch%3Amaster+event%3Apush)
+[![Go Reference](https://pkg.go.dev/badge/github.com/digitorus/pkcs7.svg)](https://pkg.go.dev/github.com/digitorus/pkcs7)
+[![CI](https://github.com/digitorus/pkcs7/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/digitorus/pkcs7/actions/workflows/ci.yml)
 
 pkcs7 implements parsing and creating signed and enveloped messages.
+
+The module requires Go 1.27 or later.
+
+```go
+import "github.com/digitorus/pkcs7"
+```
+
+## Post-Quantum Cryptography (PQC)
+
+CMS SignedData supports ML-DSA-44, ML-DSA-65, and ML-DSA-87 using Go's
+`crypto/mldsa` and `crypto/x509` packages. Signing and verification follow
+[RFC 9882](https://www.rfc-editor.org/rfc/rfc9882.html), including pure-mode
+signatures, an empty ML-DSA context, SHA-512 CMS digest identifiers, and absent
+ML-DSA AlgorithmIdentifier parameters.
+
+CMS EnvelopedData supports ML-KEM-768 and ML-KEM-1024 recipients using Go's
+`crypto/mlkem` package. The implementation uses the `OtherRecipientInfo` and
+`KEMRecipientInfo` architecture from
+[RFC 9629](https://www.rfc-editor.org/rfc/rfc9629.html), the ML-KEM conventions
+from [RFC 9936](https://www.rfc-editor.org/rfc/rfc9936.html), and ML-KEM public
+keys in X.509 certificates encoded according to
+[RFC 9935](https://www.rfc-editor.org/rfc/rfc9935.html). It derives the
+key-encryption key with HKDF-SHA256 and wraps the content-encryption key with
+AES-Wrap-256. Select an AES-CBC content-encryption algorithm before calling
+`Encrypt`; for example:
+
+```go
+pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES256CBC
+encrypted, err := pkcs7.Encrypt(content, recipients)
+```
+
+AES-GCM is standardized for CMS `AuthEnvelopedData` by
+[RFC 5084](https://www.rfc-editor.org/rfc/rfc5084.html), not ordinary
+`EnvelopedData`. This package does not currently implement
+`AuthEnvelopedData`, so ML-KEM recipients reject AES-GCM content encryption.
+
+ML-KEM-512 is standardized but is not supported because Go 1.27's standard
+library provides only ML-KEM-768 and ML-KEM-1024. This package does not yet
+implement hybrid or composite KEM recipients. EnvelopedData encryption alone
+does not authenticate the originator; sign content when origin authentication
+is required.
+
+SLH-DSA is standardized for CMS by
+[RFC 9814](https://www.rfc-editor.org/rfc/rfc9814.html), but is not supported
+because Go's standard library does not currently provide an SLH-DSA
+implementation.
+
+Future work includes ML-KEM-512 when an appropriate Go implementation is
+available, CMS `AuthEnvelopedData`, CMS signed-attribute and EUF-CMA hardening,
+CMSAlgorithmProtection, SLH-DSA when an appropriate Go implementation is
+available, and composite ML-DSA or ML-KEM only after the relevant IETF
+specifications stabilize.
+
+## Interoperability
+
+CI exercises CMS in both directions with OpenSSL 3.6 and 4.0 and Bouncy Castle
+1.85. SignedData coverage includes RSA, ECDSA, Ed25519, and all three ML-DSA
+parameter sets with embedded and detached content, with and without signed
+attributes where the external implementation supports those combinations.
+EnvelopedData coverage includes RSA key transport with AES-128-CBC and
+AES-256-CBC against OpenSSL, plus ML-KEM-768 and ML-KEM-1024 KEMRecipientInfo
+with AES-256-CBC against both OpenSSL and Bouncy Castle.
 
 ```go
 package main
@@ -16,16 +78,16 @@ import (
 	"fmt"
 	"os"
 
-    "go.mozilla.org/pkcs7"
+	"github.com/digitorus/pkcs7"
 )
 
 func SignAndDetach(content []byte, cert *x509.Certificate, privkey *rsa.PrivateKey) (signed []byte, err error) {
-	toBeSigned, err := NewSignedData(content)
+	toBeSigned, err := pkcs7.NewSignedData(content)
 	if err != nil {
 		err = fmt.Errorf("Cannot initialize signed data: %s", err)
 		return
 	}
-	if err = toBeSigned.AddSigner(cert, privkey, SignerInfoConfig{}); err != nil {
+	if err = toBeSigned.AddSigner(cert, privkey, pkcs7.SignerInfoConfig{}); err != nil {
 		err = fmt.Errorf("Cannot add signer: %s", err)
 		return
 	}

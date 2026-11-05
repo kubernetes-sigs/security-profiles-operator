@@ -50,6 +50,12 @@ func ToLogEntry(hr *pb.HashedRekordRequestV002, algorithmRegistry *signature.Alg
 	}
 
 	hashAlg := algDetails.GetHashType()
+	// hashedrekord only permits signing algorithms that prehash the data.
+	// Pure Ed25519 (PKIX_ED25519) does not, so GetHashType returns crypto.Hash(0);
+	// reject it here rather than calling Size() on an unset hash.
+	if hashAlg == crypto.Hash(0) {
+		return nil, fmt.Errorf("unsupported signing algorithm %s for hashedrekord: no associated digest algorithm", hr.Signature.Verifier.KeyDetails)
+	}
 	expectedSize := hashAlg.Size()
 	if len(hr.Digest) != expectedSize {
 		return nil, fmt.Errorf("digest length (%d) does not match expected size (%d) for algorithm %s", len(hr.Digest), expectedSize, hashAlg.String())
@@ -144,14 +150,13 @@ func verifySupportedAlgorithm(keyDetails v1.PublicKeyDetails, v verifier.Verifie
 	if err != nil {
 		return signature.AlgorithmDetails{}, fmt.Errorf("getting key algorithm details: %w", err)
 	}
-	alg := algDetails.GetHashType()
 
-	valid, err := algorithmregistry.CheckEntryAlgorithms(v.PublicKey(), alg, algorithmRegistry)
+	valid, err := algorithmregistry.CheckEntryAlgorithms(v.PublicKey(), algDetails, algorithmRegistry)
 	if err != nil {
 		return signature.AlgorithmDetails{}, fmt.Errorf("checking entry algorithm: %w", err)
 	}
 	if !valid {
-		return signature.AlgorithmDetails{}, &algorithmregistry.UnsupportedAlgorithm{Pub: v.PublicKey(), Alg: alg}
+		return signature.AlgorithmDetails{}, &algorithmregistry.UnsupportedAlgorithm{Pub: v.PublicKey(), Alg: algDetails.GetHashType()}
 	}
 	return algDetails, nil
 }
