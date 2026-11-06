@@ -192,8 +192,7 @@ func retryableError(err error) bool {
 		return false
 	}
 
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		if urlErr.Err == nil {
 			return false
 		}
