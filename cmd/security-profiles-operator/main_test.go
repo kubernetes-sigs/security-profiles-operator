@@ -27,6 +27,7 @@ import (
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/stretchr/testify/require"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -431,6 +432,7 @@ func TestFetchClusterTLSOptions(t *testing.T) {
 		require.Equal(t, uint16(tls.VersionTLS12), c.MinVersion)
 		require.Equal(t, []string{"http/1.1"}, c.NextProtos)
 		require.Empty(t, c.CipherSuites)
+		require.Nil(t, c.CurvePreferences)
 	})
 
 	t.Run("openshift honors the cluster profile if required", func(t *testing.T) {
@@ -495,6 +497,140 @@ func TestFetchClusterTLSOptions(t *testing.T) {
 		_, err := fetchClusterTLSOptions(t.Context(), cl)
 		require.ErrorIs(t, err, errTest)
 	})
+}
+
+func TestFetchClusterTLSGroups(t *testing.T) {
+	t.Parallel()
+
+	defaultCurves := []tls.CurveID{tls.X25519MLKEM768, tls.X25519, tls.CurveP256, tls.CurveP384}
+
+	for name, tc := range map[string]struct {
+		groups     []configv1.TLSGroup
+		adherence  configv1.TLSAdherencePolicy
+		kubernetes bool
+		wantCurves []tls.CurveID
+		minVersion configv1.TLSProtocolVersion
+	}{
+		"NIST groups exclude X25519 and preserve order": {
+			groups: []configv1.TLSGroup{
+				configv1.TLSGroupSecP384r1, configv1.TLSGroupSecP256r1, configv1.TLSGroupSecP521r1,
+			},
+			adherence:  configv1.TLSAdherencePolicyStrictAllComponents,
+			wantCurves: []tls.CurveID{tls.CurveP384, tls.CurveP256, tls.CurveP521},
+		},
+		"TLS 1.3 propagates hybrid groups": {
+			groups:     []configv1.TLSGroup{configv1.TLSGroupX25519MLKEM768, configv1.TLSGroupSecP256r1},
+			adherence:  configv1.TLSAdherencePolicyStrictAllComponents,
+			wantCurves: []tls.CurveID{tls.X25519MLKEM768, tls.CurveP256},
+			minVersion: configv1.VersionTLS13,
+		},
+		"unsupported groups are skipped": {
+			groups:     []configv1.TLSGroup{"unknown-group", configv1.TLSGroupSecP256r1},
+			adherence:  configv1.TLSAdherencePolicyStrictAllComponents,
+			wantCurves: []tls.CurveID{tls.CurveP256},
+		},
+		"all unsupported groups leave Go defaults": {
+			groups:    []configv1.TLSGroup{"unknown-group"},
+			adherence: configv1.TLSAdherencePolicyStrictAllComponents,
+		},
+		"unset groups leave Go defaults": {
+			adherence: configv1.TLSAdherencePolicyStrictAllComponents,
+		},
+		"empty groups leave Go defaults": {
+			groups:    []configv1.TLSGroup{},
+			adherence: configv1.TLSAdherencePolicyStrictAllComponents,
+		},
+		"no opinion uses the default profile groups": {
+			groups:     []configv1.TLSGroup{configv1.TLSGroupSecP521r1},
+			adherence:  configv1.TLSAdherencePolicyNoOpinion,
+			wantCurves: defaultCurves,
+		},
+		"legacy adherence uses the default profile groups": {
+			groups:     []configv1.TLSGroup{configv1.TLSGroupSecP521r1},
+			adherence:  configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly,
+			wantCurves: defaultCurves,
+		},
+		"non OpenShift clusters leave Go defaults": {
+			groups:     []configv1.TLSGroup{configv1.TLSGroupSecP521r1},
+			adherence:  configv1.TLSAdherencePolicyStrictAllComponents,
+			kubernetes: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			minVersion := tc.minVersion
+			if minVersion == "" {
+				minVersion = configv1.VersionTLS12
+			}
+
+			apiServer := &configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.APIServerSpec{
+					TLSAdherence: tc.adherence,
+					TLSSecurityProfile: &configv1.TLSSecurityProfile{
+						Type: configv1.TLSProfileCustomType,
+						Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
+							Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+							MinTLSVersion: minVersion,
+							Groups:        tc.groups,
+						}},
+					},
+				},
+			}
+			objects := []client.Object{apiServer}
+
+			if !tc.kubernetes {
+				objects = append(objects, &configv1.ClusterOperator{
+					ObjectMeta: metav1.ObjectMeta{Name: "openshift-apiserver"},
+				})
+			}
+
+			cfg, err := fetchClusterTLSOptions(t.Context(), tlsTestClient(t, objects...))
+			require.NoError(t, err)
+
+			for endpoint, options := range map[string][]func(*tls.Config){
+				"webhook": cfg.options,
+				"metrics": secureMetricsOptions(&cfg).TLSOpts,
+			} {
+				t.Run(endpoint, func(t *testing.T) {
+					t.Parallel()
+
+					c := &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert}
+					for _, opt := range options {
+						opt(c)
+					}
+
+					require.Equal(t, tc.wantCurves, c.CurvePreferences)
+					require.Equal(t, tls.RequireAndVerifyClientCert, c.ClientAuth)
+					require.Equal(t, []string{"http/1.1"}, c.NextProtos)
+				})
+			}
+		})
+	}
+}
+
+//nolint:paralleltest // This test replaces the package logger.
+func TestUnsupportedTLSGroupsLogged(t *testing.T) {
+	var logs strings.Builder
+
+	previousLog := setupLog
+	setupLog = funcr.New(func(_, message string) {
+		logs.WriteString(message)
+	}, funcr.Options{})
+
+	t.Cleanup(func() { setupLog = previousLog })
+
+	profile := configv1.TLSProfileSpec{
+		Ciphers:       []string{"unknown-cipher"},
+		MinTLSVersion: configv1.VersionTLS12,
+		Groups:        []configv1.TLSGroup{"unknown-group", configv1.TLSGroupSecP256r1},
+	}
+	cfg := newTLSConfig(true, profile, configv1.TLSAdherencePolicyStrictAllComponents)
+	require.Equal(t, []tls.CurveID{tls.CurveP256}, applyTLSOptions(&cfg).CurvePreferences)
+	require.Contains(t, logs.String(), "unsupported ciphers or groups")
+	require.Contains(t, logs.String(), "unknown-cipher")
+	require.Contains(t, logs.String(), "unknown-group")
 }
 
 func TestCommands(t *testing.T) {
