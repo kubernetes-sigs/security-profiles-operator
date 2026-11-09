@@ -37,7 +37,7 @@ require (
 	github.com/theupdateframework/go-tuf/v2 v2.4.2
 	github.com/urfave/cli/v2 v2.27.7
 	go.yaml.in/yaml/v3 v3.0.6
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
