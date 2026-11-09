@@ -71,7 +71,7 @@ HADOLINT_SHA256_darwin_arm64 = 5c09f3213f8e40406abe048233d985eebef336d4a6a20021b
 ACTIONLINT_VERSION = v1.7.12
 KUBECONFORM_VERSION = v0.8.0
 KUBE_LINTER_VERSION = v0.8.3
-YQ_VERSION = 4.54.1
+YQ_VERSION = 4.54.3
 # The oldest Kubernetes release the manifests are validated against, see
 # minimum-kubernetes in dependencies.yaml.
 MIN_KUBERNETES_VERSION = 1.30.0
