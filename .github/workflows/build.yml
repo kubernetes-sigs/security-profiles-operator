@@ -13,7 +13,7 @@ on:
     - cron: '37 4 * * 1'
   workflow_dispatch:
 env:
-  NIX_VERSION: '2.35.4'
+  NIX_VERSION: '2.35.5'
 # Runs on main and releases publish images, spoc binaries and the SBOM, so only
 # pull request runs are cancelled by newer pushes. Every push to main gets a
 # group of its own: GitHub cancels the pending run of a group when a newer one

@@ -23,7 +23,7 @@ repos:
         exclude: \.(md|golden)$
 
   - repo: https://github.com/crate-ci/typos
-    rev: 7f9d0819ca1c008ade73f4b41fa9d258d48f605b  # frozen: v1.51.1
+    rev: 4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85  # frozen: v1.52.0
     hooks:
       - id: typos
         args: [--config, .typos.toml]

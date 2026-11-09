@@ -21,10 +21,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 install_yq() {
   echo "Installing yq"
   local arch sha256 download
-  YQ_VERSION=4.54.1
+  YQ_VERSION=4.54.3
   # Bump together with YQ_VERSION, see dependencies.yaml.
-  YQ_SHA256_amd64=8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
-  YQ_SHA256_arm64=189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b
+  YQ_SHA256_amd64=129534601871538efe0ba4c5e62a34fb1d5f469bcb975c4fddeb467d82974973
+  YQ_SHA256_arm64=89f69310b61b68d1245065a1241d1fc843f7a36cd6103ffd77ad987613bd1b67
   case "$(uname -m)" in
   x86_64) arch=amd64 sha256=$YQ_SHA256_amd64 ;;
   aarch64) arch=arm64 sha256=$YQ_SHA256_arm64 ;;

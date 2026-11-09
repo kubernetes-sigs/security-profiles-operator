@@ -195,7 +195,7 @@ dependencies:
   # tags of the repository include date tags like 20260805, which the
   # constraint leaves out.
   - name: alpine
-    version: 3.24.3
+    version: 3.24.4
     upstream:
       flavour: container
       registry: docker.io/library/alpine
@@ -206,7 +206,7 @@ dependencies:
 
   # Must be bumped together with alpine above, the digest of its image index.
   - name: alpine-digest
-    version: sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+    version: sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     refPaths:
     - path: hack/ci/lib.sh
       match: ^ALPINE_IMAGE=
@@ -474,7 +474,7 @@ dependencies:
       match: "^ARG BUILD_IMAGE="
 
   - name: nix
-    version: 2.35.4
+    version: 2.35.5
     upstream:
       flavour: github
       url: NixOS/nix
@@ -490,7 +490,7 @@ dependencies:
 
   # Must be bumped together with nix above.
   - name: nix-sha256
-    version: ff66236d2f7e2a21f3350e73668e021ac6a8881ef277a38e16e952bfb22718c3
+    version: c349f0559b7849a2cb3b20b8584e532b3fcf5025092cb6180eb0b99240d7b96c
     refPaths:
     - path: Dockerfile.build-image
       match: "^ARG NIX_SHA256"
@@ -511,7 +511,7 @@ dependencies:
   # The BuildKit of the reproducible image builds, on Cloud Build and in the
   # image-reproducible workflow alike.
   - name: buildkit
-    version: v0.34.1
+    version: v0.34.2
     upstream:
       flavour: github
       url: moby/buildkit
@@ -521,7 +521,7 @@ dependencies:
 
   # Must be bumped together with buildkit above.
   - name: buildkit-digest
-    version: sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+    version: sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
     refPaths:
     - path: hack/image-cross.sh
       match: "^BUILDKIT_DIGEST="
@@ -956,7 +956,7 @@ dependencies:
   # have no v prefix and include per-architecture tags like 0.71.2-amd64, pin
   # the release version with the v prefix.
   - name: trivy
-    version: v0.76.1
+    version: v0.76.2
     upstream:
       flavour: container
       registry: ghcr.io/aquasecurity/trivy
@@ -965,7 +965,7 @@ dependencies:
         match: "version: v0\\."
 
   - name: yq
-    version: 4.54.1
+    version: 4.54.3
     upstream:
       flavour: github
       url: mikefarah/yq
@@ -977,13 +977,13 @@ dependencies:
 
   # Must be bumped together with yq above.
   - name: yq-sha256-linux-amd64
-    version: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+    version: 129534601871538efe0ba4c5e62a34fb1d5f469bcb975c4fddeb467d82974973
     refPaths:
       - path: hack/ci/install-yq.sh
         match: "YQ_SHA256_amd64="
 
   - name: yq-sha256-linux-arm64
-    version: 189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b
+    version: 89f69310b61b68d1245065a1241d1fc843f7a36cd6103ffd77ad987613bd1b67
     refPaths:
       - path: hack/ci/install-yq.sh
         match: "YQ_SHA256_arm64="
@@ -1101,8 +1101,10 @@ dependencies:
       - path: Makefile
         match: "^ACTIONLINT_VERSION"
 
+  # zizmor-action installs only the zizmor versions it ships a lockfile for,
+  # a new zizmor can need a newer zizmor-action in .github/workflows/lint.yml.
   - name: zizmor
-    version: 1.31.1
+    version: 1.32.0
     upstream:
       flavour: github
       url: zizmorcore/zizmor
@@ -1130,7 +1132,7 @@ dependencies:
   # The pre-commit hook and the test workflow run the same release, so
   # .github/dependabot.yml leaves the action alone.
   - name: typos
-    version: v1.51.1
+    version: v1.52.0
     upstream:
       flavour: github
       url: crate-ci/typos

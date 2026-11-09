@@ -37,8 +37,8 @@ CERT_MANAGER_SHA256=c04a51295adda2b1a775146751f973e787190778c7f35180861d9678876e
 # and musl, so it is pinned by digest. Bump the version and the digest
 # together, see alpine in dependencies.yaml, and commit the recordings of the
 # new image.
-ALPINE_VERSION=3.24.3
-ALPINE_IMAGE=docker.io/library/alpine:$ALPINE_VERSION@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+ALPINE_VERSION=3.24.4
+ALPINE_IMAGE=docker.io/library/alpine:$ALPINE_VERSION@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 # Runs kubectl in the namespace of the operator.
 k() {
