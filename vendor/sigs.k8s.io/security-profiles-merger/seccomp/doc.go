@@ -218,13 +218,14 @@ limitations under the License.
 // Clauses of one syscall that apply one action, each test one argument for
 // equality with a different filter, and report different errno values are
 // given the errno of the first of them. They are different results to
-// libseccomp, so without that the syscall would collapse to one
-// unconditional rule: a baseline filtering one argument and an artifact
-// filtering another, one of them spelling the EPERM the other leaves
-// implicit, would deny every call of a syscall both allow. A clause set that
-// is already a safe shape keeps its errno values as written, and
-// [ValidateArtifact] reports such clauses in one profile as conflicting
-// rather than unifying them.
+// libseccomp, which still applies the action to every call one of them
+// matches, in one of their errno values; without that the syscall would
+// collapse to one unconditional rule: a baseline filtering one argument
+// and an artifact filtering another, one of them spelling the EPERM the
+// other leaves implicit, would deny every call of a syscall both allow. A
+// clause set that is already a safe shape keeps its errno values as
+// written, and [ValidateArtifact] reports such clauses in one profile as
+// conflicting rather than unifying them.
 //
 // [Validate] does not range-check errnoRet; [ValidateStrict] and
 // [ValidateArtifact] reject values above 4095 on actions that return them.
@@ -258,8 +259,12 @@ limitations under the License.
 // to be the one of the running program (see [NativeArchitecture]). Both
 // were checked against libseccomp 2.6.1 for every architecture it knows,
 // and the libseccomp tests of this package check merge results on x86,
-// x32, arm, aarch64 and ppc64le against it, with libseccomp sorting the
-// syscalls by priority and into a binary tree.
+// x32, arm, aarch64, ppc64le, mipsel and, with libseccomp 2.6, sh against
+// it, with libseccomp sorting the syscalls by priority and into a binary
+// tree. The remaining multiplexing architectures (big-endian 32-bit MIPS,
+// ppc, ppc64, s390, s390x, m68k, sheb) are big-endian, which libseccomp
+// does not combine with a little-endian architecture in one filter, and
+// are inferred from the probed ones.
 //
 // One thing libseccomp does there is not followed, because it is a defect
 // rather than a reading: libseccomp 2.5.5 and 2.6.1 load the syscall number
@@ -270,11 +275,17 @@ limitations under the License.
 // fewest conditions, so this takes a profile in which every such rule names
 // a syscall the architecture lacks, as "socketcall" with one unconditional
 // rule and "socket" with a conditional one does on x86_64, in a filter of
-// x86_64 and x32 together or of any other architecture. It does not happen
-// where libseccomp sorts into a binary tree, which runc asks for above 32
-// syscall names and crun never does. An input can have that form, and a
-// merge can produce it from inputs that do not, since it drops rules equal
-// to the default and collapses others to unconditional ones; under a
+// x86_64 and x32 together or of an architecture that does not multiplex
+// through socketcall(2): arm, aarch64, riscv64, loongarch64, parisc,
+// parisc64 and 64-bit and n32 MIPS. A filter of x86_64 or x32 alone loads
+// the number before any syscall is tested, and the multiplexing
+// architectures (x86, 32-bit MIPS, ppc, ppc64, ppc64le, s390, s390x,
+// m68k, sh) drop a rule on a syscall they lack when it is added, so
+// neither is affected. It does not
+// happen where libseccomp sorts into a binary tree, which runc asks for
+// above 32 syscall names and crun never does. An input can have that form,
+// and a merge can produce it from inputs that do not, since it drops rules
+// equal to the default and collapses others to unconditional ones; under a
 // permissive default the result then permits what an input denies. A
 // profile that names one syscall every covered architecture has in an
 // unconditional rule is not affected, which every allowlist is.
@@ -312,29 +323,40 @@ limitations under the License.
 // a1 != 1 still decide socketcall(SYS_SETSOCKOPT) by its second argument.
 // Two copies with the same filter and different results, errno included,
 // are refused with EEXIST, and an unconditional rule on the multiplexer
-// decides all of its calls. Where neither profile has multiplexer rules and
-// no rule of the syscall tests the first argument, the path decides each
-// call as the syscall does, and the merges keep it as they keep the
-// syscall. Otherwise they read that path of every input as the results a
-// call can get there: the multiplexer's unconditional rule if it has one;
-// with conditional multiplexer rules, the results of those, of every
-// syscall the multiplexer carries and of the default; and otherwise the
-// results of the syscall's rules, and the default unless one of them
-// matches the whole sub-call. A result that would permit more ([Intersect])
-// or less ([Union]) on that path than an input, or hold rules libseccomp
-// may refuse there (different results for one of these syscalls where a
-// rule matches the whole sub-call or the rules form no safe shape without
-// the first argument, or conditional rules on the multiplexer), is settled.
-// [Intersect] drops the multiplexing architectures from the list where the
-// native architecture does not multiplex. Otherwise, and always for
-// [Union], the multiplexer and each affected syscall collapse to one
-// unconditional rule in the merge direction, combining their actions with
-// what the inputs apply on that path, which also removes the filters from
-// the direct syscall. An unconditional multiplexer rule that differs from
-// the default only in its errno, and would hide multiplexed rules, is
-// dropped instead of settling where those rules then decide every sub-call
-// safely. [ValidateArtifact] does not model which of these rule sets
-// libseccomp refuses.
+// decides all of its calls.
+//
+// The merges read that path in one of three ways:
+//
+//   - Kept as the syscall: neither profile has multiplexer rules and no
+//     rule of the syscall tests the first argument, so the path decides
+//     each call as the syscall does.
+//   - Read as a set of results: otherwise, each input's path is read as
+//     the results a call can get there. With an unconditional multiplexer
+//     rule, that rule; with conditional multiplexer rules, the results of
+//     those, of every syscall the multiplexer carries and of the default;
+//     and otherwise the results of the syscall's rules, and the default
+//     unless one of them matches the whole sub-call.
+//   - Settled: a result that would permit more ([Intersect]) or less
+//     ([Union]) on that path than an input, or that holds rules libseccomp
+//     may refuse there (different results for one of these syscalls where
+//     a rule matches the whole sub-call or the rules form no safe shape
+//     without the first argument, or conditional rules on the
+//     multiplexer). [Intersect] drops the multiplexing architectures from
+//     the list where the native architecture does not multiplex.
+//     Otherwise, and always for [Union], the multiplexer and each affected
+//     syscall collapse to one unconditional rule in the merge direction,
+//     combining their actions with what the inputs apply on that path,
+//     which also removes the filters from the direct syscall. An
+//     unconditional multiplexer rule that differs from the default only in
+//     its errno, and would hide multiplexed rules, is dropped instead of
+//     settling where those rules then decide every sub-call safely.
+//
+// Where the profile covers an architecture that multiplexes,
+// [ValidateArtifact] reports ([ErrConflictingEntries]) the rules of a
+// multiplexed syscall whose copies libseccomp may refuse, and conditional
+// rules of the multiplexer next to rules of a syscall it carries; [Diff] of
+// a profile against [Intersect] of it alone shows what every merge settles
+// in it, whatever the other inputs.
 //
 // Dropping an architecture from the list does not remove it from a filter
 // where it is native, so [Intersect] is meant to run on the node that loads

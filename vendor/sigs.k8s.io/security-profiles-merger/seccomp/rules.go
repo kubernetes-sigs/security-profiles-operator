@@ -333,15 +333,14 @@ func (s *clauseSummary) pick(intersect bool) clause {
 // collectRules falls back to past maxLoadedClauses. Every name of an entry
 // loads the same clauses, so each entry is folded once and its fold applied
 // per name, which keeps the pass linear in the size of the input instead of
-// in the clauses it would expand to.
-// only names the syscalls to summarize; the rest are left to the caller,
-// which reads them exactly.
+// in the clauses it would expand to. Only the syscalls in summarized are
+// read; the rest are left to the caller, which reads them exactly.
 func summarizeRules(
-	syscalls []specs.LinuxSyscall, def *clause, only map[string]bool,
+	syscalls []specs.LinuxSyscall, def *clause, summarized map[string]bool,
 ) map[string]*syscallRules {
 	rules := make(map[string]*syscallRules)
 
-	if len(only) == 0 {
+	if len(summarized) == 0 {
 		return rules
 	}
 
@@ -363,7 +362,7 @@ func summarizeRules(
 		}
 
 		for _, name := range entry.Names {
-			if !only[name] {
+			if !summarized[name] {
 				continue
 			}
 
@@ -1101,7 +1100,10 @@ func (m ruleMerger) collapseClauses(clauses []clause, fallback *clause) []clause
 // argsCover) matches only calls the other matches too, and since the least
 // restrictive matching clause wins, it is dead unless it is less restrictive
 // than that other clause. Clauses with the same result also collapse into
-// the wider one.
+// the wider one, and of two clauses with the same result whose filters
+// cover each other, such as "a0 < 1" and "a0 <= 0", the later one goes: a
+// merge spells a conjoined condition after one input, so the same clause
+// can arrive in two spellings, which would be no safe shape together.
 //
 // It compares every clause against every other one, so past maxPruneClauses
 // it is skipped. Pruning only removes clauses that never decide a call, so
@@ -1118,14 +1120,7 @@ func pruneDominated(clauses []clause) []clause {
 		dominated := false
 
 		for otherIdx, other := range clauses {
-			// other must be strictly wider: a clause with an equivalent
-			// filter would otherwise prune this one and be pruned by it.
-			if otherIdx == idx || !argsCover(other.args, current.args) ||
-				argsCover(current.args, other.args) {
-				continue
-			}
-
-			if current.sameResult(other) || stricter(current, other) {
+			if otherIdx != idx && dominates(other, current, otherIdx < idx) {
 				dominated = true
 
 				break
@@ -1138,6 +1133,23 @@ func pruneDominated(clauses []clause) []clause {
 	}
 
 	return kept
+}
+
+// dominates reports whether the clause other makes current dead: other
+// strictly covers current and is less restrictive or has the same result,
+// or has the same result and an equivalent filter and comes first. Two
+// equivalent filters with different results are both kept: they are a
+// conflict to libseccomp, and the clause set collapses as one.
+func dominates(other, current clause, otherFirst bool) bool {
+	if !argsCover(other.args, current.args) {
+		return false
+	}
+
+	if argsCover(current.args, other.args) {
+		return otherFirst && current.sameResult(other)
+	}
+
+	return current.sameResult(other) || stricter(current, other)
 }
 
 // raiseOverlapsOfRedundant raises every clause that is stricter than a

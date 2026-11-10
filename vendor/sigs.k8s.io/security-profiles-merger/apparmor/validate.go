@@ -1007,12 +1007,12 @@ func validateDuplicateCapabilities(caps []string) error {
 
 	var errs []error
 
-	for idx, cap := range caps {
-		upper := asciiUpper(cap)
+	for idx, name := range caps {
+		upper := asciiUpper(name)
 		if _, ok := seen[upper]; ok {
 			errs = append(errs, fmt.Errorf(
 				"AllowedCapabilities[%d]: %s: %w",
-				idx, merge.QuoteBounded(cap), ErrDuplicateCapability,
+				idx, merge.QuoteBounded(name), ErrDuplicateCapability,
 			))
 		}
 
@@ -1025,11 +1025,11 @@ func validateDuplicateCapabilities(caps []string) error {
 func validateCapabilityNames(caps []string) error {
 	var errs []error
 
-	for idx, cap := range caps {
-		if cap != "" && !isKnownCapability(cap) {
+	for idx, name := range caps {
+		if name != "" && !isKnownCapability(name) {
 			errs = append(errs, fmt.Errorf(
 				"AllowedCapabilities[%d]: %s: %w",
-				idx, merge.QuoteBounded(cap), ErrUnknownCapability,
+				idx, merge.QuoteBounded(name), ErrUnknownCapability,
 			))
 		}
 	}

@@ -142,6 +142,9 @@ type multiplexRules struct {
 	// out: a call gets the same action from the same rules whatever errno
 	// they report, and the merge judges safety by action.
 	keys map[string]struct{}
+	// entry is the index of the first entry that loads a rule of the
+	// syscall, where a report points.
+	entry int
 }
 
 // add records one rule of the syscall.
@@ -210,7 +213,7 @@ func collectMultiplexRules(
 		return multiplexed || name == socketMultiplexer || name == ipcMultiplexer
 	}
 
-	visit := func(_ int, name string, next clause) {
+	visit := func(idx int, name string, next clause) {
 		current, ok := rules[name]
 		if !ok {
 			current = &multiplexRules{
@@ -223,6 +226,7 @@ func collectMultiplexRules(
 				multiplexed:   nil,
 				seen:          make(map[string]struct{}),
 				keys:          make(map[string]struct{}),
+				entry:         idx,
 			}
 			rules[name] = current
 		}
@@ -247,7 +251,8 @@ func collectMultiplexRules(
 		}
 
 		if len(entry.Names) > 0 {
-			forEachClause([]specs.LinuxSyscall{entry}, def, nil, visit)
+			forEachClause([]specs.LinuxSyscall{entry}, def, nil,
+				func(_ int, name string, next clause) { visit(idx, name, next) })
 		}
 	}
 
@@ -575,6 +580,11 @@ func (in multiplexInput) replace(name string, rule clause, replaced map[string]*
 		return
 	}
 
+	entry := 0
+	if current := in.rules[name]; current != nil {
+		entry = current.entry
+	}
+
 	rule.args = nil
 	rule.errnoRet = merge.ClonePtr(rule.errnoRet)
 	replaced[name] = &rule
@@ -588,6 +598,7 @@ func (in multiplexInput) replace(name string, rule clause, replaced map[string]*
 		multiplexed:   []clause{rule},
 		seen:          map[string]struct{}{clauseKey(rule): {}},
 		keys:          map[string]struct{}{actionKey(rule): {}},
+		entry:         entry,
 	}
 }
 
