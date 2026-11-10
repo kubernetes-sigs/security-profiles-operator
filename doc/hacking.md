@@ -783,7 +783,9 @@ starves on them: its probes and lease renewals time out, and every test case
 runs into its timeouts. The Fedora and Debian VM jobs therefore fail right
 after the boot when `kubeadm init` took more than 60 seconds, see
 [setup-vm-env.sh](../hack/ci/setup-vm-env.sh). Such a job only needs a rerun,
-which gets another runner.
+which gets another runner. The Fedora job of the nightly e2e-flakes workflow
+skips its tests with a warning in its job summary instead, since nobody
+reruns it.
 
 ### Running the Ubuntu e2e tests on kubernix
 

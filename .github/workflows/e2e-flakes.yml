@@ -198,7 +198,15 @@ jobs:
 
   # The SELinux suite of the e2e-fedora job of the test workflow, the only
   # environment which runs the SELinux test cases. Booting the VM takes up to
-  # 10 minutes and the suite up to 30.
+  # 10 minutes and the suite up to 30. On a runner too slow for the e2e tests
+  # the job skips the suite with a warning in the job summary instead of
+  # failing, see hack/ci/setup-vm-env.sh: nobody reruns a nightly job. The run
+  # then has no reports of the SELinux test cases, like a run in which the job
+  # failed, but still counts in the quarantine window of the analysis. Such a
+  # run stays green and opens no issue, so if the job keeps landing on slow
+  # runners, only the job summaries show that the test cases which are not
+  # quarantined lose their nightly coverage. The runs of the test workflow
+  # still cover the quarantined ones.
   e2e-fedora-selinux:
     needs: [image, selinuxd-fedora, e2e-test-binary]
     runs-on: ubuntu-24.04
@@ -220,19 +228,23 @@ jobs:
         with:
           name: e2e-test-binary
           path: build
-      - uses: ./.github/actions/e2e-vm
+      - id: vm
+        uses: ./.github/actions/e2e-vm
         with:
           vm: fedora
+          skip-on-slow-runner: 'true'
       - name: Select the test suite and the retries of the whole suite
+        if: steps.vm.outputs.slow-runner != 'true'
         run: |
           $RUN "echo \"export E2E_FEDORA_SUITE=selinux\" >> /vagrant/hack/ci/env.sh"
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN "echo \"export E2E_RETRY_RUN=^TestSuite\" >> /vagrant/hack/ci/env.sh"
           $RUN "echo \"export E2E_RETRY_TIMEOUT=45m\" >> /vagrant/hack/ci/env.sh"
       - name: Run all E2E tests with retries
+        if: steps.vm.outputs.slow-runner != 'true'
         run: $RUN hack/ci/e2e-fedora.sh
       - uses: ./.github/actions/e2e-vm-artifacts
-        if: always()
+        if: always() && steps.vm.outputs.slow-runner != 'true'
         with:
           name: e2e-fedora-selinux-nightly
           job-status: ${{ job.status }}
