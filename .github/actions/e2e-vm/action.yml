@@ -15,6 +15,18 @@ inputs:
   image:
     description: Whether to load the operator image right after the boot
     default: 'true'
+  skip-on-slow-runner:
+    description: >-
+      Whether a runner too slow for the e2e tests only sets the slow-runner
+      output instead of failing the job, see hack/ci/setup-vm-env.sh. The job
+      then has to skip its remaining steps which use the VM.
+    default: 'false'
+outputs:
+  slow-runner:
+    description: >-
+      "true" when skip-on-slow-runner is set and the runner is too slow; the
+      test environment and the image are then left unprepared
+    value: ${{ steps.env.outputs.slow-runner }}
 runs:
   using: composite
   steps:
@@ -26,11 +38,13 @@ runs:
         VAGRANT_BUILD_IMAGE: 'false'
       run: make "vagrant-up-$VM"
     - name: Set up the test environment
+      id: env
       shell: bash
       env:
         VM: ${{ inputs.vm }}
+        E2E_SKIP_ON_SLOW_RUNNER: ${{ inputs.skip-on-slow-runner }}
       run: hack/ci/setup-vm-env.sh "$VM"
     - uses: ./.github/actions/e2e-vm-image
-      if: inputs.image == 'true'
+      if: inputs.image == 'true' && steps.env.outputs.slow-runner != 'true'
       with:
         vm: ${{ inputs.vm }}

@@ -19,11 +19,22 @@
 # hack/ci/e2e-flatcar.sh.
 #
 # Usage: hack/ci/setup-vm-env.sh VM
+#
+# With E2E_SKIP_ON_SLOW_RUNNER=true a slow runner only gets a warning, and the
+# script notes the skip in GITHUB_STEP_SUMMARY, writes slow-runner=true to
+# GITHUB_OUTPUT and leaves the test environment unprepared, so that the job
+# can skip the tests instead of failing, see the e2e-flakes workflow.
 
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 VM" >&2
+  exit 2
+fi
+
+# Without GITHUB_OUTPUT the caller could not tell a skip apart from success.
+if [[ "${E2E_SKIP_ON_SLOW_RUNNER:-false}" == true && (-z "${GITHUB_OUTPUT:-}" || -z "${GITHUB_STEP_SUMMARY:-}") ]]; then
+  echo "E2E_SKIP_ON_SLOW_RUNNER needs GITHUB_OUTPUT and GITHUB_STEP_SUMMARY, run it in GitHub Actions" >&2
   exit 2
 fi
 
@@ -63,6 +74,14 @@ if [[ "$VM" != flatcar ]]; then
   fi
   echo "kubeadm init took ${kubeadm_init_seconds}s"
   if ((kubeadm_init_seconds > max_kubeadm_init_seconds)); then
+    if [[ "${E2E_SKIP_ON_SLOW_RUNNER:-false}" == true ]]; then
+      message="kubeadm init took ${kubeadm_init_seconds}s, more than ${max_kubeadm_init_seconds}s: the runner is too slow for the e2e tests, skipping them"
+      echo "::warning::$message"
+      echo "slow-runner=true" >>"$GITHUB_OUTPUT"
+      # The job stays green, so the summary keeps the skip visible on the run.
+      echo "$VM VM: $message" >>"$GITHUB_STEP_SUMMARY"
+      exit 0
+    fi
     echo "::error::kubeadm init took ${kubeadm_init_seconds}s, more than ${max_kubeadm_init_seconds}s: the runner is too slow for the e2e tests, rerun the job"
     exit 1
   fi
