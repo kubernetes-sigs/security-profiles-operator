@@ -110,8 +110,14 @@ var (
 	// results and either the argument filter of one is equal to or wider
 	// than the other's (its conditions are a subset of the other's, which
 	// includes an unconditional entry), or they do not form one of the
-	// shapes libseccomp evaluates exactly. A runtime fails to load many
-	// such entries, and silently drops or reorders the others.
+	// shapes libseccomp evaluates exactly. Where the profile covers an
+	// architecture that routes the syscall through socketcall or ipc, the
+	// same holds for the copies of its rules on that multiplexer, which lose
+	// the condition on the first argument, and conditional entries for the
+	// multiplexer itself next to entries for a syscall it carries are
+	// reported as well, since libseccomp interleaves them with the copies in
+	// an order of its own (see the package documentation). A runtime fails
+	// to load many such entries, and silently drops or reorders the others.
 	ErrConflictingEntries = errors.New("conflicting entries")
 	// ErrTooManyClauses is returned by ValidateArtifact and ValidateStrict
 	// when one syscall loads more than MaxArtifactClausesPerSyscall rules.
@@ -323,7 +329,9 @@ func validateNotifySupport(profile *specs.LinuxSeccomp) error {
 // since they often list one syscall in several entries; check them with
 // Validate.
 func ValidateStrict(profile *specs.LinuxSeccomp) error {
-	return validateWith(profile, strictChecks(runningArchitecture()), validateSyscallRules)
+	native := runningArchitecture()
+
+	return validateWith(profile, strictChecks(native), syscallRuleCheck(native))
 }
 
 // ValidateStrictForArch checks a profile as ValidateStrict does on a node
@@ -338,7 +346,7 @@ func ValidateStrictForArch(native specs.Arch, profile *specs.LinuxSeccomp) error
 		return err
 	}
 
-	return validateWith(profile, strictChecks(native), validateSyscallRules)
+	return validateWith(profile, strictChecks(native), syscallRuleCheck(native))
 }
 
 // strictChecks returns the checks ValidateStrict runs besides Validate, for
@@ -387,7 +395,9 @@ func strictChecks(native specs.Arch) []profileCheck {
 // artifact itself. See the Conflicting rules, Cost bounds and Architectures
 // sections of the package documentation.
 func ValidateArtifact(profile *specs.LinuxSeccomp) error {
-	return validateWith(profile, artifactChecks(runningArchitecture()), validateSyscallRules)
+	native := runningArchitecture()
+
+	return validateWith(profile, artifactChecks(native), syscallRuleCheck(native))
 }
 
 // ValidateArtifactForArch checks an artifact as ValidateArtifact does on a
@@ -405,7 +415,7 @@ func ValidateArtifactForArch(native specs.Arch, profile *specs.LinuxSeccomp) err
 		return err
 	}
 
-	return validateWith(profile, artifactChecks(native), validateSyscallRules)
+	return validateWith(profile, artifactChecks(native), syscallRuleCheck(native))
 }
 
 // artifactChecks returns the checks ValidateArtifact runs besides Validate,
@@ -665,18 +675,6 @@ func truncatedClause(current clause) clause {
 	return current
 }
 
-func hasWideValue(profile *specs.LinuxSeccomp) bool {
-	for idx := range profile.Syscalls {
-		for _, arg := range profile.Syscalls[idx].Args {
-			if arg.Value > lower32 || arg.ValueTwo > lower32 {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // syscallRuleState is what validateSyscallRules tracks for one syscall.
 type syscallRuleState struct {
 	// trackers find conflicts among the rules as written and as libseccomp
@@ -690,20 +688,31 @@ type syscallRuleState struct {
 	mixedAt int
 }
 
+// syscallRuleCheck returns validateSyscallRules for a node with the given
+// native architecture, which decides whether the multiplexer copies of the
+// rules are checked.
+func syscallRuleCheck(native specs.Arch) profileCheck {
+	return func(profile *specs.LinuxSeccomp) error {
+		return validateSyscallRules(profile, native)
+	}
+}
+
 // validateSyscallRules checks the rules each syscall loads: their count
 // (MaxArtifactClausesPerSyscall) and, for syscalls within that bound,
-// conflicts between them (see ValidateArtifact). Rules are expanded the way
-// a runtime adds them: entries equal to the profile default are skipped, an
-// entry with several conditions on one argument index adds one rule per
-// condition, and conditions libseccomp drops do not count. Each syscall is
-// reported once, at the first conflicting entry.
-func validateSyscallRules(profile *specs.LinuxSeccomp) error {
+// conflicts between them (see ValidateArtifact), on the syscall and, where
+// the profile covers an architecture that multiplexes it, on the
+// multiplexer. Rules are expanded the way a runtime adds them: entries equal
+// to the profile default are skipped, an entry with several conditions on
+// one argument index adds one rule per condition, and conditions libseccomp
+// drops do not count. Each syscall is reported once, at the first
+// conflicting entry.
+func validateSyscallRules(profile *specs.LinuxSeccomp, native specs.Arch) error {
 	def := defaultClause(profile)
 
 	counts, total := clauseCounts(profile.Syscalls, def)
 	checker := &ruleChecker{
 		counts:   counts,
-		truncate: hasWideValue(profile),
+		truncate: loadsWideValue(profile),
 		states:   make(map[string]*syscallRuleState),
 		reported: make(map[string]struct{}),
 		errs:     nil,
@@ -717,6 +726,10 @@ func validateSyscallRules(profile *specs.LinuxSeccomp) error {
 	if total <= MaxArtifactClauses {
 		forEachClause(profile.Syscalls, def, checker.skip, checker.record)
 		checker.checkShapes()
+
+		if coversAny(profile.Architectures, multiplexingArchitectures, native) {
+			checker.checkMultiplexed(profile.Syscalls, def)
+		}
 	}
 
 	return merge.JoinLimited(checker.errs...)
@@ -857,6 +870,39 @@ func (c *ruleChecker) checkShapes() {
 
 		if !safeShape(dedupeClauses(state.conditional)) {
 			c.conflict(state.mixedAt, name)
+		}
+	}
+}
+
+// checkMultiplexed reports what libseccomp may refuse on a multiplexer: the
+// rules of a multiplexed syscall whose copies, with the condition on the
+// first argument gone, have different results and match the whole sub-call
+// or form no safe shape (see multiplexRules.refused), and conditional rules
+// of the multiplexer itself next to rules of a syscall it carries, which
+// libseccomp interleaves with the copies in an order of its own and refuses
+// where a copy repeats one of their filters. A syscall over its rule bound
+// or reported already is not reported again.
+func (c *ruleChecker) checkMultiplexed(syscalls []specs.LinuxSyscall, def *clause) {
+	rules := collectMultiplexRules(syscalls, def)
+
+	for _, name := range slices.Sorted(maps.Keys(rules)) {
+		if c.skip(name) {
+			continue
+		}
+
+		if _, multiplexed := multiplexedSyscalls[name]; multiplexed {
+			if rules[name].refused() {
+				c.conflict(rules[name].entry, name)
+			}
+
+			continue
+		}
+
+		carried := slices.ContainsFunc(multiplexedBy(name), func(carried string) bool {
+			return rules[carried] != nil
+		})
+		if rules[name].conditional && carried {
+			c.conflict(rules[name].entry, name)
 		}
 	}
 }
