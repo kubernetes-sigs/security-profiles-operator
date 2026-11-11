@@ -25,7 +25,7 @@ require (
 	github.com/openshift/controller-runtime-common v0.0.0-20261008111711-8ec0dc844066
 	github.com/openshift/library-go v0.0.0-20261016185738-b2ae89191cc2
 	github.com/pjbgf/go-apparmor v0.1.3
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.94.2
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.95.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/seccomp/libseccomp-golang v0.12.0
@@ -49,7 +49,7 @@ require (
 	k8s.io/apiserver v0.37.2
 	k8s.io/client-go v0.37.2
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
+	k8s.io/utils v0.0.0-20261023123148-ca04ba58ecab
 	oras.land/oras-go/v2 v2.7.0
 	sigs.k8s.io/controller-runtime v0.25.2
 	sigs.k8s.io/security-profiles-merger v0.7.1
@@ -168,7 +168,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
-	k8s.io/apiextensions-apiserver v0.37.1 // indirect
+	k8s.io/apiextensions-apiserver v0.37.2 // indirect
 	k8s.io/component-base v0.37.2 // indirect
 	k8s.io/kube-openapi v0.0.0-20260821135717-be32def86098 // indirect
 	k8s.io/streaming v0.37.2 // indirect
