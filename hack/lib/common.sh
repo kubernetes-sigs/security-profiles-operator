@@ -322,7 +322,7 @@ attest() {
 
   for target in "${targets[@]}"; do
     echo "Attesting $type for $target"
-    "$(cosign_bin)" attest --yes --use-signing-config --type "$type" --predicate "$predicate" "$target"
+    "$(cosign_bin)" attest --yes --type "$type" --predicate "$predicate" "$target"
   done
 }
 
