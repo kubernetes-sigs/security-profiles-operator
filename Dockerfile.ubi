@@ -17,7 +17,7 @@
 # PATH, not the Red Hat Go of the image with its OpenSSL based FIPS crypto.
 
 # Dependabot keeps the digest up to date.
-FROM registry.access.redhat.com/ubi9/go-toolset@sha256:c2bd0309bf78ae317024fdfc5602a31704e0dba9572f6d4b0bd4b681033dc965 AS build
+FROM registry.access.redhat.com/ubi9/go-toolset@sha256:4053e919374d739ee6b0007e412d89256b0bd065e0bc690c2b3905bbaab6500e AS build
 # Only the build stage runs as root, the final image does not.
 # hadolint ignore=DL3002
 USER root
