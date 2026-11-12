@@ -5,7 +5,7 @@ self: super:
   # The Go release of go.mod, which nixpkgs-unstable may lag behind. Drop the
   # override once nixpkgs has it, make verify-go-version checks the version.
   go_1_27 = super.go_1_27.overrideAttrs (finalAttrs: old: {
-    version = "1.27.4";
+    version = "1.27.4"; # golang in dependencies.yaml
     src = super.fetchurl {
       url = "https://go.dev/dl/go${finalAttrs.version}.src.tar.gz";
       hash = "sha256-c8+4VxrsDAEXdofbhxY9Rqog6XeWcncokaoXZU2aYJk=";
@@ -24,7 +24,7 @@ self: super:
   # The release libbpfgo is built against, which nixpkgs may lag behind. Bump
   # it together with hack/install-libbpf.sh, see libbpf in dependencies.yaml.
   libbpf = super.libbpf.overrideAttrs (old: rec {
-    version = "1.8.0";
+    version = "1.8.0"; # libbpf in dependencies.yaml
     src = super.fetchurl {
       url = "https://github.com/libbpf/libbpf/archive/refs/tags/v${version}.tar.gz";
       sha256 = "b7a1e685f90f6a63ead0dd85d053694b222975da8d09c1a966041cff6f0055ff";
