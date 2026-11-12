@@ -387,7 +387,7 @@ dependencies:
       match: "^ *CALICO_CRDS_SHA256="
 
   - name: e2e-flatcar-cni-plugins
-    version: v1.9.1
+    version: v1.10.0
     upstream:
       flavour: github
       url: containernetworking/plugins
@@ -397,7 +397,7 @@ dependencies:
 
   # Must be bumped together with e2e-flatcar-cni-plugins above.
   - name: e2e-flatcar-cni-plugins-sha256
-    version: b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
+    version: ce8603d6a1bd448efba5bd6dc44f38dce349f821aa57e1bb354b52628ebf1853
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *CNI_SHA256="
@@ -474,7 +474,7 @@ dependencies:
       match: "^ARG BUILD_IMAGE="
 
   - name: nix
-    version: 2.35.5
+    version: 2.35.6
     upstream:
       flavour: github
       url: NixOS/nix
@@ -490,7 +490,7 @@ dependencies:
 
   # Must be bumped together with nix above.
   - name: nix-sha256
-    version: c349f0559b7849a2cb3b20b8584e532b3fcf5025092cb6180eb0b99240d7b96c
+    version: b12ab64a291e41846b9da37b7f56eafa7683deaa267bafb2ed43440ab2f45f13
     refPaths:
     - path: Dockerfile.build-image
       match: "^ARG NIX_SHA256"
@@ -511,7 +511,7 @@ dependencies:
   # The BuildKit of the reproducible image builds, on Cloud Build and in the
   # image-reproducible workflow alike.
   - name: buildkit
-    version: v0.34.2
+    version: v0.35.0
     upstream:
       flavour: github
       url: moby/buildkit
@@ -521,7 +521,7 @@ dependencies:
 
   # Must be bumped together with buildkit above.
   - name: buildkit-digest
-    version: sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+    version: sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb
     refPaths:
     - path: hack/image-cross.sh
       match: "^BUILDKIT_DIGEST="
@@ -1135,7 +1135,7 @@ dependencies:
   # The pre-commit hook and the test workflow run the same release, so
   # .github/dependabot.yml leaves the action alone.
   - name: typos
-    version: v1.52.0
+    version: v1.52.2
     upstream:
       flavour: github
       url: crate-ci/typos
