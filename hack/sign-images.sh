@@ -43,7 +43,7 @@ sign() {
 
   target="$(resolve_digest "$1")"
   echo "Signing $target"
-  "$COSIGN" sign --yes --use-signing-config "$target"
+  "$COSIGN" sign --yes "$target"
 }
 
 parallel_each sign "$@"
