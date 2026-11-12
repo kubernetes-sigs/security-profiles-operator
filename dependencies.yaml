@@ -535,7 +535,7 @@ dependencies:
     - path: hack/install-libbpf.sh
       match: "^VERSION="
     - path: nix/overlay.nix
-      match: 'version = "'
+      match: 'version = ".*# libbpf'
 
   # Must be bumped together with libbpf above, the checksum of the source
   # archive of the tag.
@@ -798,7 +798,8 @@ dependencies:
     - path: hack/lib/common.sh
       match: "^CRANE_VERSION="
 
-  # nix brings its own Go, make verify-go-version checks that it matches.
+  # nix brings its own Go, make verify-go-version checks that it matches. The
+  # override of nix/overlay.nix pins it while nixpkgs lags behind.
   # No upstream: zeitgeist knows no Go releases. hack/check-release-tags.py
   # checks for a newer patch release of the same minor version instead.
   - name: golang
@@ -814,6 +815,8 @@ dependencies:
       match: "name: golang:"
     - path: .devcontainer/devcontainer.json
       match: '"version": "1\.'
+    - path: nix/overlay.nix
+      match: 'version = ".*# golang'
 
   # Must be bumped together with golang above, the digest of the image the
   # Cloud Build steps run in.
