@@ -2,6 +2,16 @@ self: super:
 {
   buildGoModule = super.buildGo127Module;
 
+  # The Go release of go.mod, which nixpkgs-unstable may lag behind. Drop the
+  # override once nixpkgs has it, make verify-go-version checks the version.
+  go_1_27 = super.go_1_27.overrideAttrs (finalAttrs: old: {
+    version = "1.27.4";
+    src = super.fetchurl {
+      url = "https://go.dev/dl/go${finalAttrs.version}.src.tar.gz";
+      hash = "sha256-c8+4VxrsDAEXdofbhxY9Rqog6XeWcncokaoXZU2aYJk=";
+    };
+  });
+
   # The overrides rebuild gnutls instead of substituting it, which runs its
   # test suite on every image build. It takes most of the build time and fails
   # intermittently, without testing anything of the operator.

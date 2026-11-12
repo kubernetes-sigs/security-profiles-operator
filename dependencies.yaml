@@ -802,7 +802,7 @@ dependencies:
   # No upstream: zeitgeist knows no Go releases. hack/check-release-tags.py
   # checks for a newer patch release of the same minor version instead.
   - name: golang
-    version: 1.27.3
+    version: 1.27.4
     refPaths:
     - path: go.mod
       match: "^toolchain go"
@@ -818,7 +818,7 @@ dependencies:
   # Must be bumped together with golang above, the digest of the image the
   # Cloud Build steps run in.
   - name: golang-image-digest
-    version: sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5
+    version: sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
     refPaths:
     - path: cloudbuild.yaml
       match: "name: golang:"
@@ -829,13 +829,13 @@ dependencies:
   # go<version>.linux-<arch>.tar.gz from https://go.dev/dl/. The test VMs of
   # hack/ci/Vagrantfile-* read the amd64 one from Dockerfile.ubi.
   - name: golang-sha256-linux-amd64
-    version: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+    version: 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
     refPaths:
     - path: Dockerfile.ubi
       match: "^ARG GO_SHA256_amd64="
 
   - name: golang-sha256-linux-arm64
-    version: a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
+    version: 3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
     refPaths:
     - path: Dockerfile.ubi
       match: "^ARG GO_SHA256_arm64="

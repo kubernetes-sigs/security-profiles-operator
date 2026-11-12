@@ -2,7 +2,7 @@ module sigs.k8s.io/security-profiles-operator/hack/tools
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 tool (
 	github.com/maxbrunsfeld/counterfeiter/v6

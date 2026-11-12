@@ -38,8 +38,8 @@ RUN dnf install -y \
 # version nobody chose and unrecorded in the provenance.
 # The checksums are pinned per architecture and tracked next to the golang
 # entry of dependencies.yaml, a Go bump in go.mod has to update them as well.
-ARG GO_SHA256_amd64=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
-ARG GO_SHA256_arm64=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
+ARG GO_SHA256_amd64=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+ARG GO_SHA256_arm64=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
 COPY go.mod hack/go-version.sh /tmp/
 RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
     GO_VERSION=go$(/tmp/go-version.sh /tmp/go.mod) && \
