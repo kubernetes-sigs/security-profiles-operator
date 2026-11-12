@@ -19,8 +19,8 @@
 # versions. kubernix copies this file on its own, so it cannot import others.
 final: prev:
 let
-  crunVersion = "1.30.1";
-  runcVersion = "v1.5.2";
+  crunVersion = "1.31";
+  runcVersion = "v1.5.3";
 
   arch =
     {
@@ -33,10 +33,18 @@ let
     name: version: url: hashes:
     prev.runCommand "${name}-${version}"
       {
-        src = prev.fetchurl {
-          inherit url;
-          hash = hashes.${arch};
-        };
+        # The static release binaries may embed store paths of the nixpkgs
+        # they were built with, which a fixed output derivation must not
+        # refer to once kubernix pins the same nixpkgs.
+        src =
+          (prev.fetchurl {
+            inherit url;
+            hash = hashes.${arch};
+          }).overrideAttrs
+            {
+              __structuredAttrs = true;
+              unsafeDiscardReferences.out = true;
+            };
         meta.mainProgram = name;
       }
       ''
@@ -48,16 +56,16 @@ in
     release "crun" crunVersion
       "https://github.com/containers/crun/releases/download/${crunVersion}/crun-${crunVersion}-linux-${arch}"
       {
-        amd64 = "sha256-htHmoOdpRZddOuv6s5y8aibuoV8cP8ZrZ3bRnl3DRqA="; # crun amd64
-        arm64 = "sha256-DvMLD7tJTcnFMD1GsJGoTifLismcmFEj+x6zOYVLaeo="; # crun arm64
+        amd64 = "sha256-jKyuFxuw5fnida2sLussbsjGn97f97AI6t2M3SWw00k="; # crun amd64
+        arm64 = "sha256-9U/VhgOuAxqnolWvVQvP+wNfKAWKoalx5mkbU/f1oy4="; # crun arm64
       };
 
   runc =
     release "runc" runcVersion
       "https://github.com/opencontainers/runc/releases/download/${runcVersion}/runc.${arch}"
       {
-        amd64 = "sha256-WZ9vlP+MUFckHv8NVMPHT5XDSTW2RXsz/lRd78YelIg="; # runc amd64
-        arm64 = "sha256-0Q7K6Jg2GDKgWb4gibq5LRWK7FRmGxjtc0bteWKLRrA="; # runc arm64
+        amd64 = "sha256-UNzAslfXJP4H84UsLdpSNAIj8DgifHVyZE7shwdBIj4="; # runc amd64
+        arm64 = "sha256-B7Uq7pI8xDLDj+T7aAmgj8ZHGZTv7WUK82NTUFiKIL4="; # runc arm64
       };
 
   # podman does not run the cluster workloads, so it keeps the runtimes it was
