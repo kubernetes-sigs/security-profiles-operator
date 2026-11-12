@@ -156,7 +156,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.5.2
+  baseProfileName: runc-v1.5.3
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -196,7 +196,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://registry.k8s.io/security-profiles-operator/base/runc:v1.5.2
+  baseProfileName: oci://registry.k8s.io/security-profiles-operator/base/runc:v1.5.3
 ```
 
 The resulting profile `profile1` then contains all syscalls of the remote

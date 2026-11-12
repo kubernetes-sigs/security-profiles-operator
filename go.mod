@@ -19,7 +19,7 @@ require (
 	github.com/moby/sys/mountinfo v0.7.3
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/opencontainers/runc v1.5.2
+	github.com/opencontainers/runc v1.5.3
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/openshift/api v0.0.0-20261017003925-24b2699a9b32
 	github.com/openshift/controller-runtime-common v0.0.0-20261008111711-8ec0dc844066
