@@ -101,8 +101,8 @@ Vagrant.configure("2") do |config|
       # versions are tracked in dependencies.yaml. Kubernetes is the latest
       # patch release of the minor version the other e2e VMs install.
       KUBERNETES_VERSION=v1.37
-      CNI_VERSION=v1.9.1
-      CNI_SHA256=b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
+      CNI_VERSION=v1.10.0
+      CNI_SHA256=ce8603d6a1bd448efba5bd6dc44f38dce349f821aa57e1bb354b52628ebf1853
       RELEASE_VERSION=v0.21.1
       KUBELET_SERVICE_SHA256=ccc966cee3d366b3e9ca0fe3f603b09218a0d5ed01e54f9cae953208f411141f
       KUBEADM_CONF_SHA256=46458e5b4adf851099e591acb3248931fc5f4073976fedb11c49d6bfad5c41a8
