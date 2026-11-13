@@ -42,6 +42,7 @@ the documentation of a release.
 | podAnnotations | object | `{}` | annotations for the operator pods |
 | podDisruptionBudget.enabled | bool | `true` | create a PodDisruptionBudget for the operator deployment |
 | podDisruptionBudget.minAvailable | int or string | `1` | the operator replicas to keep during voluntary disruptions like node drains; with a single replica, `1` blocks the drain of its node |
+| podLabels | object | `{}` | labels for the operator pods |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | pod security contexts |
 | priorityClassName | string | `"system-cluster-critical"` | the priority class of the operator pods, none when empty |
 | replicaCount | int | `3` | the number of replicas of the pods |
