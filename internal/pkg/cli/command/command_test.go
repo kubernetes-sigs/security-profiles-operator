@@ -581,6 +581,85 @@ func TestPasswdHomeDirectory(t *testing.T) {
 	}
 }
 
+// The groups of a known user include its primary group, which both id(1) and
+// the user database report.
+func TestGetGroupIDsOfKnownUser(t *testing.T) {
+	t.Parallel()
+
+	current, err := user.Current()
+	require.NoError(t, err)
+
+	uid, err := strconv.ParseUint(current.Uid, 10, 32)
+	require.NoError(t, err)
+
+	gid, err := strconv.ParseUint(current.Gid, 10, 32)
+	require.NoError(t, err)
+
+	groups, err := getGroupIDs(uint32(uid))
+	require.NoError(t, err)
+	require.Contains(t, groups, uint32(gid))
+}
+
+// A user which neither id(1) nor the user database knows fails with the errors
+// of both lookups, instead of running without supplementary groups.
+func TestGetGroupIDsOfUnknownUser(t *testing.T) {
+	t.Parallel()
+
+	// Not a well-known value like 4294967294, which is nobody on macOS.
+	const unknownUID = 3999999999
+
+	// Whether a uid exists is a property of the machine, so skip instead of
+	// failing if either lookup of getGroupIDs knows it.
+	uid := strconv.FormatUint(unknownUID, 10)
+	if _, err := user.LookupId(uid); err == nil {
+		t.Skipf("uid %s exists in the user database", uid)
+	}
+
+	if exec.CommandContext(t.Context(), "id", "-G", uid).Run() == nil {
+		t.Skipf("uid %s exists for id(1)", uid)
+	}
+
+	groups, err := getGroupIDs(unknownUID)
+	require.ErrorContains(t, err, "group lookup failed")
+	require.Nil(t, groups)
+}
+
+func TestParseGroupIDs(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		groups  []string
+		want    []uint32
+		wantErr bool
+	}{
+		{name: "none", groups: nil, want: []uint32{}},
+		{name: "several in order", groups: []string{"1000", "27", "0"}, want: []uint32{1000, 27, 0}},
+		{name: "largest ID", groups: []string{"4294967295"}, want: []uint32{math.MaxUint32}},
+		{name: "group name", groups: []string{"wheel"}, wantErr: true},
+		{name: "name after an ID", groups: []string{"1000", "docker"}, wantErr: true},
+		{name: "negative ID", groups: []string{"-1"}, wantErr: true},
+		{name: "ID above uint32", groups: []string{"4294967296"}, wantErr: true},
+		{name: "empty", groups: []string{""}, wantErr: true},
+		{name: "leading space", groups: []string{" 27"}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ids, err := parseGroupIDs(tc.groups)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "parse group ID")
+				require.Nil(t, ids)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, ids)
+		})
+	}
+}
+
 // TestCreateFile verifies that a file gets handed to the user who invoked
 // spoc through sudo only if spoc runs as root and the file is in a directory
 // of that user, and that no symlink or hard link gets written through then.
