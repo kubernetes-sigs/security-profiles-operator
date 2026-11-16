@@ -362,7 +362,7 @@ dependencies:
       match: "KUBERNETES_VERSION="
 
   - name: e2e-flatcar-calico
-    version: v3.33.0
+    version: v3.33.1
     upstream:
       flavour: github
       url: projectcalico/calico
@@ -373,7 +373,7 @@ dependencies:
   # Must be bumped together with e2e-flatcar-calico above, the checksum of
   # manifests/tigera-operator.yaml at that tag.
   - name: e2e-flatcar-calico-sha256
-    version: aef423b36aef8cf86567f92bbe5eea4b4ca105a6fc7dbf43de599c6fa70388ba
+    version: 45b60c303e2f00c94bf742fe198a83c435157cd7be3e064cae153afae6d54694
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *CALICO_SHA256="
@@ -381,7 +381,7 @@ dependencies:
   # Must be bumped together with e2e-flatcar-calico above, the checksum of
   # manifests/operator-crds.yaml at that tag.
   - name: e2e-flatcar-calico-crds-sha256
-    version: ac1826106c081f291631cc709754c71acdeaaede06853680d2aae159af612631
+    version: bf24f4d32cbbfe2f8c418e88bcbe5699917c5aaa2e91161747a186e0731a74ba
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *CALICO_CRDS_SHA256="
@@ -719,7 +719,7 @@ dependencies:
 
   # The chart is installed with both major versions, see the helm-install job.
   - name: helm-v4
-    version: v4.3.1
+    version: v4.3.2
     upstream:
       flavour: github
       url: helm/helm

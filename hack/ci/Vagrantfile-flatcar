@@ -162,9 +162,9 @@ Vagrant.configure("2") do |config|
       kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
       # Install CNI. The operator CRDs are too large for a client side apply.
-      CALICO_VERSION=v3.33.0
-      CALICO_CRDS_SHA256=ac1826106c081f291631cc709754c71acdeaaede06853680d2aae159af612631
-      CALICO_SHA256=aef423b36aef8cf86567f92bbe5eea4b4ca105a6fc7dbf43de599c6fa70388ba
+      CALICO_VERSION=v3.33.1
+      CALICO_CRDS_SHA256=bf24f4d32cbbfe2f8c418e88bcbe5699917c5aaa2e91161747a186e0731a74ba
+      CALICO_SHA256=45b60c303e2f00c94bf742fe198a83c435157cd7be3e064cae153afae6d54694
       fetch /tmp/operator-crds.yaml "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/operator-crds.yaml" "$CALICO_CRDS_SHA256"
       fetch /tmp/tigera-operator.yaml "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/tigera-operator.yaml" "$CALICO_SHA256"
       kubectl create -f /tmp/operator-crds.yaml

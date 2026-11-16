@@ -26,13 +26,8 @@ spec:
         - /@{pid}/cgroup
         - /@{pid}/task/@{tid}/attr/apparmor/current
         - /etc/passwd
-        - /run/
-        - /var/lib/containers/storage/overlay/*/merged/dev/
-        - /var/lib/containers/storage/overlay/*/merged/etc/
         - /var/lib/containers/storage/overlay/*/merged/proc/
-        - /var/lib/containers/storage/overlay/*/merged/run/
         - /var/lib/containers/storage/overlay/*/merged/sys/
-        - /var/lib/containers/storage/overlay/*/merged/var/
       readWritePaths:
         - /dev/null
         - /var/lib/containers/storage/overlay/*/merged/dev/*
