@@ -145,8 +145,6 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "JSON Enricher: exec of a command",
 			fn:          e.testCaseJsonEnricherExecCommand,
-			flaky:       true,
-			issue:       jsonEnricherExecIssue,
 		},
 		{
 			description: "Log Enricher with filters",
@@ -302,23 +300,17 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "SPOD: Test Metrics HTTP version",
 			fn:          e.testCaseMetricsHTTP,
-			flaky:       true,
-			issue:       untrackedIssue,
 		},
 		{
 			description: "Seccomp: Verify profile binding: image",
 			fn: func(nodes []string) {
 				e.testCaseSeccompProfileBinding(nodes, busyboxImage)
 			},
-			flaky:           true,
-			issue:           inUseFinalizerIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile binding: wildcard",
 			fn:              func(nodes []string) { e.testCaseSeccompProfileBinding(nodes, "'*'") },
-			flaky:           true,
-			issue:           bindingIssue,
 			clusterWideOnly: true,
 		},
 		{
@@ -349,8 +341,6 @@ func (e *e2e) testCases() []testCase {
 		{
 			description:     "Seccomp: Verify profile recording logs: deployment scale up and down",
 			fn:              func([]string) { e.testCaseProfileRecordingDeploymentScaleUpDownLogs() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
@@ -407,16 +397,6 @@ func (e *e2e) testCases() []testCase {
 }
 
 const (
-	// untrackedIssue marks the test cases which were quarantined before the
-	// quarantine got tracked per test case.
-	untrackedIssue = "quarantined as a group before, no issue filed yet"
-	// bindingIssue is why the binding test cases do not run for the
-	// namespaced operator.
-	bindingIssue = "the webhook certificates of the namespaced operator are not ready in time"
-	// inUseFinalizerIssue marks the test cases which wait for the in-use
-	// finalizer of a profile, which a conflicting update of the workload
-	// annotator can lose.
-	inUseFinalizerIssue = "the workload annotator can lose the in-use finalizer on a conflict"
 	// nodeAwareMetricsIssue marks the metrics test cases, which only ran on
 	// single node clusters before they scraped the daemons of all nodes.
 	nodeAwareMetricsIssue = "scrapes the daemons of all nodes now, promote it once it passes reliably in CI"
@@ -425,10 +405,6 @@ const (
 	// doc/hacking.md. A quarantined case which fails on retry fails the
 	// flaky test step, so it gets enabled once it passed on a node.
 	bpfEnricherIssue = "needs nodes with AppArmor for its kprobe on aa_audit, not proven in CI yet"
-	// jsonEnricherExecIssue marks the JSON enricher test case of an exec
-	// whose process execs twice, which at times lacks its command line and
-	// request in CI.
-	jsonEnricherExecIssue = "the JSON enricher can miss the command line of a process which execs twice"
 	// newTestCaseIssue marks new test cases, which start quarantined, see
 	// doc/hacking.md.
 	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"
