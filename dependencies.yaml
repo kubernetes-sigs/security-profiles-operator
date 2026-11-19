@@ -37,7 +37,7 @@ dependencies:
       match: "^GOLANGCI_LINT_SHA256_darwin_arm64"
 
   - name: kube-api-linter
-    version: v0.0.0-20260716143926-092fe0c72997
+    version: v0.0.0-20261030144752-d90122c89087
     refPaths:
     - path: .custom-gcl.yml
       match: "version: 'v0.0.0"
@@ -404,7 +404,7 @@ dependencies:
 
   # The kubelet systemd units of kubernetes/release.
   - name: e2e-flatcar-kubernetes-release
-    version: v0.21.1
+    version: v0.23.0
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *RELEASE_VERSION="
@@ -428,14 +428,18 @@ dependencies:
     - path: hack/ci/Vagrantfile-debian
       match: "config.vm.box_version = "
 
+  # The Fedora release of the e2e VM and of the throwaway pods of the e2e
+  # suite.
   - name: e2e-fedora
-    version: 44
+    version: 45
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: 'config.vm.box = '
+    - path: test/suite_test.go
+      match: '^const throwawayImage ='
 
   - name: e2e-fedora-image-url
-    version: 44-1.7
+    version: 45-1.4
     refPaths:
       - path: hack/ci/Vagrantfile-fedora
         match: Fedora-Cloud-Base-Vagrant
@@ -443,7 +447,7 @@ dependencies:
   # Must be bumped together with e2e-fedora-image-url above, the SHA256 of the
   # VirtualBox box from the signed Fedora-Cloud-<version>-x86_64-CHECKSUM.
   - name: e2e-fedora-virtualbox-box-sha256
-    version: 7fb67d4224541a548f4d9622695b245f007a5bdfe608e291860da0d8597ec4b1
+    version: 19635c83a2b4f78b9cc04ac57aee9677f96ea5cb4f88938b9374b82d92c0bfa8
     refPaths:
       - path: hack/ci/Vagrantfile-fedora
         match: "^ *virtualbox_box_sha256 ="
@@ -451,7 +455,7 @@ dependencies:
   # Must be bumped together with e2e-fedora-image-url above, the SHA256 of the
   # libvirt box from the signed Fedora-Cloud-<version>-x86_64-CHECKSUM.
   - name: e2e-fedora-libvirt-box-sha256
-    version: 4695d5ef2bfcc882649b98de0c545d04671d2064f6609e7e68e606718c8333dc
+    version: 9eb98dd1f3459a76415893a710168ad71eb03cbd08fbc3482f24fefa8f97be31
     refPaths:
       - path: hack/ci/Vagrantfile-fedora
         match: "^ *libvirt_box_sha256 ="
@@ -468,7 +472,7 @@ dependencies:
         match: ^SELINUXD_COMMIT=
 
   - name: build-image
-    version: sha256:dc669ccf589a45079e01d3b7d0ed58a68e60492f62a2caf7acb25a7ca5cf412f
+    version: sha256:a6893b5de090464449454f6e317719e7bfa0098a2c235ebaedf2d4b6a2c9b544
     refPaths:
     - path: Dockerfile
       match: "^ARG BUILD_IMAGE="
@@ -496,14 +500,14 @@ dependencies:
       match: "^ARG NIX_SHA256"
 
   - name: gcb-docker-gcloud
-    version: v20260205-38cfa9523f
+    version: v20260729-0b834bafc6
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   # Must be bumped together with gcb-docker-gcloud above.
   - name: gcb-docker-gcloud-digest
-    version: sha256:ff388e0dc16351e96f8464e2e185b74a7578a5ccb7a112cf3393468e59e6e2d2
+    version: sha256:77257657315bf94c1bba8f2471b1e210a75005ba8f589d94a48eeb8da176f007
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
@@ -592,7 +596,7 @@ dependencies:
   # nixpkgs, whose libelf ABI is stable, as overriding it there rebuilds most
   # of the toolchain.
   - name: libelf
-    version: 0.196
+    version: 0.197
     refPaths:
     - path: hack/install-libelf.sh
       match: "^VERSION="
@@ -600,7 +604,7 @@ dependencies:
   # Must be bumped together with libelf above, the checksum of
   # elfutils-<version>.tar.bz2.
   - name: libelf-sha256
-    version: fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209
+    version: 1fdf525f22dcf796d99a99ba3ea00a1f7b1ae5421bc62e8443a708920b99b904
     refPaths:
     - path: hack/install-libelf.sh
       match: "^SHA256="
@@ -912,7 +916,7 @@ dependencies:
       match: "box_download_checksum ="
 
   - name: zeitgeist
-    version: 0.8.0
+    version: 0.9.0
     upstream:
       flavour: github
       url: kubernetes-sigs/zeitgeist
@@ -932,7 +936,7 @@ dependencies:
   # No upstream: golang/vuln publishes no current GitHub releases.
   # hack/check-release-tags.py checks the module proxy instead.
   - name: govulncheck
-    version: v1.9.0
+    version: v1.10.0
     refPaths:
       - path: Makefile
         match: "^GOVULNCHECK_VERSION"
@@ -949,7 +953,7 @@ dependencies:
         match: "^GOTESTSUM_VERSION"
 
   - name: python for chart-testing
-    version: 3.13
+    version: 3.14
     refPaths:
       - path: .github/workflows/helm-chart-lint.yaml
         match: "python-version:"

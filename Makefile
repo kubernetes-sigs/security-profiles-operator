@@ -38,9 +38,9 @@ OPM_SHA256_linux_amd64 = cf1bd699be72e0a4511208afdf45444fc47d21eb2ffed0c204520ff
 OPM_SHA256_linux_arm64 = 348a9682975eb220bea3b98b83aa82dc6d2630e6868331ed9bf14f97e462d8be
 OPM_SHA256_darwin_amd64 = a448e5972689036cb1168b83e18195b193bb513399c234d402c425b073a52ea6
 OPM_SHA256_darwin_arm64 = 0ce2671c543e637ae24cb98dfeeec1a9554e3955a72c59eb872750eaf915627f
-ZEITGEIST_VERSION = v0.8.0
+ZEITGEIST_VERSION = v0.9.0
 MDTOC_VERSION = v1.4.0
-GOVULNCHECK_VERSION = v1.9.0
+GOVULNCHECK_VERSION = v1.10.0
 GOTESTSUM_VERSION = v1.13.0
 # setup-envtest downloads the kube-apiserver and etcd binaries of the
 # integration tests. It is released together with controller-runtime, so it
@@ -203,7 +203,8 @@ else
   LDFLAGS := -w $(EXTLDFLAGS) $(LDVARS)
 endif
 
-export CONTAINER_RUNTIME ?= $(if $(shell which podman 2>/dev/null),podman,docker)
+# command -v instead of which, which the Fedora 45 cloud image lacks.
+export CONTAINER_RUNTIME ?= $(if $(shell command -v podman 2>/dev/null),podman,docker)
 
 # The route of the OpenShift image registry of a development cluster may have
 # a self-signed certificate. REGISTRY_TLS_VERIFY=false makes podman skip the

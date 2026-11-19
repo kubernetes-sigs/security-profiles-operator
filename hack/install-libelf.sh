@@ -25,9 +25,9 @@ apt-get install -y \
     m4 \
     zlib1g-dev
 
-VERSION=0.196
+VERSION=0.197
 # The checksum of elfutils-$VERSION.tar.bz2, bump together with VERSION.
-SHA256=fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209
+SHA256=1fdf525f22dcf796d99a99ba3ea00a1f7b1ae5421bc62e8443a708920b99b904
 
 DIR="elfutils-$VERSION"
 ARCHIVE="$DIR.tar.bz2"

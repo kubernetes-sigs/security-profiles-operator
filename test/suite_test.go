@@ -1001,7 +1001,7 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 // throwawayImage is the image of the pods which run a command for the suite.
 // It gets pulled once per node, every pod of a retried command would pull
 // a latest tag again, since the pull policy of such a tag is Always.
-const throwawayImage = "registry.fedoraproject.org/fedora-minimal:44"
+const throwawayImage = "registry.fedoraproject.org/fedora-minimal:45"
 
 // busyboxImage is the busybox image of the test pods, pinned and from
 // registry.k8s.io instead of Docker Hub, see dependencies.yaml.
