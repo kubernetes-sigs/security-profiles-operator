@@ -2146,7 +2146,7 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 		}
 	}
 
-	inserted, current := b.insertKey(key, containerID, generation)
+	inserted, current := b.insertKey(key, mntns, containerID, generation)
 	if !current {
 		b.logger.V(config.VerboseLevel).Info(
 			"Discarding new pid event from a finished recording",
@@ -2181,8 +2181,15 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 		"mntns", mntns, "key", key, "containerID", containerID,
 	)
 
+	// The lookup caches the profiles of the pod, which reports the keys of
+	// its containers seen before, see insertProfile. This process reports
+	// its own key below, so it claims the key until the lookup failed.
+	b.containerKeys.SetReported(key, true)
+
 	profile, err := b.findProfileForContainerID(containerID, generation)
 	if err != nil {
+		b.containerKeys.SetReported(key, false)
+
 		if errors.Is(err, errNoProfileForContainer) {
 			// The container exists and is not recorded, its data would
 			// only fill up the maps.
@@ -2370,6 +2377,7 @@ func (b *BpfRecorder) profileOfKey(key uint64) (string, bool) {
 // see containerKeys.Insert, and whether the recording is still running.
 func (b *BpfRecorder) insertKey(
 	key uint64,
+	mntns uint32,
 	containerID string,
 	generation uint64,
 ) (inserted, current bool) {
@@ -2382,7 +2390,7 @@ func (b *BpfRecorder) insertKey(
 		return false, false
 	}
 
-	return b.containerKeys.Insert(key, containerID), true
+	return b.containerKeys.InsertWithMntns(key, mntns, containerID), true
 }
 
 // deleteKey forgets the key, unless the recording of the generation ended,
@@ -2747,11 +2755,21 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) bool {
 // the write lock while it ends the recording and clears the tables, so that a
 // lookup which is still running cannot repopulate them, see insertKey.
 func (b *BpfRecorder) insertProfile(containerID, profile string, generation uint64) {
+	if !b.cacheProfile(containerID, profile, generation) {
+		return
+	}
+
+	b.reportUnreportedKeys(containerID, profile)
+}
+
+// cacheProfile caches the profile of the container, unless the recording of
+// the generation ended.
+func (b *BpfRecorder) cacheProfile(containerID, profile string, generation uint64) bool {
 	b.attachUnattachMutex.RLock()
 	defer b.attachUnattachMutex.RUnlock()
 
 	if b.recordingGeneration.Load() != generation {
-		return
+		return false
 	}
 
 	b.cacheMu.Lock()
@@ -2759,6 +2777,26 @@ func (b *BpfRecorder) insertProfile(containerID, profile string, generation uint
 
 	b.forgetCollected(profile, containerID)
 	b.containerIDToProfileMap.InsertAt(containerID, profile, generation)
+
+	return true
+}
+
+// reportUnreportedKeys reports the profile for the processes of the container
+// which recorded before the profile got known, like handleNewPidEvent does for
+// the processes it resolves. The lookup of a process gives up if the pod
+// status does not tell the container ID soon enough, and the profile gets
+// cached later by the lookup for a sibling container or the maintenance, see
+// cacheProfilesOfUnresolvedContainers. Those processes need no new event to
+// count for the profile.
+func (b *BpfRecorder) reportUnreportedKeys(containerID, profile string) {
+	for _, mntns := range b.containerKeys.TakeUnreported(containerID) {
+		b.logger.Info(
+			"Found profile in cluster for container ID", "containerID", containerID,
+			"mntns", mntns, "profile", profile,
+		)
+
+		b.trackProfileMetric(mntns, profile)
+	}
 }
 
 // forgetCollected forgets that the profile got collected if the container is

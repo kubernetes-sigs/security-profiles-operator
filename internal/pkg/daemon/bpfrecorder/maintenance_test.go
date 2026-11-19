@@ -19,6 +19,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -34,11 +35,13 @@ import (
 	"github.com/go-logr/logr/funcr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
+	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
@@ -336,6 +339,177 @@ func TestCacheProfilesOfUnresolvedContainers(t *testing.T) {
 	got, ok := sut.profileOfKey(key)
 	require.True(t, ok)
 	require.Equal(t, profile, got)
+}
+
+// TestCacheProfilesOfUnresolvedContainersReports asserts that a container
+// whose lookup gave up gets reported like a resolved one once its profile is
+// cached: its processes reported before need no new event to count for the
+// profile metric.
+func TestCacheProfilesOfUnresolvedContainersReports(t *testing.T) {
+	t.Parallel()
+
+	const (
+		key   = 7
+		mntns = 4026533247
+	)
+
+	annotations := map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}
+
+	for name, tc := range map[string]struct {
+		resolved   *v1.Pod
+		wantReport bool
+	}{
+		"pod tells the container and its profile": {
+			resolved:   podWithContainer(annotations),
+			wantReport: true,
+		},
+		"pod tells the container without a profile": {
+			resolved: podWithContainer(nil),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			logSink := &Logger{}
+			sut, mock := newClusterRecorder(true, false)
+			sut.logger = logr.New(logSink)
+
+			var sent atomic.Int64
+
+			mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
+			mock.SendMetricCalls(
+				func(_ apimetrics.Metrics_BpfIncClient, req *apimetrics.BpfRequest) error {
+					if req.GetMountNamespace() == mntns && req.GetProfile() == profile {
+						sent.Add(1)
+					}
+
+					return nil
+				},
+			)
+
+			require.NoError(t, sut.connectMetrics(t.Context()))
+
+			go sut.metrics.Run(t.Context())
+
+			creating := podWithContainer(annotations)
+			creating.Status.ContainerStatuses[0].ContainerID = ""
+
+			lw := watchPods(t, sut, creating)
+
+			require.True(t, sut.containerKeys.InsertWithMntns(key, mntns, containerID))
+			sut.containersNotFound.Set(containerID, struct{}{}, ttlcache.DefaultTTL)
+
+			// Not resolved yet, nothing to report.
+			sut.cacheProfilesOfUnresolvedContainers()
+			require.NotContains(t, logSink.snapshot(), "Found profile in cluster for container ID")
+
+			modifyPod(t, sut, lw, tc.resolved)
+			sut.cacheProfilesOfUnresolvedContainers()
+
+			if !tc.wantReport {
+				require.NotContains(t, logSink.snapshot(),
+					"Found profile in cluster for container ID")
+				require.Never(t, func() bool { return sent.Load() > 0 },
+					100*time.Millisecond, 10*time.Millisecond)
+
+				return
+			}
+
+			require.Contains(t, logSink.snapshot(), "Found profile in cluster for container ID")
+			require.Eventually(t, func() bool { return sent.Load() == 1 },
+				time.Minute, time.Millisecond)
+
+			// A resolved container is not reported again.
+			sut.cacheProfilesOfUnresolvedContainers()
+			require.Never(t, func() bool { return sent.Load() > 1 },
+				100*time.Millisecond, 10*time.Millisecond)
+		})
+	}
+}
+
+// TestUnresolvedContainerReportedViaSibling asserts that a recorded container
+// whose lookup gave up gets reported when its profile gets cached for another
+// reason: by the lookup for a process of an unrecorded sibling container, or
+// by the maintenance, which may look at the sibling first. The order of the
+// containers in the maintenance is random, so it runs a few times.
+func TestUnresolvedContainerReportedViaSibling(t *testing.T) {
+	t.Parallel()
+
+	const (
+		key          = 7
+		siblingKey   = 8
+		mntns        = 4026533247
+		siblingMntns = 4026533248
+	)
+
+	siblingID := strings.Repeat("5", 64)
+
+	for name, resolve := range map[string]func(*BpfRecorder){
+		"lookup of the sibling": func(sut *BpfRecorder) {
+			_, err := sut.findProfileForContainerID(siblingID, sut.recordingGeneration.Load())
+			require.ErrorIs(t, err, errNoProfileForContainer)
+		},
+		"maintenance": func(sut *BpfRecorder) {
+			sut.cacheProfilesOfUnresolvedContainers()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			for range 16 {
+				logSink := &Logger{}
+				sut, mock := newClusterRecorder(true, false)
+				sut.logger = logr.New(logSink)
+
+				var sent atomic.Int64
+
+				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
+				mock.SendMetricCalls(
+					func(_ apimetrics.Metrics_BpfIncClient, req *apimetrics.BpfRequest) error {
+						if req.GetMountNamespace() == mntns && req.GetProfile() == profile {
+							sent.Add(1)
+						}
+
+						return nil
+					},
+				)
+
+				require.NoError(t, sut.connectMetrics(t.Context()))
+
+				ctx, cancel := context.WithCancel(t.Context())
+				go sut.metrics.Run(ctx)
+
+				resolved := podWithContainer(map[string]string{
+					config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+				})
+				resolved.Status.ContainerStatuses = append(resolved.Status.ContainerStatuses,
+					v1.ContainerStatus{Name: "sibling", ContainerID: crioPrefix + siblingID})
+
+				watchPods(t, sut, resolved)
+
+				require.True(t, sut.containerKeys.InsertWithMntns(key, mntns, containerID))
+				require.True(t,
+					sut.containerKeys.InsertWithMntns(siblingKey, siblingMntns, siblingID))
+
+				resolve(sut)
+
+				require.Contains(t, logSink.snapshot(),
+					"Found profile in cluster for container ID")
+				require.Eventually(t, func() bool { return sent.Load() == 1 },
+					time.Minute, time.Millisecond)
+
+				// Caching the profiles of the pod again reports nothing.
+				sut.cacheProfilesOfUnresolvedContainers()
+				sut.cacheProfilesOfPod(resolved, sut.recordingGeneration.Load())
+				require.Never(t, func() bool { return sent.Load() > 1 },
+					50*time.Millisecond, 10*time.Millisecond)
+
+				cancel()
+			}
+		})
+	}
 }
 
 // TestCacheProfilesOfPod asserts that the profiles of all recorded containers
