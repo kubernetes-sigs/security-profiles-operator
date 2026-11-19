@@ -130,6 +130,10 @@ func TestHandleFileEvent(t *testing.T) {
 		require.Len(t, sut.recordedFiles[recordingKey(testKey)], maxTrackedPaths)
 		require.True(t, sut.maxPathsWarned[recordingKey(testKey)])
 
+		processed, ok := sut.GetAppArmorProcessed([]uint64{testKey})
+		require.True(t, ok)
+		require.True(t, processed.Incomplete, "the profile misses paths")
+
 		// A tracked path still gathers its access flags.
 		sut.handleFileEvent(fileEvent(testKey, flagWrite, "/f/0"))
 		require.True(t, sut.recordedFiles[recordingKey(testKey)]["/f/0"].write)
@@ -145,6 +149,87 @@ func TestHandleFileEvent(t *testing.T) {
 
 		require.Len(t, sut.recordedFiles, maxTrackedKeys)
 		require.True(t, sut.maxKeysWarned)
+
+		// The key which got no slot has nothing, which tells that its data
+		// got dropped.
+		dropped := uint64(maxTrackedKeys)
+
+		processed, ok := sut.GetAppArmorProcessed([]uint64{dropped})
+		require.False(t, ok)
+		require.True(t, processed.Incomplete)
+
+		// It misses the access once it gets a slot.
+		sut.Clear([]uint64{0})
+		sut.handleFileEvent(fileEvent(dropped, flagRead, "/g"))
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{dropped})
+		require.True(t, ok)
+		require.True(t, processed.Incomplete)
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{1})
+		require.True(t, ok)
+		require.False(t, processed.Incomplete)
+
+		// Its data starts over once it got collected.
+		sut.Clear([]uint64{dropped})
+		sut.handleFileEvent(fileEvent(dropped, flagRead, "/g"))
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{dropped})
+		require.True(t, ok)
+		require.False(t, processed.Incomplete)
+	})
+
+	t.Run("reports keys which lost events beyond the dropped keys", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newTestAppArmorRecorder()
+
+		// Every slot is taken, and the keys without one fill droppedFiles.
+		for i := range 2*maxTrackedKeys + 1 {
+			sut.handleFileEvent(fileEvent(uint64(i), flagRead, "/f"))
+		}
+
+		require.Len(t, sut.droppedFiles, maxTrackedKeys)
+
+		lost := uint64(2 * maxTrackedKeys)
+
+		processed, ok := sut.GetAppArmorProcessed([]uint64{lost})
+		require.False(t, ok)
+		require.True(t, processed.Incomplete)
+
+		// It may have lost events once it gets a slot, unlike a key which
+		// had one before.
+		sut.Clear([]uint64{0})
+		sut.handleFileEvent(fileEvent(lost, flagRead, "/g"))
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{lost})
+		require.True(t, ok)
+		require.True(t, processed.Incomplete)
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{1})
+		require.True(t, ok)
+		require.False(t, processed.Incomplete)
+
+		// Once no key waits for a slot any more, the overflow ends. The key
+		// which got its slot since keeps its mark, a later one has none.
+		dropped := make([]uint64, 0, maxTrackedKeys+1)
+		for key := range sut.droppedFiles {
+			dropped = append(dropped, uint64(key))
+		}
+
+		sut.Clear(dropped)
+		require.False(t, sut.droppedOverflow)
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{lost})
+		require.True(t, ok)
+		require.True(t, processed.Incomplete)
+
+		sut.Clear([]uint64{1})
+		sut.handleFileEvent(fileEvent(lost+1, flagRead, "/h"))
+
+		processed, ok = sut.GetAppArmorProcessed([]uint64{lost + 1})
+		require.True(t, ok)
+		require.False(t, processed.Incomplete)
 	})
 }
 
@@ -813,7 +898,7 @@ func TestStatOnlyPathsDoNotTruncate(t *testing.T) {
 	sut.handleFileEvent(fileEvent(7, flagWrite, "/data/written"))
 	sut.handleFileEvent(fileEvent(7, flagWrite, "/data/stat/1"))
 
-	processed, found := sut.processExecFsEvents([]uint64{7})
+	processed, found, _ := sut.processExecFsEvents([]uint64{7})
 	require.True(t, found)
 	require.Equal(t, []string{"/data/written"}, processed.WriteOnlyPaths)
 	require.Equal(t, []string{"/data/stat/1"}, processed.ReadWritePaths)

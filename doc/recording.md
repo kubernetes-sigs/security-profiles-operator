@@ -141,6 +141,26 @@ containers are not subject to SELinux or seccomp policies at all, and the log
 based recording makes use of a special seccomp or SELinux profile respectively
 to record the syscalls or SELinux events.
 
+The log enricher reads the audit log with a delay, so a short lived process,
+like a command of a shell script, has often exited before its lines get
+read. Its lines are recorded for the container the process had when the
+enricher last saw it running. The syscalls of a process which exited before
+the enricher saw it are not recorded, which can leave syscalls out of a
+seccomp profile. Record with the [BPF recorder](#bpf-recorder) if a workload
+does most of its work in such processes.
+
+The log enricher holds the recorded data of up to 1000 profiles until the
+daemon collects them, and up to 32 profiles of a single pod. It does not
+record a further profile beyond that, and logs `Not recording a profile
+because the cache is full` or `Not recording further profiles of a pod which
+has too many`. A profile which got refused stays refused until the daemon
+collected it, or no line came for it for an hour, so that it does not get
+stored without what the workload did before. The data of pods which left the
+node or finished is dropped after an hour if the daemon did not collect it by
+then. Running pods with recording annotations which no `ProfileRecording` asks
+for keep their profiles in the cache, at most 32 per pod, until they leave the
+node.
+
 ### BPF recorder
 
 The [eBPF](https://ebpf.io) based recorder records seccomp and AppArmor
@@ -171,6 +191,25 @@ kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder 
 
 If the self-test fails, please open an issue with the logs of the
 `bpf-recorder` container.
+
+The recorder bounds what it keeps per container. An AppArmor profile which
+misses file accesses for that reason, because the recorder had no slot for
+the container or the paths exceed the size of a profile, gets a
+`RecordingIncomplete` warning event, like a seccomp profile whose syscalls
+cannot all be read. A profile whose recorded file accesses got dropped
+altogether is not stored, with the same event on its `ProfileRecording`:
+
+```shell
+kubectl get events --field-selector reason=RecordingIncomplete
+```
+
+The events which the kernel drops when the recorder cannot keep up are
+counted for the whole node, not per container, so they cannot be told on a
+profile. The `bpf-recorder` container logs them:
+
+```shell
+kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder --tail=-1 --prefix | grep WARNING
+```
 
 ## Record a seccomp profile
 
@@ -231,7 +270,7 @@ The enricher logs an `audit` line for each syscall of those containers:
 
 ```console
 $ kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher | grep '"audit"'
-… "audit" logger="log-enricher" timestamp="1625486870.273:187492" type="seccomp" node="worker-0" namespace="default" pod="my-pod" container="redis" executable="/usr/local/bin/redis-server" pid=1847839 syscallID=232 syscallName="epoll_wait"
+… "audit" logger="log-enricher" timestamp="1625486870.273:187492" type="seccomp" node="worker-0" namespace="default" pod="my-pod" container="redis" executable="/usr/local/bin/redis-server" pid=1847839 syscallID=232 syscallName="epoll_wait" arch="c000003e"
 ```
 
 Delete the pod to finish the recording:
@@ -445,6 +484,22 @@ NAME                              USAGE                                     STAT
 nginx-recording-nginx-container   nginx-recording-nginx-container.process   Installed   2m
 $ kubectl get selinuxprofile nginx-recording-nginx-container -o yaml
 ```
+
+The recorded containers of a pod share the SELinux context of the pod, unless
+their security context sets another SELinux level. The kernel logs the denial
+of a context only once and allows the same access without a log line
+afterwards, so an AVC of one of these containers, like an init container, is
+recorded for all of them which run or can still start, also for the ones
+which did not start yet. Their profiles allow what any of them did while
+they could run. An init container which finished, and a container which the
+pod does not restart, get no AVCs of the others.
+
+An AVC of a process which exited before the log enricher looked it up is
+recorded for the container whose AVCs had the same context, if the runtime
+assigned the SELinux level of the context, no other pod logged an AVC with
+it within the last hour, and the pod still runs. Pods can share a level which
+their security context sets, like the per namespace levels of OpenShift, so
+the AVCs of exited processes with such a level are not recorded.
 
 A recorded profile which allows one of the
 [denied types, classes or permissions](profiles.md#denied-types-classes-and-permissions)

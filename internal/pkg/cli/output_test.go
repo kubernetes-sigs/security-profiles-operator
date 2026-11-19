@@ -52,6 +52,63 @@ func TestWriteFileStdoutAppends(t *testing.T) {
 	require.Equal(t, "first\nsecond\n", string(content))
 }
 
+func TestStandardStream(t *testing.T) {
+	t.Parallel()
+
+	for name, expected := range map[string]*os.File{
+		"/dev/stdout":     os.Stdout,
+		"/dev/fd/1":       os.Stdout,
+		"/proc/self/fd/1": os.Stdout,
+		"/dev//stdout":    os.Stdout,
+		"/dev/stderr":     os.Stderr,
+		"/dev/fd/2":       os.Stderr,
+		"/proc/self/fd/2": os.Stderr,
+		"profile.yaml":    nil,
+		"/tmp/dev/stdout": nil,
+	} {
+		stream, ok := StandardStream(name)
+		require.Equal(t, expected != nil, ok, name)
+		require.Equal(t, expected, stream, name)
+	}
+}
+
+// TestStandardStreamSameFile verifies that any name of the file the standard
+// output is open on writes to it, like /proc/thread-self/fd/1.
+//
+//nolint:paralleltest // replaces os.Stdout
+func TestStandardStreamSameFile(t *testing.T) {
+	name := filepath.Join(t.TempDir(), "out")
+	require.NoError(t, os.WriteFile(name, []byte("first\n"), 0o600))
+
+	file, err := os.OpenFile(name, os.O_WRONLY|os.O_APPEND, 0)
+	require.NoError(t, err)
+
+	stdout := os.Stdout
+	os.Stdout = file
+
+	t.Cleanup(func() {
+		os.Stdout = stdout
+
+		require.NoError(t, file.Close())
+	})
+
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(name, link))
+
+	stream, ok := StandardStream(link)
+	require.True(t, ok)
+	require.Equal(t, file, stream)
+
+	require.NoError(t, WriteFile(link, []byte("second\n"), 0o644))
+
+	content, err := os.ReadFile(name)
+	require.NoError(t, err)
+	require.Equal(t, "first\nsecond\n", string(content))
+
+	_, ok = StandardStream(filepath.Join(t.TempDir(), "other"))
+	require.False(t, ok)
+}
+
 func TestWriteFile(t *testing.T) {
 	t.Parallel()
 

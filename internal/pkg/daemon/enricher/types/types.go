@@ -75,6 +75,15 @@ type ContainerInfo struct {
 	// can be recorded for both at the same time.
 	SeccompRecordProfile string
 	SelinuxRecordProfile string
+	// SelinuxSiblingProfiles holds by container name the profiles the log
+	// recorder records the other containers of the pod for, which run with
+	// the same SELinux options. The kernel logs a denial of a context only
+	// once, so an AVC of one of them is recorded for all of them.
+	SelinuxSiblingProfiles map[string]string
+	// SelinuxLevelExplicit is set if the SELinux options of the container
+	// set the level, which other pods can share. The runtime assigns a level
+	// of its own to every pod otherwise.
+	SelinuxLevelExplicit bool
 }
 
 type ProcessInfo struct {

@@ -88,3 +88,9 @@ func TestDefaultImplCopyFile(t *testing.T) {
 
 	require.Error(t, (&defaultImpl{}).CopyFile(filepath.Join(dir, "missing"), dst, 0o644))
 }
+
+// SetImpl sets the internal implementation of the NonRootEnabler for the
+// tests of the nonrootenabler_test package.
+func (n *NonRootEnabler) SetImpl(i impl) {
+	n.impl = i
+}

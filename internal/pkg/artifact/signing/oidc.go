@@ -121,7 +121,12 @@ func idToken(ctx context.Context, issuer string, deviceFlow bool) (string, error
 		return "", artifact.ErrNoOIDCProvider
 	}
 
-	token, err := oauthflow.OIDConnect(issuer, oidcClientID, "", "", getter.interactive)
+	// The sign in takes no context. Waiting for it stops on the context, so
+	// that the first interrupt of spoc abandons the browser or device flow,
+	// which keeps running in the background until spoc exits.
+	token, err := artifact.AwaitContext(ctx, func() (*oauthflow.OIDCIDToken, error) {
+		return oauthflow.OIDConnect(issuer, oidcClientID, "", "", getter.interactive)
+	})
 	if err != nil {
 		return "", fmt.Errorf("authenticate at %s: %w", issuer, err)
 	}

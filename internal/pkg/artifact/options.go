@@ -24,12 +24,15 @@ import (
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
 )
 
+// httpsPort and httpPort are the ports registries are reached at by default.
+const (
+	httpsPort = 443
+	httpPort  = 80
+)
+
 // AllowAllRegexp is the default signer regexp of the spoc flags and the SPOD
 // API, which accepts any signer.
 const AllowAllRegexp = ".*"
-
-// httpsPort is the port registries are reached at by default.
-const httpsPort = 443
 
 // PullOptions are the options for pulling an OCI artifact: how to reach the
 // registry and how to verify the artifact's signature.
@@ -222,8 +225,10 @@ func IsOfficialArtifact(image string) bool {
 }
 
 // normalizeRegistry returns the registry host in lower case, without the
-// trailing dot of a fully qualified name and without the HTTPS port, which
-// all reach the same registry.
+// trailing dot of a fully qualified name and without the HTTPS or the HTTP
+// port. The HTTPS port reaches the same registry, and the HTTP one may
+// redirect to it, so neither must lift the pinning to the official signers.
+// Another port is another registry.
 func normalizeRegistry(registry string) string {
 	host, port, err := net.SplitHostPort(registry)
 	if err != nil {
@@ -236,7 +241,8 @@ func normalizeRegistry(registry string) string {
 		return host
 	}
 
-	if number, err := strconv.ParseUint(port, 10, 16); err == nil && number == httpsPort {
+	if number, err := strconv.ParseUint(port, 10, 16); err == nil &&
+		(number == httpsPort || number == httpPort) {
 		return host
 	}
 

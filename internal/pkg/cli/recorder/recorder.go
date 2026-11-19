@@ -336,6 +336,10 @@ func (r *Recorder) generateAppArmorProfile(
 	mntns uint64,
 ) (apparmorprofileapi.AppArmorAbstract, bool) {
 	processed, found := r.AppArmorProcessed(r.bpfRecorder, []uint64{mntns})
+	if processed.Incomplete {
+		log.Printf("WARNING: some recorded file accesses got dropped or truncated, " +
+			"the profile may be incomplete")
+	}
 
 	return crd2armor.AbstractFromRecording(&crd2armor.RecordedAccess{
 		AllowedExecutables: processed.FileProcessed.AllowedExecutables,

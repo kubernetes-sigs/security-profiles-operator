@@ -34,6 +34,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1600,7 +1601,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 				},
 			}
 
-			allow, err := r.formatSelinuxProfile(profile, response)
+			allow, err := r.formatSelinuxProfile(response)
 			if err != nil {
 				r.log.Error(err, "Cannot format selinuxprofile")
 
@@ -1622,10 +1623,9 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 }
 
 func (r *RecorderReconciler) formatSelinuxProfile(
-	selinuxprofile *selinuxprofileapi.SelinuxProfile,
 	avcResponse *enricherapi.AvcResponse,
 ) (selinuxprofileapi.Allow, error) {
-	seBuilder := newSeProfileBuilder(selinuxprofile.GetPolicyUsage(), r.log)
+	seBuilder := newSeProfileBuilder(r.log)
 
 	if err := seBuilder.AddAvcList(avcResponse.GetAvc()); err != nil {
 		return nil, fmt.Errorf("consuming AVCs: %w", err)
@@ -1924,19 +1924,27 @@ func (r *RecorderReconciler) fetchSeccompBpfProfile(
 		target.name, target.labels, response.GetGoArch(), response.GetSyscalls(),
 	)
 	if err == nil && response.GetIncomplete() {
-		r.log.Info("Some recorded syscalls cannot be read, the profile may be incomplete",
-			"profile", target.name.Name)
-		r.record.Eventf(
+		r.recordIncomplete(
 			profile,
-			nil,
-			corev1.EventTypeWarning,
-			reasonRecordingIncomplete,
-			util.EventActionRecord,
 			"Some recorded syscalls cannot be read, the profile may be incomplete",
 		)
 	}
 
 	return profile, specBase, err
+}
+
+// recordIncomplete tells on the profile that the recording lost data, so
+// that the profile may deny what the workload needs.
+func (r *RecorderReconciler) recordIncomplete(profile client.Object, message string) {
+	r.log.Info(message, "profile", profile.GetName())
+	r.record.Eventf(
+		profile,
+		nil,
+		corev1.EventTypeWarning,
+		reasonRecordingIncomplete,
+		util.EventActionRecord,
+		message,
+	)
 }
 
 // recordedSeccompProfile returns the profile which allows the recorded
@@ -1979,6 +1987,27 @@ func (r *RecorderReconciler) fetchApparmorBpfProfile(
 		return nil, nil, r.bpfRecorderError(err, "apparmor rules", request.GetName())
 	}
 
+	// The recorded file accesses got dropped altogether. No profile gets
+	// stored, which the recording tells, it exists unlike the profile.
+	if response.GetIncomplete() && emptyApparmorResponse(response) {
+		message := "The recorded file accesses of profile " + target.name.Name +
+			" got dropped, no profile is stored"
+		r.log.Info(message, "recording", target.recordingName)
+
+		if target.recording != nil {
+			r.record.Eventf(
+				target.recording,
+				nil,
+				corev1.EventTypeWarning,
+				reasonRecordingIncomplete,
+				util.EventActionRecord,
+				message,
+			)
+		}
+
+		return nil, nil, errRecordedProfileNotFound
+	}
+
 	profile := &apparmorprofileapi.AppArmorProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      target.name.Name,
@@ -1990,7 +2019,23 @@ func (r *RecorderReconciler) fetchApparmorBpfProfile(
 		},
 	}
 
+	if response.GetIncomplete() {
+		r.recordIncomplete(profile,
+			"Some recorded file accesses got dropped or truncated, the profile may be incomplete")
+	}
+
 	return profile, &profile.Spec.SpecBase, nil
+}
+
+// emptyApparmorResponse reports whether the response holds no rules at all.
+func emptyApparmorResponse(response *bpfrecorderapi.ApparmorResponse) bool {
+	files := response.GetFiles()
+	socket := response.GetSocket()
+
+	return len(files.GetAllowedExecutables()) == 0 && len(files.GetAllowedLibraries()) == 0 &&
+		len(files.GetReadonlyPaths()) == 0 && len(files.GetWriteonlyPaths()) == 0 &&
+		len(files.GetReadwritePaths()) == 0 && len(response.GetCapabilities()) == 0 &&
+		!socket.GetUseRaw() && !socket.GetUseTcp() && !socket.GetUseUdp()
 }
 
 func (r *RecorderReconciler) generateAppArmorProfileAbstract(
@@ -2084,7 +2129,7 @@ func validateRecordingName(kind profilerecordingapi.ProfileRecordingKind, name s
 		validate = validateSelinuxRecordingName
 	}
 
-	if errs := append(validate(name), validation.IsValidLabelValue(name)...); len(errs) > 0 {
+	if errs := append(validate(name), content.IsLabelValue(name)...); len(errs) > 0 {
 		return fmt.Errorf("%w: %s", errNameNotValid, strings.Join(errs, ", "))
 	}
 
@@ -2704,17 +2749,15 @@ func parseBpfAnnotations(annotations map[string]string) ([]profileToCollect, err
 
 type seProfileBuilder struct {
 	permMap       map[string]sets.Set[string]
-	usageCtx      string
 	policyBuilder selinuxprofileapi.Allow
 	log           logr.Logger
 	// used to optimize sorting
 	keys []string
 }
 
-func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
+func newSeProfileBuilder(log logr.Logger) *seProfileBuilder {
 	return &seProfileBuilder{
 		permMap:       make(map[string]sets.Set[string]),
-		usageCtx:      usageCtx,
 		policyBuilder: make(selinuxprofileapi.Allow),
 		log:           log,
 		keys:          make([]string, 0),

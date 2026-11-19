@@ -487,9 +487,10 @@ func TestProfileFilename(t *testing.T) {
 
 // fakePolicyLoader is a policyLoader which tracks the loaded policies.
 type fakePolicyLoader struct {
-	loaded  map[string]bool
-	loads   int
-	loadErr error
+	loaded    map[string]bool
+	loads     int
+	loadErr   error
+	loadedErr error
 }
 
 func (f *fakePolicyLoader) LoadPolicy(string) error {
@@ -504,7 +505,30 @@ func (f *fakePolicyLoader) LoadPolicy(string) error {
 }
 
 func (f *fakePolicyLoader) PolicyLoaded(name string) (bool, error) {
+	if f.loadedErr != nil {
+		return false, f.loadedErr
+	}
+
 	return f.loaded[name], nil
+}
+
+// TestLoadPolicyFileLoadedCheckFails covers a new policy which the kernel
+// loaded, but whose state cannot be read afterwards. Its file has to stay, so
+// that a retry finds the marker instead of taking the loaded policy for one
+// of the host, and the deletion unloads it.
+func TestLoadPolicyFileLoadedCheckFails(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "test")
+	loader := &fakePolicyLoader{loaded: map[string]bool{}, loadedErr: errors.New("read failed")}
+
+	_, err := loadPolicyFile(logr.Discard(), loader, path, "test", "policy", false)
+	require.ErrorContains(t, err, "read failed")
+	require.Equal(t, 1, loader.loads)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, managedByMarker+"policy", string(content))
 }
 
 func TestLoadPolicyFile(t *testing.T) {

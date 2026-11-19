@@ -146,7 +146,25 @@ type AppArmorRecorder struct {
 	untrackedKeys   map[recordingKey]struct{}
 	lockTrackedKeys sync.Mutex
 
+	// maxPathsWarned holds the keys which hit maxTrackedPaths, whose
+	// profiles miss paths. Guarded by lockRecordedFiles.
 	maxPathsWarned map[recordingKey]bool
+	// droppedFiles holds the keys whose file events got dropped while
+	// trackKey had no slot for them, bounded by maxTrackedKeys. Guarded by
+	// lockRecordedFiles.
+	droppedFiles map[recordingKey]struct{}
+	// droppedOverflow is set once file events got dropped for a key while
+	// droppedFiles was full, and droppedOverflowAt is slotSeq at that time.
+	// Every key which got its slot afterwards, or has none, may have lost
+	// file events then. It gets reset once no key waits for a slot any more,
+	// see Clear. Guarded by lockRecordedFiles.
+	droppedOverflow   bool
+	droppedOverflowAt uint64
+	// slotSeq counts the slots trackKey handed out, and trackedSeq holds the
+	// count at which each tracked key got its slot. Guarded by
+	// lockTrackedKeys.
+	slotSeq    uint64
+	trackedSeq map[recordingKey]uint64
 	// maxKeysWarned is guarded by lockTrackedKeys.
 	maxKeysWarned bool
 
@@ -188,6 +206,9 @@ type BpfAppArmorProcessed struct {
 	FileProcessed BpfAppArmorFileProcessed
 	Socket        BpfAppArmorSocketTypes
 	Capabilities  []string
+	// Incomplete is set if file accesses of the keys got dropped or the
+	// paths got truncated, so that the profile may deny some of them.
+	Incomplete bool
 }
 
 type BpfAppArmorFileProcessed struct {
@@ -220,6 +241,8 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 		trackedKeys:              map[recordingKey]struct{}{},
 		untrackedKeys:            map[recordingKey]struct{}{},
 		maxPathsWarned:           map[recordingKey]bool{},
+		droppedFiles:             map[recordingKey]struct{}{},
+		trackedSeq:               map[recordingKey]uint64{},
 		excluded:                 map[recordingKey]struct{}{},
 		normalizedPaths:          map[string]normalizedPath{},
 	}
@@ -371,9 +394,12 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.recordedFiles)
 	clear(b.statOnly)
 	clear(b.maxPathsWarned)
+	clear(b.droppedFiles)
+	b.droppedOverflow, b.droppedOverflowAt = false, 0
 
 	b.lockTrackedKeys.Lock()
 	clear(b.trackedKeys)
+	clear(b.trackedSeq)
 	clear(b.untrackedKeys)
 	b.maxKeysWarned = false
 	b.lockTrackedKeys.Unlock()
@@ -429,8 +455,43 @@ func (b *AppArmorRecorder) trackKey(key recordingKey) bool {
 	}
 
 	b.trackedKeys[key] = struct{}{}
+	b.slotSeq++
+	b.trackedSeq[key] = b.slotSeq
 
 	return true
+}
+
+// lostFileEvents reports whether file events of the keys got dropped, or
+// their paths beyond maxTrackedPaths. It has to be called with
+// lockRecordedFiles held.
+func (b *AppArmorRecorder) lostFileEvents(keys []uint64) bool {
+	for _, k := range keys {
+		key := recordingKey(k)
+		if _, dropped := b.droppedFiles[key]; dropped || b.maxPathsWarned[key] ||
+			b.droppedOverflow && b.slotAfter(key, b.droppedOverflowAt) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// currentSlotSeq returns the count of the slots trackKey handed out.
+func (b *AppArmorRecorder) currentSlotSeq() uint64 {
+	b.lockTrackedKeys.Lock()
+	defer b.lockTrackedKeys.Unlock()
+
+	return b.slotSeq
+}
+
+// slotAfter reports whether the key got its slot after seq, or has none.
+func (b *AppArmorRecorder) slotAfter(key recordingKey, seq uint64) bool {
+	b.lockTrackedKeys.Lock()
+	defer b.lockTrackedKeys.Unlock()
+
+	tracked, ok := b.trackedSeq[key]
+
+	return !ok || tracked > seq
 }
 
 // skipUntracked handles a capability or socket of a key which trackKey
@@ -524,7 +585,20 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	defer b.lockRecordedFiles.Unlock()
 
 	// The key may have been excluded since the check above, see trackKey.
-	if b.stopped.Load() || b.isExcluded(fileEvent.Key) || !b.trackKey(key) {
+	if b.stopped.Load() || b.isExcluded(fileEvent.Key) {
+		return
+	}
+
+	if !b.trackKey(key) {
+		// The BPF program does not report the access again, so the profile
+		// of the key misses it once the key gets a slot.
+		if len(b.droppedFiles) < maxTrackedKeys {
+			b.droppedFiles[key] = struct{}{}
+		} else if !b.droppedOverflow {
+			b.droppedOverflow = true
+			b.droppedOverflowAt = b.currentSlotSeq()
+		}
+
 		return
 	}
 
@@ -714,13 +788,28 @@ func (b *AppArmorRecorder) Clear(keys []uint64) {
 		delete(b.recordedCapabilities, key)
 		delete(b.recordedSocketsUse, key)
 		delete(b.maxPathsWarned, key)
+		delete(b.droppedFiles, key)
 		delete(b.untrackedKeys, key)
 
 		if _, ok := b.trackedKeys[key]; ok {
 			delete(b.trackedKeys, key)
+			delete(b.trackedSeq, key)
 
 			freed = true
 		}
+	}
+
+	// Once no key waits for a slot any more, the keys which got theirs
+	// since the overflow get marked on their own, so that the overflow does
+	// not mark every later key for the rest of the recording.
+	if b.droppedOverflow && len(b.droppedFiles) == 0 && len(b.untrackedKeys) == 0 {
+		for key, seq := range b.trackedSeq {
+			if seq > b.droppedOverflowAt {
+				b.droppedFiles[key] = struct{}{}
+			}
+		}
+
+		b.droppedOverflow, b.droppedOverflowAt = false, 0
 	}
 
 	// The keys waiting for a slot get reported again, the ones which do
@@ -776,8 +865,13 @@ func (b *AppArmorRecorder) GetKnownKeys() []uint64 {
 	}
 
 	// A key which only stat'ed files is known as well, so that its data
-	// gets swept with it.
+	// gets swept with it, like a key whose file events all got dropped,
+	// which tells that its profile misses them.
 	for key := range b.statOnly {
+		known[uint64(key)] = struct{}{}
+	}
+
+	for key := range b.droppedFiles {
 		known[uint64(key)] = struct{}{}
 	}
 
@@ -798,8 +892,9 @@ func (b *AppArmorRecorder) GetKnownKeys() []uint64 {
 func (b *AppArmorRecorder) GetAppArmorProcessed(keys []uint64) (BpfAppArmorProcessed, bool) {
 	var processed BpfAppArmorProcessed
 
-	fileProcessed, foundFiles := b.processExecFsEvents(keys)
+	fileProcessed, foundFiles, truncated := b.processExecFsEvents(keys)
 	processed.FileProcessed = fileProcessed
+	processed.Incomplete = truncated
 
 	foundSockets := false
 
@@ -919,10 +1014,16 @@ func (r fileRule) emits() bool {
 	return r.execute || r.library || r.read || r.write
 }
 
-// processExecFsEvents classifies the file accesses recorded for keys.
-func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFileProcessed, bool) {
+// processExecFsEvents classifies the file accesses recorded for keys. It
+// reports whether any were found, and whether the rules miss some of them,
+// because they got dropped or exceed the size of a profile.
+func (b *AppArmorRecorder) processExecFsEvents(
+	keys []uint64,
+) (BpfAppArmorFileProcessed, bool, bool) {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
+
+	incomplete := b.lostFileEvents(keys)
 
 	var processedEvents BpfAppArmorFileProcessed
 
@@ -1017,7 +1118,7 @@ func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFilePr
 	slices.Sort(processedEvents.WriteOnlyPaths)
 	slices.Sort(processedEvents.ReadWritePaths)
 
-	return processedEvents, found
+	return processedEvents, found, incomplete || truncated
 }
 
 // classifyFileAccess returns the rule the access of a single workload to a

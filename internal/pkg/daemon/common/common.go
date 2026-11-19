@@ -43,6 +43,12 @@ const StaleTempFileAge = time.Minute
 // and do not keep anything from working.
 func RemoveStaleTempFiles(log logr.Logger, dir string) {
 	removed, err := util.RemoveStaleTempFiles(dir, StaleTempFileAge)
+	LogStaleTempFiles(log, dir, removed, err)
+}
+
+// LogStaleTempFiles logs what util.RemoveStaleTempFiles removed from dir, and
+// its failure.
+func LogStaleTempFiles(log logr.Logger, dir string, removed []string, err error) {
 	for _, name := range removed {
 		log.Info("Removed stale temporary file", "path", name)
 	}

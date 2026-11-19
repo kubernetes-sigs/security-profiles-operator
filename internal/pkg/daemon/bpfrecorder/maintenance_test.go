@@ -972,6 +972,42 @@ func TestSweepStaleKeys(t *testing.T) {
 	require.True(t, found)
 }
 
+// TestSweepStaleKeysDroppedOnly asserts that a key whose file events all got
+// dropped for want of a slot is swept like any other key without container
+// and processes.
+func TestSweepStaleKeysDroppedOnly(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(false, true)
+	sut.activePidsBpfMap = &libbpfgo.BPFMap{}
+	atomic.StoreInt64(&sut.startRequests, 1)
+
+	// Every slot is taken by a recorded container.
+	for key := range uint64(maxTrackedKeys) {
+		id := fmt.Sprintf("container-%d", key)
+
+		sut.AppArmor.handleFileEvent(fileEvent(key, flagRead, "/etc/passwd"))
+		sut.containerKeys.Insert(key, id)
+		sut.containerIDToProfileMap.Insert(id, profile)
+	}
+
+	const dropped = uint64(maxTrackedKeys)
+
+	sut.AppArmor.handleFileEvent(fileEvent(dropped, flagRead, "/etc/passwd"))
+	require.Contains(t, sut.AppArmor.GetKnownKeys(), dropped)
+
+	mock.MapKeysReturns(nil, nil)
+
+	for range staleKeySweeps {
+		sut.sweepStaleKeys()
+	}
+
+	known := sut.AppArmor.GetKnownKeys()
+	require.NotContains(t, known, dropped)
+	require.Len(t, known, maxTrackedKeys)
+	require.Empty(t, sut.AppArmor.droppedFiles)
+}
+
 // TestPruneExcludedKeys asserts that excluded cgroups which are gone get
 // removed from the kernel map, while the ones still around stay excluded.
 func TestPruneExcludedKeys(t *testing.T) {

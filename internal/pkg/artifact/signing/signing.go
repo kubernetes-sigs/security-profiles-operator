@@ -175,14 +175,15 @@ func transparencyLogs(
 
 	for _, log := range logs {
 		rekorV2 = rekorV2 || log.MajorAPIVersion == 2
-		// Unlike Fulcio and the timestamp authorities, the Rekor clients
-		// take no transport: the one of Rekor v1 clones http.DefaultTransport
-		// itself, the one of Rekor v2 uses it.
+		// Like Fulcio and the timestamp authorities, over the shared
+		// transport, which keeps the retries and the user agent of the
+		// client.
 		result = append(result, sign.NewRekor(&sign.RekorOptions{
-			BaseURL: log.URL,
-			Timeout: rekorTimeout,
-			Retries: 1,
-			Version: log.MajorAPIVersion,
+			BaseURL:   log.URL,
+			Timeout:   rekorTimeout,
+			Retries:   1,
+			Version:   log.MajorAPIVersion,
+			Transport: artifact.Transport(),
 		}))
 	}
 

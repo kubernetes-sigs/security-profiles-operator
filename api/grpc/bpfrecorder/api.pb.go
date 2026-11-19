@@ -304,10 +304,14 @@ func (x *SyscallsResponse) GetIncomplete() bool {
 }
 
 type ApparmorResponse struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Files         *ApparmorResponse_Files  `protobuf:"bytes,1,opt,name=files,proto3" json:"files,omitempty"`
-	Socket        *ApparmorResponse_Socket `protobuf:"bytes,2,opt,name=socket,proto3" json:"socket,omitempty"`
-	Capabilities  []string                 `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	state        protoimpl.MessageState   `protogen:"open.v1"`
+	Files        *ApparmorResponse_Files  `protobuf:"bytes,1,opt,name=files,proto3" json:"files,omitempty"`
+	Socket       *ApparmorResponse_Socket `protobuf:"bytes,2,opt,name=socket,proto3" json:"socket,omitempty"`
+	Capabilities []string                 `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// incomplete is set if some of the recorded file accesses got dropped or
+	// truncated. A response without any rules means that all of them got
+	// dropped.
+	Incomplete    bool `protobuf:"varint,4,opt,name=incomplete,proto3" json:"incomplete,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -361,6 +365,13 @@ func (x *ApparmorResponse) GetCapabilities() []string {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *ApparmorResponse) GetIncomplete() bool {
+	if x != nil {
+		return x.Incomplete
+	}
+	return false
 }
 
 type ApparmorResponse_Files struct {
@@ -519,11 +530,14 @@ const file_api_grpc_bpfrecorder_api_proto_rawDesc = "" +
 	"\ago_arch\x18\x02 \x01(\tR\x06goArch\x12\x1e\n" +
 	"\n" +
 	"incomplete\x18\x03 \x01(\bR\n" +
-	"incomplete\"\xed\x03\n" +
+	"incomplete\"\x8d\x04\n" +
 	"\x10ApparmorResponse\x12=\n" +
 	"\x05files\x18\x01 \x01(\v2'.api_bpfrecorder.ApparmorResponse.FilesR\x05files\x12@\n" +
 	"\x06socket\x18\x02 \x01(\v2(.api_bpfrecorder.ApparmorResponse.SocketR\x06socket\x12\"\n" +
-	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x1a\xde\x01\n" +
+	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12\x1e\n" +
+	"\n" +
+	"incomplete\x18\x04 \x01(\bR\n" +
+	"incomplete\x1a\xde\x01\n" +
 	"\x05Files\x12/\n" +
 	"\x13allowed_executables\x18\x01 \x03(\tR\x12allowedExecutables\x12+\n" +
 	"\x11allowed_libraries\x18\x02 \x03(\tR\x10allowedLibraries\x12%\n" +

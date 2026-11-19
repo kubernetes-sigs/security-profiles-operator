@@ -31,6 +31,7 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -68,8 +69,21 @@ const (
 	// needs to cover a slow API server.
 	backlogTimeout time.Duration = time.Minute
 
-	defaultTimeout time.Duration = time.Minute
-	maxCacheItems  uint64        = 1000
+	maxCacheItems uint64 = 1000
+
+	// maxProfilesPerPod bounds the profiles recorded for the containers of a
+	// pod at once, each of them records into one profile per kind. A pod
+	// whose recording annotations change, which the info refresh picks up,
+	// would take up every profile of the cache otherwise.
+	maxProfilesPerPod = 32
+
+	// uncollectedRecordingTimeout is how long the data recorded by the
+	// containers of a pod which left the node is kept for the collection of
+	// its profiles, like the one of the BPF recorder.
+	uncollectedRecordingTimeout = time.Hour
+	// sweepInterval is how often the data of pods which left the node gets
+	// checked, see recordedData.sweep.
+	sweepInterval = 5 * time.Minute
 
 	// collectedProfileTimeout is how long the lines of a collected profile
 	// get dropped. The audit log is read with a delay, and the lines can wait
@@ -88,8 +102,23 @@ type recordedData struct {
 	// re-derivable: the recorder deletes each entry explicitly once it has
 	// collected the profile. Expiring them on a timer silently truncates any
 	// recording whose workload goes quiet for longer than the TTL, and the
-	// recorder then sees "no syscalls" and writes no profile at all.
+	// recorder then sees "no syscalls" and writes no profile at all. It holds
+	// up to maxCacheItems profiles, a new profile is refused while it is full
+	// instead of evicting the recording of another one, see record. The
+	// recordings of pods which left the node get dropped, see sweep.
 	data *ttlcache.Cache[string, *recording]
+	// goneSince holds since when the pods with recorded data are not on the
+	// node any more, see sweep. Guarded by mu.
+	goneSince map[string]time.Time
+	// refused holds the profiles which got refused for a pod because the
+	// cache was full, by profilePodKey, see record. They stay refused until
+	// they get collected for the pod or no line came for them for
+	// uncollectedRecordingTimeout: recording them once a slot frees up would
+	// store a profile which misses everything before.
+	refused *ttlcache.Cache[string, struct{}]
+	// limitedPods holds the pods which hit maxProfilesPerPod, so that this
+	// is told once per pod, see podLimited.
+	limitedPods *ttlcache.Cache[string, struct{}]
 	// collected holds per profile the containers whose recording got
 	// collected. Their lines can be read after that, which would otherwise
 	// record them again for nobody to collect. The lines of other containers,
@@ -130,7 +159,16 @@ func newRecordedData() *recordedData {
 	return &recordedData{
 		data: ttlcache.New(
 			ttlcache.WithTTL[string, *recording](ttlcache.NoTTL),
-			ttlcache.WithCapacity[string, *recording](maxCacheItems),
+		),
+		goneSince: map[string]time.Time{},
+		refused: ttlcache.New(
+			ttlcache.WithTTL[string, struct{}](uncollectedRecordingTimeout),
+			ttlcache.WithCapacity[string, struct{}](maxCollectedItems),
+		),
+		limitedPods: ttlcache.New(
+			ttlcache.WithTTL[string, struct{}](uncollectedRecordingTimeout),
+			ttlcache.WithCapacity[string, struct{}](maxCacheItems),
+			ttlcache.WithDisableTouchOnHit[string, struct{}](),
 		),
 		collected: ttlcache.New(
 			ttlcache.WithTTL[string, sets.Set[string]](collectedProfileTimeout),
@@ -140,16 +178,100 @@ func newRecordedData() *recordedData {
 	}
 }
 
-// insert records the items of a container of the pod with the UID for the
-// profile. It reports false if the recording of the container got collected
-// already, then nothing is recorded.
-func (r *recordedData) insert(profile, podUID, containerID string, items ...string) bool {
+// recordResult tells what record did with the items.
+type recordResult int
+
+const (
+	// recorded means that the items got recorded.
+	recorded recordResult = iota
+	// alreadyCollected means that the recording of the container got
+	// collected already.
+	alreadyCollected
+	// cacheFull means that maxCacheItems other profiles are recorded
+	// already, the profile is refused until it gets collected.
+	cacheFull
+	// stillRefused means that the profile got refused before, see cacheFull.
+	stillRefused
+	// podLimited means that the pod has maxProfilesPerPod other profiles
+	// recorded already, the profile is refused like for cacheFull. It is
+	// only returned for the first refusal of the pod within
+	// uncollectedRecordingTimeout, stillRefused afterwards.
+	podLimited
+)
+
+// profilePodKey is the key of a profile of a pod in refused.
+func profilePodKey(profile, podUID string) string {
+	return profile + "\x00" + podUID
+}
+
+// record records the items of a container of the pod with the UID for the
+// profile. Nothing is recorded if the recording of the container got
+// collected already, or for a new profile while maxCacheItems profiles are
+// recorded: evicting the recording of another profile would truncate a
+// profile which is being recorded, and any pod can carry a recording
+// annotation. A refused profile stays refused, see refused.
+func (r *recordedData) record(
+	profile, podUID, containerID string, items ...string,
+) recordResult {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if collected := r.collected.Get(profile); collected != nil &&
 		collected.Value().Has(containerID) {
-		return false
+		return alreadyCollected
+	}
+
+	return r.recordLocked(profile, podUID, containerID, items...)
+}
+
+// recordSibling records the items like record, for a sibling of the
+// container of the profile in the pod, see selinuxSiblingProfiles. The key
+// of the sibling only tells it apart within the pod. The profile belongs to a
+// single container of the pod, so nothing is recorded once any container of
+// it got collected: nothing would collect the data of the sibling key until
+// the pod left the node, see sweep.
+func (r *recordedData) recordSibling(
+	profile, podUID, siblingKey string, items ...string,
+) recordResult {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if collected := r.collected.Get(profile); collected != nil && collected.Value().Len() > 0 {
+		return alreadyCollected
+	}
+
+	return r.recordLocked(profile, podUID, siblingKey, items...)
+}
+
+// recordLocked records the items, see record. It has to be called with mu
+// held.
+func (r *recordedData) recordLocked(
+	profile, podUID, containerID string, items ...string,
+) recordResult {
+	// The lookup keeps a refused profile refused for as long as its lines
+	// keep coming.
+	if r.refused.Get(profilePodKey(profile, podUID)) != nil {
+		return stillRefused
+	}
+
+	if r.data.Get(profile) == nil {
+		if r.data.Len() >= int(maxCacheItems) {
+			r.refused.Set(profilePodKey(profile, podUID), struct{}{}, ttlcache.DefaultTTL)
+
+			return cacheFull
+		}
+
+		if r.profilesOfPodLocked(podUID) >= maxProfilesPerPod {
+			r.refused.Set(profilePodKey(profile, podUID), struct{}{}, ttlcache.DefaultTTL)
+
+			if r.limitedPods.Get(podUID) != nil {
+				return stillRefused
+			}
+
+			r.limitedPods.Set(podUID, struct{}{}, ttlcache.DefaultTTL)
+
+			return podLimited
+		}
 	}
 
 	item, _ := r.data.GetOrSetFunc(profile, func() *recording {
@@ -161,16 +283,34 @@ func (r *recordedData) insert(profile, podUID, containerID string, items ...stri
 
 	rec := item.Value()
 
-	recorded, ok := rec.containers[containerID]
+	containerItems, ok := rec.containers[containerID]
 	if !ok {
-		recorded = sets.New[string]()
-		rec.containers[containerID] = recorded
+		containerItems = sets.New[string]()
+		rec.containers[containerID] = containerItems
 		rec.pods[containerID] = podUID
 	}
 
-	recorded.Insert(items...)
+	containerItems.Insert(items...)
 
-	return true
+	return recorded
+}
+
+// profilesOfPodLocked returns the number of profiles recorded for the
+// containers of the pod with the UID. It has to be called with mu held.
+func (r *recordedData) profilesOfPodLocked(podUID string) int {
+	count := 0
+
+	for _, item := range r.data.Items() {
+		for _, uid := range item.Value().pods {
+			if uid == podUID {
+				count++
+
+				break
+			}
+		}
+	}
+
+	return count
 }
 
 // get returns what got recorded for the profile by the containers of the pod
@@ -216,12 +356,27 @@ func (r *recordedData) get(profile, podUID string, collect bool) (items []string
 
 // reset drops what got recorded for the profile by the containers whose data
 // the last collecting get for the pod with the UID handed out, or by all
-// containers of the pod without one. Nothing gets recorded for these containers afterwards.
-// The containers of other pods which carry the same recording annotation keep
-// their data until their own pod gets collected, or the cache evicts it.
+// containers of the pod without one. Nothing gets recorded for these
+// containers afterwards. The containers of other pods which carry the same
+// recording annotation keep their data until their own pod gets collected, or
+// left the node for uncollectedRecordingTimeout, see sweep.
 func (r *recordedData) reset(profile, podUID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// The collection of a refused profile found nothing for the pod, a
+	// later recording of the profile for it starts over. The refusals for
+	// the other pods with the same annotation stay, their data is missing
+	// as well.
+	if podUID != "" {
+		r.refused.Delete(profilePodKey(profile, podUID))
+	} else {
+		for key := range r.refused.Items() {
+			if strings.HasPrefix(key, profilePodKey(profile, "")) {
+				r.refused.Delete(key)
+			}
+		}
+	}
 
 	item := r.data.Get(profile)
 	if item == nil {
@@ -262,15 +417,78 @@ func (r *recordedData) markCollected(profile string, containers sets.Set[string]
 	r.collected.Set(profile, collected, ttlcache.DefaultTTL)
 }
 
+// sweep drops what got recorded by the containers of pods which are not on
+// the node since at least uncollectedRecordingTimeout, longer than the collection of their
+// profiles gets retried. Their profiles did not get collected, like after a
+// restart of the daemon, or the pods only carried a recording annotation
+// which no recording asked for. present reports whether the pod with the UID
+// is on the node. It returns the profiles whose data got dropped.
+func (r *recordedData) sweep(present func(podUID string) bool, now time.Time) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	gone := map[string]time.Time{}
+	dropped := []string{}
+
+	for profile, item := range r.data.Items() {
+		rec := item.Value()
+
+		for containerID, podUID := range rec.pods {
+			if present(podUID) {
+				continue
+			}
+
+			since, ok := gone[podUID]
+			if !ok {
+				since, ok = r.goneSince[podUID]
+				if !ok {
+					since = now
+				}
+
+				gone[podUID] = since
+			}
+
+			if now.Sub(since) < uncollectedRecordingTimeout {
+				continue
+			}
+
+			delete(rec.containers, containerID)
+			delete(rec.pods, containerID)
+
+			for uid, containers := range rec.collecting {
+				containers.Delete(containerID)
+
+				if containers.Len() == 0 {
+					delete(rec.collecting, uid)
+				}
+			}
+		}
+
+		if len(rec.containers) == 0 {
+			r.data.Delete(profile)
+
+			dropped = append(dropped, profile)
+		}
+	}
+
+	r.goneSince = gone
+
+	return dropped
+}
+
 // start expires the collected profiles until stop gets called.
 func (r *recordedData) start() {
 	go r.data.Start()
 	go r.collected.Start()
+	go r.refused.Start()
+	go r.limitedPods.Start()
 }
 
 func (r *recordedData) stop() {
 	r.data.Stop()
 	r.collected.Stop()
+	r.refused.Stop()
+	r.limitedPods.Stop()
 }
 
 type LogEnricherOptions struct {
@@ -293,10 +511,16 @@ type Enricher struct {
 	// syscalls and avcs accumulate per recorded profile. They are normally
 	// drained by the Reset* RPCs, but a recording that never completes (pod
 	// force-deleted, recording removed) would otherwise keep its entry for the
-	// lifetime of the daemon, so they are bounded like every other cache here.
-	syscalls        *recordedData
-	avcs            *recordedData
-	auditLineCache  *ttlcache.Cache[string, *auditBacklog]
+	// lifetime of the daemon. They hold up to maxCacheItems profiles, a new
+	// one is refused while they are full, and drop the data of pods which
+	// left the node, see recordedData.
+	syscalls       *recordedData
+	avcs           *recordedData
+	auditLineCache *ttlcache.Cache[string, *auditBacklog]
+	// selinuxContexts holds the recorded pods by the SELinux context of
+	// their AVCs, for the AVCs of processes which exited before their
+	// container got looked up, see containerOfSelinuxContext.
+	selinuxContexts *selinuxContexts
 	enricherFilters []types.EnricherFilterOptions
 	grpcServer      *grpc.Server
 	metrics         *metrics.Sender[*apimetrics.AuditRequest]
@@ -406,33 +630,11 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, *auditBacklog](),
 		),
+		selinuxContexts: newSelinuxContexts(),
 		enricherFilters: enricherFilters,
 		// Read once, like the rest of the configuration.
 		nodeName:       os.Getenv(config.NodeNameEnvKey),
 		metricsBackoff: util.DefaultBackoff(),
-	}
-
-	// Say plainly when a recording is dropped for capacity. Otherwise the
-	// recorder just reports "no syscalls found" and writes no profile, with
-	// nothing explaining why.
-	for name, recorded := range map[string]*recordedData{
-		"syscalls": e.syscalls,
-		"avcs":     e.avcs,
-	} {
-		recorded.data.OnEviction(func(
-			_ context.Context, reason ttlcache.EvictionReason,
-			item *ttlcache.Item[string, *recording],
-		) {
-			if reason != ttlcache.EvictionReasonCapacityReached {
-				return
-			}
-
-			logger.Info(
-				"Dropping a recording because the cache is full: "+
-					"the profile will be recorded incomplete or not at all",
-				"cache", name, "profile", item.Key(), "capacity", maxCacheItems,
-			)
-		})
 	}
 
 	e.auditLineCache.OnEviction(e.logDroppedBacklog)
@@ -509,6 +711,9 @@ func (e *Enricher) Run(ctx context.Context) error {
 	e.avcs.start()
 	defer e.avcs.stop()
 
+	sweep := time.NewTicker(sweepInterval)
+	defer sweep.Stop()
+
 	e.logger.Info("Connecting to local GRPC server")
 
 	// The streams are bound to the context, so that stopping the sender
@@ -575,6 +780,8 @@ func (e *Enricher) Run(ctx context.Context) error {
 
 			// The pods may tell the containers of any of the backlogs now.
 			e.dispatchListedBacklogs(nodeName)
+		case <-sweep.C:
+			e.sweepRecordings()
 		}
 	}
 }
@@ -587,6 +794,14 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 
 	cID, err := e.lookup.containerIDForProcess(e.impl, auditLine.ProcessID, auditTime(auditLine))
 	if err != nil {
+		if info, ok := e.containerOfSelinuxContext(auditLine, err); ok {
+			if err := e.dispatchAuditLine(nodeName, auditLine, info); err != nil {
+				e.logger.Error(err, "dispatch audit line")
+			}
+
+			return
+		}
+
 		// Nothing is going to tell the container of this line later on:
 		// the process is either gone without having been seen running or
 		// runs outside of a container, and a later line with the same PID
@@ -631,6 +846,116 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 
 	if err := e.dispatchAuditLine(nodeName, auditLine, info); err != nil {
 		e.logger.Error(err, "dispatch audit line")
+	}
+}
+
+// containerOfSelinuxContext returns the recorded container whose AVCs had the
+// SELinux context of the AVC of a process which exited before it got looked
+// up. Short lived processes, like the ones of a shell script, exit long
+// before their lines are read, and the kernel does not log the denial of
+// their context again once it got logged, so the AVC would be missing from
+// the profile for good. The context of a recorded container carries the
+// recording type and the level the runtime assigned to its pod, see
+// selinuxContexts.
+func (e *Enricher) containerOfSelinuxContext(
+	auditLine *types.AuditLine, err error,
+) (*types.ContainerInfo, bool) {
+	if auditLine.AuditType != types.AuditTypeSelinux || auditLine.Scontext == "" ||
+		!processGone(err) && !errors.Is(err, errProcessStartedLater) {
+		return nil, false
+	}
+
+	remembered, ok := e.selinuxContexts.container(auditLine.Scontext, time.Now())
+	if !ok {
+		return nil, false
+	}
+
+	// The pod has to be still running: the runtime may assign the level of
+	// a pod which is gone to another one. Its info gets read again like for
+	// the lines of running processes, so that a removed recording annotation
+	// counts.
+	pods := e.lookup.containers.pods
+	if pods == nil {
+		return nil, false
+	}
+
+	pod, found := pods.Get(remembered.ContainerID)
+	if !found || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		return nil, false
+	}
+
+	info, infoErr := e.lookup.containers.get(remembered.ContainerID)
+	if infoErr != nil || info.SelinuxRecordProfile == "" || info.SelinuxLevelExplicit {
+		return nil, false
+	}
+
+	e.logger.V(config.VerboseLevel).Info(
+		"Using the container of the SELinux context of the exited process",
+		"processID", auditLine.ProcessID,
+		"scontext", auditLine.Scontext,
+		"containerID", info.ContainerID,
+	)
+
+	return info, true
+}
+
+// sweepRecordings drops the data recorded by the containers of pods which
+// left the node uncollectedRecordingTimeout ago, see recordedData.sweep, and
+// forgets the SELinux contexts of pods which left it. A pod which finished
+// counts as gone: the late lines of a finished Job would keep its recording
+// otherwise for as long as the pod object exists.
+func (e *Enricher) sweepRecordings() {
+	pods := e.lookup.containers.pods
+	if pods == nil || !pods.HasSynced() {
+		return
+	}
+
+	present := sets.New[string]()
+
+	for _, pod := range pods.Pods() {
+		if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+			present.Insert(string(pod.UID))
+		}
+	}
+
+	now := time.Now()
+
+	e.selinuxContexts.sweep(present.Has, now)
+
+	for name, recordedData := range map[string]*recordedData{
+		"syscalls": e.syscalls,
+		"avcs":     e.avcs,
+	} {
+		for _, profile := range recordedData.sweep(present.Has, now) {
+			e.logger.Info("Dropping the uncollected recording of pods which left the node",
+				"cache", name, "profile", profile)
+		}
+	}
+}
+
+// logRefused tells that a profile does not get recorded because the
+// recordings of maxCacheItems other profiles are not collected yet, or its
+// pod has maxProfilesPerPod other ones, once per refusal, see
+// recordedData.record. Otherwise the recorder just reports "no syscalls
+// found" and writes no profile, with nothing explaining why.
+func (e *Enricher) logRefused(result recordResult, cache, profile string) {
+	switch result {
+	case cacheFull:
+		e.logger.Info(
+			"Not recording a profile because the cache is full: "+
+				"the profile will not be recorded until the daemon collected it",
+			"cache", cache, "profile", profile, "capacity", maxCacheItems,
+		)
+	case podLimited:
+		e.logger.Info(
+			"Not recording further profiles of a pod which has too many: "+
+				"they will not be recorded until the daemon collected them",
+			"cache", cache, "profile", profile, "limit", maxProfilesPerPod,
+		)
+	case recorded, alreadyCollected, stillRefused:
+		e.logger.V(config.VerboseLevel).Info(
+			"Not recording a refused profile", "cache", cache, "profile", profile,
+		)
 	}
 }
 
@@ -1005,34 +1330,87 @@ func (e *Enricher) dispatchSelinuxLine(
 		})
 	}
 
-	if info.SelinuxRecordProfile != "" {
-		avcs := []string{}
+	// Every pod which uses the context counts, see selinuxContexts.
+	if auditLine.Scontext != "" {
+		e.selinuxContexts.remember(auditLine.Scontext, info, time.Now())
+	}
 
-		for perm := range strings.SplitSeq(auditLine.Perm, " ") {
-			avc := &apienricher.AvcResponse_SelinuxAvc{
-				Perm:     perm,
-				Scontext: auditLine.Scontext,
-				Tcontext: auditLine.Tcontext,
-				Tclass:   auditLine.Tclass,
-			}
+	if info.SelinuxRecordProfile == "" {
+		return
+	}
 
-			jsonBytes, err := protojson.Marshal(avc)
-			if err != nil {
-				// An empty entry would fail the Avcs RPC of the recording.
-				e.logger.Error(err, "marshall protobuf")
+	avcs := []string{}
 
-				continue
-			}
-
-			avcs = append(avcs, string(jsonBytes))
+	for perm := range strings.SplitSeq(auditLine.Perm, " ") {
+		avc := &apienricher.AvcResponse_SelinuxAvc{
+			Perm:     perm,
+			Scontext: auditLine.Scontext,
+			Tcontext: auditLine.Tcontext,
+			Tclass:   auditLine.Tclass,
 		}
 
-		if len(avcs) > 0 &&
-			!e.avcs.insert(info.SelinuxRecordProfile, info.PodUID, info.ContainerID, avcs...) {
-			e.logger.V(config.VerboseLevel).Info(
-				"Dropping AVC of a collected profile", "profile", info.SelinuxRecordProfile,
-			)
+		jsonBytes, err := protojson.Marshal(avc)
+		if err != nil {
+			// An empty entry would fail the Avcs RPC of the recording.
+			e.logger.Error(err, "marshall protobuf")
+
+			continue
 		}
+
+		avcs = append(avcs, string(jsonBytes))
+	}
+
+	if len(avcs) == 0 {
+		return
+	}
+
+	e.recordAvcs(info.SelinuxRecordProfile, info.PodUID, info.ContainerID, avcs)
+
+	e.recordSiblingAvcs(info, avcs)
+}
+
+// recordSiblingAvcs records the AVCs for the other containers of the pod
+// with the same context, which do not log the denial again, see
+// selinuxSiblingProfiles. A sibling which cannot run any more, like an init
+// container which finished, does not need them. That is decided by the
+// current pod, the siblings of the info are older. Their own ID is not known
+// before they start, the key only has to tell them apart within the pod.
+func (e *Enricher) recordSiblingAvcs(info *types.ContainerInfo, avcs []string) {
+	if len(info.SelinuxSiblingProfiles) == 0 || e.lookup.containers.pods == nil {
+		return
+	}
+
+	pod, found := e.lookup.containers.pods.Get(info.ContainerID)
+	if !found {
+		return
+	}
+
+	for name, profile := range info.SelinuxSiblingProfiles {
+		if !containerMayRun(pod, name, info.ContainerName) {
+			continue
+		}
+
+		e.logRecordedAvcs(
+			e.avcs.recordSibling(profile, info.PodUID, "pod/"+info.PodUID+"/"+name, avcs...),
+			profile,
+		)
+	}
+}
+
+// recordAvcs records the AVCs for the profile, see recordedData.record.
+func (e *Enricher) recordAvcs(profile, podUID, containerID string, avcs []string) {
+	e.logRecordedAvcs(e.avcs.record(profile, podUID, containerID, avcs...), profile)
+}
+
+// logRecordedAvcs logs the AVCs which did not get recorded for the profile.
+func (e *Enricher) logRecordedAvcs(result recordResult, profile string) {
+	switch result {
+	case recorded:
+	case alreadyCollected:
+		e.logger.V(config.VerboseLevel).
+			Info("Dropping AVC of a collected profile", "profile", profile)
+	case cacheFull, stillRefused, podLimited:
+		e.logRefused(result, "avcs", profile)
 	}
 }
 
@@ -1108,12 +1486,16 @@ func (e *Enricher) dispatchSeccompLine(
 		return
 	}
 
-	if !e.syscalls.insert(
+	switch result := e.syscalls.record(
 		info.SeccompRecordProfile, info.PodUID, info.ContainerID, syscallName,
-	) {
+	); result {
+	case recorded:
+	case alreadyCollected:
 		e.logger.V(config.VerboseLevel).Info(
 			"Dropping syscall of a collected profile", "profile", info.SeccompRecordProfile,
 		)
+	case cacheFull, stillRefused, podLimited:
+		e.logRefused(result, "syscalls", info.SeccompRecordProfile)
 	}
 }
 

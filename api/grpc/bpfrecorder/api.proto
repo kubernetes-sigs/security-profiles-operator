@@ -87,4 +87,9 @@ message ApparmorResponse {
   Socket socket = 2;
 
   repeated string capabilities = 3;
+
+  // incomplete is set if some of the recorded file accesses got dropped or
+  // truncated. A response without any rules means that all of them got
+  // dropped.
+  bool incomplete = 4;
 }

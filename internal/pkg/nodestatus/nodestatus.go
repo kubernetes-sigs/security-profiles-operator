@@ -532,7 +532,10 @@ func (nsf *StatusClient) MarkUnsupported(
 // node which supports the kind of the profile again, see MarkUnsupported. The
 // state goes back to the initial one first, so that the error which told that
 // the node does not support the kind is never part of the aggregated state of
-// the profile. A missing status has nothing to clear.
+// the profile. A disabled profile goes back to pending instead: the node may
+// have installed it before it lost support for the kind, and loaded it again
+// on boot since, and the disabled state would skip its removal. A missing
+// status has nothing to clear.
 func (nsf *StatusClient) ClearUnsupported(ctx context.Context) error {
 	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
 
@@ -547,7 +550,12 @@ func (nsf *StatusClient) ClearUnsupported(ctx context.Context) error {
 		return nil
 	}
 
-	if err := nsf.SetNodeStatus(ctx, nsf.initialStatus()); err != nil {
+	state := nsf.initialStatus()
+	if state == secprofnodestatusapi.ProfileStateDisabled {
+		state = secprofnodestatusapi.ProfileStatePending
+	}
+
+	if err := nsf.SetNodeStatus(ctx, state); err != nil {
 		return fmt.Errorf("resetting unsupported node status: %w", err)
 	}
 

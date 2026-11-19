@@ -123,10 +123,11 @@ func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
 
 // Create creates the profile file. Recording needs root, but a profile in a
 // directory of the user who invoked spoc through sudo belongs to that user.
-// cli.Stdout writes to the standard output of spoc, like cli.WriteFile.
+// The names of cli.StandardStream write to the standard output or error of
+// spoc, like cli.WriteFile.
 func (*defaultImpl) Create(name string) (io.WriteCloser, error) {
-	if name == cli.Stdout {
-		return nopCloser{os.Stdout}, nil
+	if stream, ok := cli.StandardStream(name); ok {
+		return nopCloser{stream}, nil
 	}
 
 	return command.CreateFile(name, cli.FilePermissions)

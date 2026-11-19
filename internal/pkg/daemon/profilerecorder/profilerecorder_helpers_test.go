@@ -411,7 +411,7 @@ func TestSeProfileBuilder(t *testing.T) {
 	t.Run("merges the permissions per class and type", func(t *testing.T) {
 		t.Parallel()
 
-		sut := newSeProfileBuilder("usage", logr.Discard())
+		sut := newSeProfileBuilder(logr.Discard())
 		require.NoError(t, sut.AddAvcList([]*enricherapi.AvcResponse_SelinuxAvc{
 			avc("write", "file", fileContext),
 			avc("read", "file", fileContext),
@@ -443,7 +443,7 @@ func TestSeProfileBuilder(t *testing.T) {
 	t.Run("malformed context", func(t *testing.T) {
 		t.Parallel()
 
-		sut := newSeProfileBuilder("usage", logr.Discard())
+		sut := newSeProfileBuilder(logr.Discard())
 		require.Error(t, sut.AddAvcList([]*enricherapi.AvcResponse_SelinuxAvc{
 			avc("read", "file", "container_file_t"),
 		}))
@@ -452,7 +452,7 @@ func TestSeProfileBuilder(t *testing.T) {
 	t.Run("no AVCs", func(t *testing.T) {
 		t.Parallel()
 
-		policy, err := newSeProfileBuilder("usage", logr.Discard()).Format()
+		policy, err := newSeProfileBuilder(logr.Discard()).Format()
 		require.NoError(t, err)
 		require.Empty(t, policy)
 	})

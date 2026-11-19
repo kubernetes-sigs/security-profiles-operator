@@ -889,6 +889,112 @@ func TestReconcileSeccompProfileDisabledKeepsFileOfOtherProfile(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.nodeStatus(t).Status.Status)
 }
 
+// A disabled profile which owned the file while its older sibling was
+// disabled keeps the file for its pods, after the sibling got enabled again.
+func TestReconcileSeccompProfileDisabledInstalledKeepsFile(t *testing.T) {
+	t.Parallel()
+
+	disabled := newTestProfile()
+	disabled.CreationTimestamp = metav1.Unix(200, 0)
+	disabled.Spec.State = profilebaseapi.SpecStateDisabled
+	disabled.SetFinalizers([]string{util.HasActivePodsFinalizerString})
+
+	sibling := newTestProfile()
+	sibling.Name = testProfile + seccompprofileapi.ExtJSON
+	sibling.CreationTimestamp = metav1.Unix(100, 0)
+
+	env := newReconcileEnv(t, disabled, sibling)
+	env.rec.profileRoot = t.TempDir()
+
+	file := env.rec.profilePath(disabled)
+	require.NoError(t, os.WriteFile(file, []byte("disabled"), 0o600))
+
+	stored := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, stored))
+	nsc, err := nodestatus.NewForProfileOnNode(stored, env.cli, testNode)
+	require.NoError(t, err)
+	_, err = nsc.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, nsc.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateInstalled))
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
+	require.FileExists(t, file)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+}
+
+// removalPending reads the state this node wrote last, which the cache may
+// not show yet.
+func TestRemovalPendingUsesWrittenStates(t *testing.T) {
+	t.Parallel()
+
+	sp := newTestProfile()
+	sp.Spec.State = profilebaseapi.SpecStateDisabled
+
+	env := newReconcileEnv(t, sp)
+
+	stored := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, stored))
+
+	written, err := nodestatus.NewForProfileOnNode(stored, env.cli, testNode)
+	require.NoError(t, err)
+	written.WithWrittenStates(&env.rec.writtenStates)
+	_, err = written.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		written.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateDisabled),
+	)
+
+	// The cache still shows the state before.
+	lagging, err := nodestatus.NewForProfileOnNode(stored, env.cli, testNode)
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		lagging.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateInstalled),
+	)
+
+	require.False(t, env.rec.removalPending(t.Context())(stored))
+}
+
+// A disabled profile which lost the file to an older profile never had it.
+// The pods using the file of the other profile keep the disabled one in use as
+// well, which must not keep it from turning Disabled.
+func TestReconcileSeccompProfileDisabledInUseFileOfOlderProfile(t *testing.T) {
+	t.Parallel()
+
+	disabled := newTestProfile()
+	disabled.CreationTimestamp = metav1.Unix(200, 0)
+	disabled.Spec.State = profilebaseapi.SpecStateDisabled
+	disabled.SetFinalizers([]string{util.HasActivePodsFinalizerString})
+
+	owner := newTestProfile()
+	owner.Name = testProfile + seccompprofileapi.ExtJSON
+	owner.CreationTimestamp = metav1.Unix(100, 0)
+
+	env := newReconcileEnv(t, disabled, owner)
+	env.rec.profileRoot = t.TempDir()
+
+	ownerFile := env.rec.profilePath(owner)
+	require.NoError(t, os.WriteFile(ownerFile, []byte("owner"), 0o600))
+
+	// The node status of the file conflict before it got disabled.
+	stored := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, stored))
+	nsc, err := nodestatus.NewForProfileOnNode(stored, env.cli, testNode)
+	require.NoError(t, err)
+	_, err = nsc.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, nsc.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateError))
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.FileExists(t, ownerFile)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.nodeStatus(t).Status.Status)
+}
+
 // Nodes of different architectures resolve OCI base profiles differently, so
 // each architecture writes its own annotation instead of fighting over one.
 func TestAnnotateSyscallsPerArchitecture(t *testing.T) {
@@ -976,6 +1082,36 @@ func TestAnnotateSyscallsKeepsValueOfOtherNode(t *testing.T) {
 		`[{"names":["read","close"],"action":"SCMP_ACT_ALLOW"}]`,
 		stored().Annotations[archKey],
 	)
+}
+
+// The patch of the annotation returns the profile of the API server, whose
+// spec may have changed since the syscalls got resolved. The profile which
+// gets installed keeps the spec of the resolved syscalls.
+func TestAnnotateSyscallsKeepsResolvedSpec(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+
+	resolved := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, resolved))
+
+	newer := resolved.DeepCopy()
+	newer.Spec.DefaultAction = seccompprofileapi.ActLog
+	require.NoError(t, env.cli.Update(t.Context(), newer))
+
+	defaultAction := resolved.Spec.DefaultAction
+	require.NotEqual(t, seccompprofileapi.ActLog, defaultAction)
+
+	syscalls := []seccompprofileapi.Syscall{
+		{Names: []string{"read"}, Action: seccompprofileapi.ActAllow},
+	}
+	require.NoError(t, env.rec.annotateSyscalls(t.Context(), resolved, syscalls, false, log.Log))
+	require.Equal(t, defaultAction, resolved.Spec.DefaultAction)
+
+	stored := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, stored))
+	require.Contains(t, stored.Annotations, syscallsAnnotation)
+	require.Equal(t, seccompprofileapi.ActLog, stored.Spec.DefaultAction)
 }
 
 func TestReconcileSeccompProfileDeletion(t *testing.T) {

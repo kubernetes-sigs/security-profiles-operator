@@ -20,6 +20,7 @@ package nonrootenablerfakes
 import (
 	"os"
 	"sync"
+	"time"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
@@ -101,6 +102,17 @@ type FakeImpl struct {
 	removeReturnsOnCall map[int]struct {
 		result1 error
 	}
+	RemoveStaleTempFilesStub        func(string, time.Duration) ([]string, error)
+	removeStaleTempFilesMutex       sync.RWMutex
+	removeStaleTempFilesArgsForCall []FakeImplRemoveStaleTempFilesArgs
+	removeStaleTempFilesReturns     struct {
+		result1 []string
+		result2 error
+	}
+	removeStaleTempFilesReturnsOnCall map[int]struct {
+		result1 []string
+		result2 error
+	}
 	RmdirStub        func(string) error
 	rmdirMutex       sync.RWMutex
 	rmdirArgsForCall []FakeImplRmdirArgs
@@ -169,6 +181,12 @@ type FakeImplReadlinkArgs struct {
 // FakeImplRemoveArgs holds the arguments of one call to Remove.
 type FakeImplRemoveArgs struct {
 	Arg1 string
+}
+
+// FakeImplRemoveStaleTempFilesArgs holds the arguments of one call to RemoveStaleTempFiles.
+type FakeImplRemoveStaleTempFilesArgs struct {
+	Arg1 string
+	Arg2 time.Duration
 }
 
 // FakeImplRmdirArgs holds the arguments of one call to Rmdir.
@@ -722,6 +740,76 @@ func (fake *FakeImpl) RemoveReturnsOnCall(i int, result1 error) {
 	fake.removeReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) RemoveStaleTempFiles(arg1 string, arg2 time.Duration) ([]string, error) {
+	fake.removeStaleTempFilesMutex.Lock()
+	ret, specificReturn := fake.removeStaleTempFilesReturnsOnCall[len(fake.removeStaleTempFilesArgsForCall)]
+	fake.removeStaleTempFilesArgsForCall = append(fake.removeStaleTempFilesArgsForCall, FakeImplRemoveStaleTempFilesArgs{arg1, arg2})
+	stub := fake.RemoveStaleTempFilesStub
+	fakeReturns := fake.removeStaleTempFilesReturns
+	fake.recordInvocation("RemoveStaleTempFiles", []interface{}{arg1, arg2})
+	fake.removeStaleTempFilesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) RemoveStaleTempFilesCallCount() int {
+	fake.removeStaleTempFilesMutex.RLock()
+	defer fake.removeStaleTempFilesMutex.RUnlock()
+	return len(fake.removeStaleTempFilesArgsForCall)
+}
+
+func (fake *FakeImpl) RemoveStaleTempFilesCalls(stub func(string, time.Duration) ([]string, error)) {
+	fake.removeStaleTempFilesMutex.Lock()
+	defer fake.removeStaleTempFilesMutex.Unlock()
+	fake.RemoveStaleTempFilesStub = stub
+}
+
+func (fake *FakeImpl) RemoveStaleTempFilesArgsForCall(i int) (string, time.Duration) {
+	fake.removeStaleTempFilesMutex.RLock()
+	defer fake.removeStaleTempFilesMutex.RUnlock()
+	argsForCall := fake.removeStaleTempFilesArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) RemoveStaleTempFilesArgs() []FakeImplRemoveStaleTempFilesArgs {
+	fake.removeStaleTempFilesMutex.RLock()
+	defer fake.removeStaleTempFilesMutex.RUnlock()
+	args := make([]FakeImplRemoveStaleTempFilesArgs, len(fake.removeStaleTempFilesArgsForCall))
+	copy(args, fake.removeStaleTempFilesArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) RemoveStaleTempFilesReturns(result1 []string, result2 error) {
+	fake.removeStaleTempFilesMutex.Lock()
+	defer fake.removeStaleTempFilesMutex.Unlock()
+	fake.RemoveStaleTempFilesStub = nil
+	fake.removeStaleTempFilesReturns = struct {
+		result1 []string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) RemoveStaleTempFilesReturnsOnCall(i int, result1 []string, result2 error) {
+	fake.removeStaleTempFilesMutex.Lock()
+	defer fake.removeStaleTempFilesMutex.Unlock()
+	fake.RemoveStaleTempFilesStub = nil
+	if fake.removeStaleTempFilesReturnsOnCall == nil {
+		fake.removeStaleTempFilesReturnsOnCall = make(map[int]struct {
+			result1 []string
+			result2 error
+		})
+	}
+	fake.removeStaleTempFilesReturnsOnCall[i] = struct {
+		result1 []string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Rmdir(arg1 string) error {

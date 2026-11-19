@@ -355,3 +355,9 @@ func TestAvcsInvalidJson(t *testing.T) {
 	_, err = sut.Avcs(t.Context(), &api.AvcRequest{Profile: profile})
 	require.ErrorContains(t, err, "unmarshall JSON")
 }
+
+// insert records the items like record, and reports whether they got
+// recorded.
+func (r *recordedData) insert(profile, podUID, containerID string, items ...string) bool {
+	return r.record(profile, podUID, containerID, items...) == recorded
+}

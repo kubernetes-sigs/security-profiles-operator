@@ -4828,6 +4828,94 @@ func TestCollectBpfProfileIncompleteRead(t *testing.T) {
 	}), reasons)
 }
 
+// TestFetchApparmorBpfProfileIncomplete asserts that an AppArmor profile whose
+// recorded data got dropped or truncated is stored with a warning on it.
+func TestFetchApparmorBpfProfileIncomplete(t *testing.T) {
+	t.Parallel()
+
+	for _, incomplete := range []bool{false, true} {
+		mock := newFakeImpl()
+		recorder := events.NewFakeRecorder(10)
+		sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+		mock.ApparmorForProfileReturns(&bpfrecorderapi.ApparmorResponse{
+			Files: &bpfrecorderapi.ApparmorResponse_Files{
+				ReadonlyPaths: []string{"/etc/hosts"},
+			},
+			Incomplete: incomplete,
+		}, nil)
+
+		profile, _, err := sut.fetchApparmorBpfProfile(
+			t.Context(), nil, &bpfrecorderapi.ProfileRequest{Name: "profile"},
+			&profileTarget{name: types.NamespacedName{Name: "profile"}},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, profile)
+
+		close(recorder.Events)
+
+		reasons := []string{}
+		for event := range recorder.Events {
+			reasons = append(reasons, event)
+		}
+
+		require.Equal(t, incomplete, slices.ContainsFunc(reasons, func(event string) bool {
+			return strings.Contains(event, reasonRecordingIncomplete)
+		}), reasons)
+	}
+}
+
+// TestFetchApparmorBpfProfileDropped asserts that a profile whose recorded
+// data got dropped altogether is skipped with a warning on its recording,
+// unlike one for which nothing got recorded.
+func TestFetchApparmorBpfProfileDropped(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		response *bpfrecorderapi.ApparmorResponse
+		err      error
+		want     bool
+	}{
+		"nothing recorded": {
+			err: grpcstatus.Error(grpccodes.NotFound, bpfrecorder.ErrNotFound.Error()),
+		},
+		"data dropped": {
+			response: &bpfrecorderapi.ApparmorResponse{Incomplete: true},
+			want:     true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newFakeImpl()
+			recorder := events.NewFakeRecorder(10)
+			sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+			mock.ApparmorForProfileReturns(tc.response, tc.err)
+
+			recording := &recordingapi.ProfileRecording{
+				ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
+			}
+
+			_, _, err := sut.fetchApparmorBpfProfile(
+				t.Context(), nil, &bpfrecorderapi.ProfileRequest{Name: "profile"},
+				&profileTarget{name: types.NamespacedName{Name: "profile"}, recording: recording},
+			)
+			require.ErrorIs(t, err, errRecordedProfileNotFound)
+
+			close(recorder.Events)
+
+			reasons := []string{}
+			for event := range recorder.Events {
+				reasons = append(reasons, event)
+			}
+
+			require.Equal(t, tc.want, slices.ContainsFunc(reasons, func(event string) bool {
+				return strings.Contains(event, reasonRecordingIncomplete)
+			}), reasons)
+		})
+	}
+}
+
 func TestBpfRecorderError(t *testing.T) {
 	t.Parallel()
 

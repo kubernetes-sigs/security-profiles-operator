@@ -790,8 +790,9 @@ func TestProcessedPathsFitIntoMessage(t *testing.T) {
 		sut.recordedFiles[recordingKey(key)] = files
 	}
 
-	first, found := sut.processExecFsEvents([]uint64{0, 1})
+	first, found, truncated := sut.processExecFsEvents([]uint64{0, 1})
 	require.True(t, found)
+	require.True(t, truncated)
 
 	size := 0
 	for _, path := range first.ReadOnlyPaths {
@@ -801,7 +802,7 @@ func TestProcessedPathsFitIntoMessage(t *testing.T) {
 	require.LessOrEqual(t, size, maxProfilePathBytes)
 	require.Greater(t, size, maxProfilePathBytes-pathLen)
 
-	second, _ := sut.processExecFsEvents([]uint64{0, 1})
+	second, _, _ := sut.processExecFsEvents([]uint64{0, 1})
 	require.Equal(t, first, second)
 }
 
@@ -937,7 +938,7 @@ func TestStatNeedsNoRule(t *testing.T) {
 		"/data/written": {write: true},
 	}
 
-	processed, found := sut.processExecFsEvents([]uint64{0})
+	processed, found, _ := sut.processExecFsEvents([]uint64{0})
 	require.True(t, found)
 	require.Equal(t, []string{"/data/config"}, processed.ReadOnlyPaths)
 	require.Equal(t, []string{"/data/written"}, processed.WriteOnlyPaths)

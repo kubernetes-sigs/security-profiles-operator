@@ -366,6 +366,27 @@ func TestClearUnsupportedResetsState(t *testing.T) {
 	require.Empty(t, status.Status.Message)
 }
 
+// A disabled profile goes back to pending, so that its removal checks
+// whether the node loaded it again while it did not support the kind.
+func TestClearUnsupportedDisabledGoesPending(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Spec.State = profilebase.SpecStateDisabled
+	unsupported := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateDisabled)
+	unsupported.Labels[UnsupportedLabel] = "true"
+
+	c := newFakeClient(t, sp.DeepCopy(), unsupported)
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.ClearUnsupported(context.Background()))
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.False(t, IsUnsupported(status))
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
+}
+
 // A status written before the node name moved into the spec has neither the
 // node name nor the node label, which the adoption adds.
 func TestCreateRepairsStatusWithoutNodeName(t *testing.T) {

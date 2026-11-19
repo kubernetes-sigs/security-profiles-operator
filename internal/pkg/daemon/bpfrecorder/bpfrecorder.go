@@ -1025,7 +1025,14 @@ func (b *BpfRecorder) ApparmorForProfile(
 	if !ok {
 		// Never hand out an empty profile: it would replace the one stored
 		// for this recording with one that allows nothing.
-		b.logger.Info("No apparmor data recorded for profile", "profile", r.GetName(), "keys", keys)
+		b.logger.Info("No apparmor data recorded for profile",
+			"profile", r.GetName(), "keys", keys, "dropped", apparmor.Incomplete)
+
+		// The data of the profile got dropped. The empty response tells the
+		// caller, which stores no profile for it.
+		if apparmor.Incomplete {
+			return &api.ApparmorResponse{Incomplete: true}, nil
+		}
 
 		return nil, ErrNotFound
 	}
@@ -1044,6 +1051,7 @@ func (b *BpfRecorder) ApparmorForProfile(
 			UseTcp: apparmor.Socket.UseTCP,
 			UseUdp: apparmor.Socket.UseUDP,
 		},
+		Incomplete: apparmor.Incomplete,
 	}, nil
 }
 
@@ -1094,7 +1102,8 @@ func (e *statusError) GRPCStatus() *status.Status {
 // NotFound if nothing got recorded for the profile, which skips it, and
 // FailedPrecondition if the recorder cannot hand out the data at all, for
 // example because the recording got stopped as abandoned, which releases the
-// pod. The client must not tell them apart by their message.
+// pod. The client acts on the code. The FailedPrecondition message only says
+// whether the recorder runs, see ErrNotRunning.
 func rpcError(err error) error {
 	if err == nil {
 		return nil
