@@ -205,7 +205,11 @@ func TestRecordingTrackerTracksRecordedPods(t *testing.T) {
 	requireEnv(t)
 
 	ns := newNamespace(t)
-	startManager(t, recordingtracker.NewController(), managerOptions{namespaces: []string{ns}})
+	// Without a webhook configuration, the tracker reads the SPOD in the
+	// operator namespace for the selectors of the recording webhook.
+	startManager(t, recordingtracker.NewController(), managerOptions{
+		namespaces: []string{ns, operatorNamespace},
+	})
 
 	recording := createRecording(t, ns, "recording")
 
@@ -245,7 +249,10 @@ func TestRecordingTrackerReleasesStaleWorkloads(t *testing.T) {
 	require.NoError(t, k8sClient.Update(t.Context(), recording))
 
 	// The initial listing of the recordings maps the recording to its
-	// active workloads, which releases the deleted pod.
-	startManager(t, recordingtracker.NewController(), managerOptions{namespaces: []string{ns}})
+	// active workloads, which releases the deleted pod. The tracker reads the
+	// SPOD in the operator namespace, see TestRecordingTrackerTracksRecordedPods.
+	startManager(t, recordingtracker.NewController(), managerOptions{
+		namespaces: []string{ns, operatorNamespace},
+	})
 	requireRecordingWorkloads(t, recording)
 }

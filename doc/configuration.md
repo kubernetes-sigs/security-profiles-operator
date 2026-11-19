@@ -407,6 +407,16 @@ API validated the field may still hold one: the manager then deletes no
 profiles, the daemons reject all profiles, and the SPOD gets an
 `InvalidSeccompSPODConfig` warning event until the value gets fixed.
 
+The `log-enricher-trace` profile, which the `Logs` recorder sets on the
+recorded containers of `SeccompProfile` recordings, has the `defaultAction`
+`SCMP_ACT_LOG`. Unless `allowedSeccompActions` leaves out `SCMP_ACT_LOG`, the
+allow lists reject it: the manager deletes it, the recording webhook stops
+recording the pods of such recordings, and their `Ready` condition reports the
+reason `EnricherProfileNotAllowed`. Use the `Bpf` recorder for seccomp
+recordings in that case. While the profile is missing for another reason, like
+a deletion which the operator has not undone yet, the reason is
+`EnricherProfileMissing`.
+
 ## Constrain the scheduling of the daemon
 
 `scheduling.tolerations` and `scheduling.affinity` of the SPOD constrain the
@@ -448,6 +458,12 @@ are `Auditd` (default) and `Bpf`:
 kubectl -n security-profiles-operator patch spod spod --type merge -p \
   '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherSource":"Bpf"}}}'
 ```
+
+Debian and Ubuntu kernels set `kernel.perf_event_paranoid` above 2 by
+default, which only allows attaching the kprobe of the `Bpf` source with
+`CAP_SYS_ADMIN`. The log enricher only gets that capability with
+`spec.enableAppArmor` set, so enable AppArmor in the SPOD for the `Bpf` source
+on these nodes.
 
 See [the log enricher](recording.md#log-enricher) for the log enricher itself.
 

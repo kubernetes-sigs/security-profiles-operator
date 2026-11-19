@@ -616,7 +616,15 @@ func newReloadJob(
 			BackoffLimit:            new(int32(3)),
 			ActiveDeadlineSeconds:   new(reloadJobDeadline),
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: podLabels},
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+					// Like the SPOd pods, OpenShift admits the privileged
+					// pod with the privileged SCC rather than with any
+					// other SCC of a higher priority which allows it.
+					Annotations: map[string]string{
+						bindata.OpenShiftRequiredSCCAnnotation: "privileged",
+					},
+				},
 				Spec: corev1.PodSpec{
 					RestartPolicy:                corev1.RestartPolicyOnFailure,
 					NodeName:                     nodeName,

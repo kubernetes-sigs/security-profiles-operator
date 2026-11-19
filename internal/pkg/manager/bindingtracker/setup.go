@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -110,7 +111,8 @@ func (r *BindingTrackerReconciler) Setup(
 		CreateFunc: func(event.CreateEvent) bool { return true },
 		DeleteFunc: func(event.DeleteEvent) bool { return true },
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return profileState(e.ObjectOld) != profileState(e.ObjectNew)
+			return profileState(e.ObjectOld) != profileState(e.ObjectNew) ||
+				profileDeleting(e.ObjectOld) != profileDeleting(e.ObjectNew)
 		},
 		GenericFunc: func(event.GenericEvent) bool { return false },
 	})
@@ -141,6 +143,22 @@ func (r *BindingTrackerReconciler) Setup(
 						obj.GetNamespace() == operatorNamespace
 				}),
 			),
+		).
+		// The namespace selector of the binding webhook and the labels of the
+		// namespaces tell whether the binding webhook applies the bindings.
+		// The manager caches the webhook configuration by name.
+		Watches(
+			&admissionregv1.MutatingWebhookConfiguration{},
+			handler.EnqueueRequestsFromMapFunc(status.allBindings),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				return obj.GetName() == bindata.MutatingWebhookConfigName
+			})),
+		).
+		Watches(
+			&corev1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(status.bindingsInNamespace),
+			builder.OnlyMetadata,
+			builder.WithPredicates(bindata.NamespaceLabelsChanged()),
 		).
 		Complete(status); err != nil {
 		return fmt.Errorf("creating binding status controller: %w", err)

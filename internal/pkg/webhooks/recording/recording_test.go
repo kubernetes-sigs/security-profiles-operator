@@ -17,6 +17,7 @@ limitations under the License.
 package recording
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,14 +32,19 @@ import (
 	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording/recordingfakes"
@@ -114,6 +120,22 @@ func newTestRecorder(t *testing.T, mock *recordingfakes.FakeImpl) *podSeccompRec
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
+
+	// The log enricher profile exists unless the test says otherwise.
+	if mock.GetSeccompProfileStub == nil {
+		mock.GetSeccompProfileStub = func(
+			context.Context, client.ObjectKey,
+		) (*seccompprofileapi.SeccompProfile, error) {
+			return &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: config.LogEnricherProfile},
+				Status: seccompprofileapi.SeccompProfileStatus{
+					StatusBase: profilebasev1.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
+				},
+			}, nil
+		}
+	}
 
 	return &podSeccompRecorder{
 		impl:    mock,
@@ -1478,4 +1500,208 @@ func TestHandleListBindingsError(t *testing.T) {
 		},
 	})
 	require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+}
+
+func TestHandleSkipsLogsSeccompRecordingWithoutEnricherProfile(t *testing.T) {
+	t.Parallel()
+
+	notFound := k8serrors.NewNotFound(schema.GroupResource{}, config.LogEnricherProfile)
+	deleting := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              config.LogEnricherProfile,
+			DeletionTimestamp: new(metav1.Now()),
+		},
+	}
+
+	for _, tc := range []struct {
+		name     string
+		kind     profilerecordingapi.ProfileRecordingKind
+		recorder profilerecordingapi.ProfileRecorder
+		profile  *seccompprofileapi.SeccompProfile
+		err      error
+		// containers are the containers which the recording records.
+		containers []string
+		// bound is true if a binding binds a seccomp profile to every
+		// container.
+		bound bool
+		// spoofed is true if the pod author set the recording annotation.
+		spoofed bool
+		// wantRecorded is true if the pod gets a recording annotation.
+		wantRecorded bool
+		wantAllowed  bool
+		wantLookups  int
+		// wantWarning is part of the warning if the pod does not get
+		// recorded.
+		wantWarning string
+	}{
+		{
+			name:        "missing profile",
+			kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:    profilerecordingapi.ProfileRecorderLogs,
+			err:         notFound,
+			wantAllowed: true,
+			wantLookups: 1,
+			wantWarning: config.LogEnricherProfile + ", which the logs recorder sets on the " +
+				"containers, does not exist",
+		},
+		{
+			name:        "profile being deleted",
+			kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:    profilerecordingapi.ProfileRecorderLogs,
+			profile:     deleting,
+			wantAllowed: true,
+			wantLookups: 1,
+			wantWarning: config.LogEnricherProfile + ", which the logs recorder sets on the " +
+				"containers, is being deleted",
+		},
+		{
+			// The binding keeps the recording from recording the container
+			// anyway, which gets the warning of the binding instead.
+			name:        "every container bound",
+			kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:    profilerecordingapi.ProfileRecorderLogs,
+			bound:       true,
+			err:         notFound,
+			wantAllowed: true,
+			wantWarning: "because the profile binding seccomp binds a SeccompProfile",
+		},
+		{
+			// The annotation of the pod author would still start a
+			// recording of the container, which runs without the profile.
+			name:        "missing profile removes the annotation of the author",
+			kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:    profilerecordingapi.ProfileRecorderLogs,
+			spoofed:     true,
+			err:         notFound,
+			wantAllowed: true,
+			wantLookups: 1,
+			wantWarning: config.LogEnricherProfile + ", which the logs recorder sets on the " +
+				"containers, does not exist",
+		},
+		{
+			name:     "profile without status",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: config.LogEnricherProfile},
+			},
+			wantAllowed: true,
+			wantLookups: 1,
+			wantWarning: config.LogEnricherProfile + ", which the logs recorder sets on the " +
+				"containers, has no status yet",
+		},
+		{
+			// The recording would not record the pod anyway.
+			name:        "recording selects no container of the pod",
+			kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:    profilerecordingapi.ProfileRecorderLogs,
+			containers:  []string{"other"},
+			err:         notFound,
+			wantAllowed: true,
+		},
+		{
+			name:        "lookup fails",
+			kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:    profilerecordingapi.ProfileRecorderLogs,
+			err:         errTest,
+			wantLookups: 1,
+		},
+		{
+			name:         "bpf recording does not need the profile",
+			kind:         profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder:     profilerecordingapi.ProfileRecorderBpf,
+			err:          notFound,
+			wantRecorded: true,
+			wantAllowed:  true,
+		},
+		{
+			name:         "selinux recording does not need the profile",
+			kind:         profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			recorder:     profilerecordingapi.ProfileRecorderLogs,
+			err:          notFound,
+			wantRecorded: true,
+			wantAllowed:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &recordingfakes.FakeImpl{}
+			mock.GetSeccompProfileStub = func(
+				context.Context, client.ObjectKey,
+			) (*seccompprofileapi.SeccompProfile, error) {
+				return tc.profile, tc.err
+			}
+			pod := testPod.DeepCopy()
+			bindings := &profilebindingapi.ProfileBindingList{}
+
+			spoofedKey := config.SeccompProfileRecordLogsAnnotationKey + "container"
+			if tc.spoofed {
+				pod.Annotations = map[string]string{spoofedKey: "attacker_container_abcde_1"}
+			}
+
+			if tc.bound {
+				pod.Annotations = map[string]string{
+					profilebindingapi.AppliedBindingsAnnotation: "seccomp",
+				}
+				bindings.Items = []profilebindingapi.ProfileBinding{{
+					ObjectMeta: metav1.ObjectMeta{Name: "seccomp"},
+					Spec: profilebindingapi.ProfileBindingSpec{
+						ProfileRef: profilebindingapi.ProfileRef{
+							Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+							Name: "profile",
+						},
+						Image: profilebindingapi.SelectAllContainersImage,
+					},
+				}}
+			}
+
+			mock.ListProfileBindingsReturns(bindings, nil)
+			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+				Items: []profilerecordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:        tc.kind,
+						Recorder:    tc.recorder,
+						PodSelector: &metav1.LabelSelector{},
+						Containers:  tc.containers,
+					},
+				}},
+			}, nil)
+
+			resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, pod),
+				},
+			})
+
+			require.Equal(t, tc.wantAllowed, resp.Allowed)
+			require.Equal(t, tc.wantLookups, mock.GetSeccompProfileCallCount())
+
+			if !tc.wantAllowed {
+				require.Equal(t, int32(http.StatusInternalServerError), resp.Result.Code)
+
+				return
+			}
+
+			patched := patchedPod(t, pod, resp.Patches)
+			_, recorded := patched.Annotations[spoofedKey]
+
+			if tc.spoofed {
+				require.False(t, recorded)
+			} else {
+				require.Equal(t, tc.wantRecorded, len(resp.Patches) > 0)
+			}
+
+			if tc.wantWarning == "" {
+				require.Empty(t, resp.Warnings)
+
+				return
+			}
+
+			require.Len(t, resp.Warnings, 1)
+			require.Contains(t, resp.Warnings[0], tc.wantWarning)
+		})
+	}
 }

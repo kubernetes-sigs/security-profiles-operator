@@ -145,10 +145,28 @@ func AllowProfile(
 	return nil
 }
 
+// RejectedByAllowLists returns true if the allow lists of the SPOD reject the
+// profile, which has no base profile, like the allow list reconciliation of
+// the manager decides it. Allow lists with an action which cannot be checked
+// reject nothing here, the daemons report them.
+func RejectedByAllowLists(
+	sp *seccompprofileapi.SeccompProfile, security *spodapi.SPODSecurityConfig,
+) bool {
+	if len(security.AllowedSyscalls) == 0 {
+		return false
+	}
+
+	if _, err := CheckedActions(security.AllowedSeccompActions); err != nil {
+		return false
+	}
+
+	return AllowProfile(sp, security.AllowedSyscalls, security.AllowedSeccompActions) != nil
+}
+
 // ResolveLocalSyscalls returns the syscalls of the profile merged with the
-// ones of its base profiles, which have to be SeccompProfiles in the
-// namespace of the profile. It fails with ErrOCIBaseProfile if the chain
-// contains an OCI artifact, which only the daemon on the node pulls.
+// ones of its base profiles, which have to be SeccompProfiles in the cluster,
+// SeccompProfiles are cluster scoped. It fails with ErrOCIBaseProfile if the
+// chain contains an OCI artifact, which only the daemon on the node pulls.
 func ResolveLocalSyscalls(
 	ctx context.Context,
 	c client.Reader,

@@ -32,6 +32,7 @@ import (
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -57,6 +58,11 @@ type RecordingTrackerReconciler struct {
 	client client.Client
 	reader client.Reader
 	log    logr.Logger
+
+	// operatorNamespace holds the SPOD, whose webhook options tell which
+	// pods the recording webhook selects while its configuration does not
+	// exist.
+	operatorNamespace string
 }
 
 func (r *RecordingTrackerReconciler) Name() string {
@@ -143,6 +149,30 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 		return reconcile.Result{}, fmt.Errorf("listing recordings: %w", err)
 	}
 
+	// The profile recorder of the daemon only records the pods which the
+	// recording webhook selects, by their labels and namespace, so the
+	// annotations of another pod did not come from the webhook. It gets
+	// looked up once the pod would be tracked anew. A tracked pod stays
+	// tracked, like the daemon keeps recording it. The selection is the one
+	// when the pod gets reconciled, not the one when the webhook admitted it,
+	// so a pod or namespace relabeled in between is judged by its new labels.
+	var podSelected *bool
+
+	selected := func() (bool, error) {
+		if podSelected == nil {
+			ok, err := bindata.RecordingWebhookSelectsPod(
+				ctx, r.client, r.operatorNamespace, pod,
+			)
+			if err != nil {
+				return false, err
+			}
+
+			podSelected = &ok
+		}
+
+		return *podSelected, nil
+	}
+
 	for i := range recordings.Items {
 		recording := &recordings.Items[i]
 
@@ -176,6 +206,20 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 		// pod update does not cost an API read per recording.
 		if podTracked(recording, podName) {
 			continue
+		}
+
+		if !tracked {
+			ok, err := selected()
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf(
+					"checking the recording webhook selectors: %w",
+					err,
+				)
+			}
+
+			if !ok {
+				continue
+			}
 		}
 
 		logger.Info("Tracking pod in recording", "recording", recording.Name)
@@ -212,23 +256,46 @@ func podRecordedBy(
 	pod *corev1.Pod, recording *profilerecordingapi.ProfileRecording, tracked bool,
 ) bool {
 	if tracked {
-		return len(annotatedContainers(pod, recording.GetName(), false)) > 0
+		return len(annotatedContainers(pod, recording, false, false)) > 0
 	}
 
-	return len(annotatedContainers(pod, recording.GetName(), true)) > 0 ||
+	return len(annotatedContainers(pod, recording, true, true)) > 0 ||
+		len(recordedContainers(pod, recording)) > 0
+}
+
+// podRefillsRecording returns true if the pod fills up an emptied list of the
+// active workloads of the recording, see recordingUsers. Unlike a pod tracked
+// anew, an annotation which the webhook set at the admission counts with any
+// kind and recorder, so that a pod which was tracked before the recording
+// changed them comes back.
+func podRefillsRecording(pod *corev1.Pod, recording *profilerecordingapi.ProfileRecording) bool {
+	return len(annotatedContainers(pod, recording, true, false)) > 0 ||
 		len(recordedContainers(pod, recording)) > 0
 }
 
 // recordingUsers returns the names of the pods which are recorded by the
 // recording, which fill up an emptied list of active workloads, see
-// workloadtracker.Tracker. They get checked like pods tracked anew, as the pod
-// author can add the annotations of the recording, which would otherwise keep
-// the recording from being deleted. A pod which the webhook annotated at its
-// admission counts, also if the recording or the labels of the pod changed
-// since.
+// workloadtracker.Tracker. Like for pods tracked anew, the recording webhook
+// has to select the pod by its current labels and namespace, see
+// handlePodCreateOrUpdate, as the pod author can add the annotations of the
+// recording elsewhere, which would otherwise keep the recording from being
+// deleted. A pod which the webhook annotated at its admission counts with an
+// annotation of any kind and recorder, like a tracked pod, also if the
+// recording or the labels of the pod which its selector matches changed since,
+// see podRefillsRecording. The pods in the active workloads stay tracked when
+// the webhook stops selecting them, for example after the namespace lost its
+// label, so only a refill of a list which got cut at
+// workloadtracker.MaxWorkloads leaves such pods out.
 func (r *RecordingTrackerReconciler) recordingUsers(
 	ctx context.Context, recording *profilerecordingapi.ProfileRecording,
 ) ([]string, error) {
+	selected, err := bindata.RecordingWebhookPodSelector(
+		ctx, r.client, r.operatorNamespace, recording.Namespace,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("checking the recording webhook selectors: %w", err)
+	}
+
 	// The pods are only read, so the cached ones are not copied.
 	pods := &corev1.PodList{}
 	if err := r.client.List(
@@ -240,7 +307,8 @@ func (r *RecordingTrackerReconciler) recordingUsers(
 	var users []string
 
 	for i := range pods.Items {
-		if pod := &pods.Items[i]; !util.PodCompleted(pod) && podRecordedBy(pod, recording, false) {
+		if pod := &pods.Items[i]; !util.PodCompleted(pod) && selected(pod) &&
+			podRefillsRecording(pod, recording) {
 			users = append(users, pod.Name)
 		}
 	}

@@ -173,7 +173,8 @@ func renderedContainer(t *testing.T, podSpec *v1.PodSpec, name string) *v1.Conta
 }
 
 // The BPF source of the log enricher reads the audit events from the kernel,
-// so it gets the BPF capabilities instead of the host log directories.
+// so it gets the BPF capabilities instead of the host log directories, and
+// SYS_ADMIN for attaching its kprobe with AppArmor enabled.
 func Test_getConfiguredSPOdLogEnricherSource(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +204,22 @@ func Test_getConfiguredSPOdLogEnricherSource(t *testing.T) {
 
 		ctr := renderedContainer(t, podSpec, bindata.LogEnricherContainerName)
 		require.False(t, *ctr.SecurityContext.Privileged, source)
+		require.NotContains(
+			t,
+			ctr.SecurityContext.Capabilities.Add,
+			v1.Capability("SYS_ADMIN"),
+			source,
+		)
+
+		withAppArmor := renderedContainer(t, renderedPodSpec(t, r, &spodapi.SPODSpec{
+			EnableAppArmor: new(true),
+			Enricher: spodapi.SPODEnricherConfig{
+				EnableLogEnricher: new(true),
+				LogEnricherSource: source,
+			},
+		}, certManager), bindata.LogEnricherContainerName)
+		require.Equal(t, tc.wantBPF,
+			slices.Contains(withAppArmor.SecurityContext.Capabilities.Add, "SYS_ADMIN"), source)
 
 		for _, capability := range bpfCapabilities {
 			require.Equal(

@@ -57,6 +57,13 @@ const (
 	// cannot be parsed, so that the binding webhook skips the binding for
 	// every pod.
 	ReasonInvalidPodSelector common.ConditionReason = "InvalidPodSelector"
+	// ReasonProfileDeleting tells that the profile is being deleted and no
+	// pod uses it anymore, so that the binding webhook rejects the pods
+	// matching the binding.
+	ReasonProfileDeleting common.ConditionReason = "ProfileDeleting"
+	// ReasonBindingNotEnabled tells that the binding webhook does not select
+	// the namespace of the binding, so that the binding is not applied.
+	ReasonBindingNotEnabled common.ConditionReason = "BindingNotEnabled"
 )
 
 // ProfileBindingSpec defines the desired state of ProfileBinding.

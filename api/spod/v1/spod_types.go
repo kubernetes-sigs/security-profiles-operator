@@ -143,7 +143,10 @@ type JsonEnricherOptions struct {
 	// auditLogMaxBackups specifies the maximum number of old audit log
 	// files to retain. If it is unset or 0, 10 old log files are retained,
 	// unless auditLogMaxAge is set, which then alone decides about removing
-	// them.
+	// them. If both are unset or 0 and the file is in an emptyDir log volume
+	// on disk with a size limit, as many old log files are retained as fit
+	// into four fifths of the volume together with the current one, at least
+	// one.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	AuditLogMaxBackups *int32 `json:"auditLogMaxBackups,omitempty"`
@@ -465,8 +468,13 @@ type SPODSecurityConfig struct {
 	// SCMP_ACT_NOTIFY. The nodes do not install the SeccompProfiles which are
 	// not allowed. When the list is set or changed, the operator also deletes
 	// the existing ones which are not allowed from the cluster, except for the
-	// profiles built on OCI base profiles, which only the nodes pull and
-	// reject. Profiles created later are only rejected by the nodes.
+	// profiles being deleted and the profiles whose base profiles cannot be
+	// resolved in the cluster, like OCI base profiles, which only the nodes
+	// pull and reject. Profiles created later are only rejected by the nodes.
+	// The log enricher profile logs every syscall, so unless
+	// allowedSeccompActions leaves out SCMP_ACT_LOG, the operator deletes it as
+	// well and SeccompProfile recordings with the Logs recorder stop
+	// recording.
 	// +optional
 	// +listType=set
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`

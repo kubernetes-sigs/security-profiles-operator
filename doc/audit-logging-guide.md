@@ -128,7 +128,9 @@ the container, because the container has a read-only root filesystem, and an
 `auditLogPath` outside of the volume keeps the JSON enricher from starting.
 The release manifests and the Helm chart mount a 500Mi `emptyDir` at
 `/data/logs/jsonenricher`, so a path like `/data/logs/jsonenricher/audit.log`
-works without further changes, but its contents get lost with the pod. To
+works without further changes, with a number of rotated files which fits into
+the volume, see [Rotate the audit log file](#rotate-the-audit-log-file), but
+its contents get lost with the pod. To
 keep the file on the node, replace the volume with two keys of the
 `security-profiles-operator-profile` ConfigMap:
 
@@ -187,10 +189,23 @@ The enricher rotates the audit log file. These options are similar to the
   gets rotated. The default is 100 MB.
 - `auditLogMaxBackups`: the maximum number of rotated log files to keep. If
   neither `auditLogMaxBackups` nor `auditLogMaxAge` is set, or both are 0, the
-  enricher keeps 10 rotated files. With `auditLogMaxAge` set, 0 or no value
-  keeps any number of files within that age.
+  enricher keeps 10 rotated files, or the number which fits into an `emptyDir`
+  log volume with a `sizeLimit`, see below. With `auditLogMaxAge` set, 0 or no
+  value keeps any number of files within that age.
 - `auditLogMaxAge`: the maximum number of days to keep rotated log files. By
   default, rotated files are not removed based on their age.
+
+If the log file is in an `emptyDir` with a `sizeLimit` on disk, like the
+default volume at `/data/logs/jsonenricher`, and neither `auditLogMaxBackups`
+nor `auditLogMaxAge` is set or both are 0, the enricher keeps as many rotated
+files as fit into four fifths of the volume together with the current one, and
+at least one: 3 of 100 MB in the default 500Mi volume. Kubernetes counts the `emptyDir` towards
+the ephemeral storage of the `spod` pod, so the operator also raises the
+ephemeral storage limit of the `json-enricher` container by the `sizeLimit` of
+the volume. Files which exceed the `sizeLimit` get the pod evicted, so keep
+`auditLogMaxSize` below half of it. If four fifths of the volume cannot hold
+two files, the operator records a `JsonEnricherLogVolumeTooSmall` warning event
+on the SPOD and keeps one rotated file.
 
 For example:
 

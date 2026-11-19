@@ -467,7 +467,7 @@ func TestRejectedByAllowLists(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.want, rejectedByAllowLists(profile, &tc.security))
+			require.Equal(t, tc.want, seccompcheck.RejectedByAllowLists(profile, &tc.security))
 		})
 	}
 }

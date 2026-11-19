@@ -57,7 +57,9 @@ The manifests on the `main` branch reference the development images from the
 staging registry and are not meant for production use.
 
 The operator then creates the `spod` SPOD in the `security-profiles-operator`
-namespace, which reports the state `Running` once the daemon runs on all nodes:
+namespace, which reports the state `Running` once the daemon runs on all nodes
+and the managed webhook finished its rollout with at least one available
+replica:
 
 ```console
 $ kubectl -n security-profiles-operator get spod spod

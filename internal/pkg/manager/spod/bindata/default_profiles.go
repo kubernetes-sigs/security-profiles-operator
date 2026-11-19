@@ -17,8 +17,14 @@ limitations under the License.
 package bindata
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"context"
+	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -36,5 +42,78 @@ func DefaultLogEnricherProfile() *seccompprofileapi.SeccompProfile {
 		Spec: seccompprofileapi.SeccompProfileSpec{
 			DefaultAction: seccompprofileapi.ActLog,
 		},
+	}
+}
+
+// UsesLogEnricherProfile returns true if the recording webhook sets the log
+// enricher profile on the containers which the recording records.
+func UsesLogEnricherProfile(pr *profilerecordingapi.ProfileRecording) bool {
+	return pr.Spec.Recorder == profilerecordingapi.ProfileRecorderLogs &&
+		pr.Spec.Kind == profilerecordingapi.ProfileRecordingKindSeccompProfile
+}
+
+// LogEnricherProfileState is the state of the log enricher profile, which the
+// recording webhook and the recording conditions check.
+type LogEnricherProfileState int
+
+const (
+	// LogEnricherProfileAvailable means that the profile exists and is not
+	// being deleted.
+	LogEnricherProfileAvailable LogEnricherProfileState = iota
+	// LogEnricherProfileMissing means that the profile does not exist. The
+	// operator only creates it once the log enricher has been enabled, and
+	// deletes it if the allow lists of the SPOD reject it.
+	LogEnricherProfileMissing
+	// LogEnricherProfileDeleting means that the profile is being deleted.
+	LogEnricherProfileDeleting
+	// LogEnricherProfileWithoutStatus means that no node reported a status
+	// for the profile yet, like the binding webhook rejects such profiles.
+	LogEnricherProfileWithoutStatus
+)
+
+// GetLogEnricherProfileState returns the state of the log enricher profile,
+// which get reads. A container which references a missing localhost profile
+// cannot start, so the recordings which would set it do not record the pods
+// unless it is available. A profile without status, which no node installed
+// yet, counts as not available. Pending, InProgress or Error do: the kubelet
+// retries a container whose localhost profile file is missing, and an
+// aggregated Error of a single node would otherwise skip the recordings on
+// every node.
+func GetLogEnricherProfileState(
+	ctx context.Context,
+	get func(context.Context, client.ObjectKey) (*seccompprofileapi.SeccompProfile, error),
+) (LogEnricherProfileState, error) {
+	profile, err := get(ctx, client.ObjectKey{Name: config.LogEnricherProfile})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return LogEnricherProfileMissing, nil
+		}
+
+		return LogEnricherProfileMissing, fmt.Errorf("getting the log enricher profile: %w", err)
+	}
+
+	if !profile.GetDeletionTimestamp().IsZero() {
+		return LogEnricherProfileDeleting, nil
+	}
+
+	if profile.Status.Status == "" {
+		return LogEnricherProfileWithoutStatus, nil
+	}
+
+	return LogEnricherProfileAvailable, nil
+}
+
+// SeccompProfileGetter returns a function which reads a seccomp profile with
+// the client, for GetLogEnricherProfileState.
+func SeccompProfileGetter(
+	c client.Reader,
+) func(context.Context, client.ObjectKey) (*seccompprofileapi.SeccompProfile, error) {
+	return func(ctx context.Context, key client.ObjectKey) (*seccompprofileapi.SeccompProfile, error) {
+		profile := &seccompprofileapi.SeccompProfile{}
+		if err := c.Get(ctx, key, profile); err != nil {
+			return nil, err
+		}
+
+		return profile, nil
 	}
 }

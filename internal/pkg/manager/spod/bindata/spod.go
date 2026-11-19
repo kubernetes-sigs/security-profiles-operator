@@ -190,7 +190,7 @@ var Manifest = &appsv1.DaemonSet{
 				Annotations: map[string]string{
 					// The containers of the SPOd require host access, so pin
 					// the privileged SCC on OpenShift.
-					openshiftRequiredSCCAnnotation: "privileged",
+					OpenShiftRequiredSCCAnnotation: "privileged",
 				},
 				Labels: map[string]string{
 					labelApp:  config.OperatorName,

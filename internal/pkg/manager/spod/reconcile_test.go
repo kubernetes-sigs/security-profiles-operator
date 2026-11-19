@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -37,6 +38,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -44,6 +46,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -105,10 +108,12 @@ func newReconcileTest(
 	spodPolicies, err := bindata.GetSpodAdmissionPolicies(testNamespace)
 	require.NoError(t, err)
 
+	rolloutClient := webhookRolloutClient{Client: cl}
+
 	return &ReconcileSPOd{
 		spodPolicies: spodPolicies,
-		client:       cl,
-		clientReader: cl,
+		client:       rolloutClient,
+		clientReader: rolloutClient,
 		scheme:       scheme,
 		baseSPOd:     bindata.Manifest.DeepCopy(),
 		record:       recorder,
@@ -117,6 +122,47 @@ func newReconcileTest(
 		// The fake client serves the cert-manager API.
 		watchesCertManager: true,
 	}, cl, recorder
+}
+
+// webhookRolloutClient stands in for the Deployment controller: the webhook
+// Deployment which has no status yet reads as rolled out. Tests which set a
+// status get it as it is.
+type webhookRolloutClient struct {
+	client.Client
+}
+
+func (c webhookRolloutClient) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	if err := c.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+
+	if d, ok := obj.(*appsv1.Deployment); ok && d.Name == bindata.WebhookName &&
+		reflect.DeepEqual(d.Status, appsv1.DeploymentStatus{}) {
+		replicas := ptr.Deref(d.Spec.Replicas, 1)
+		d.Status = appsv1.DeploymentStatus{
+			ObservedGeneration: d.Generation,
+			Replicas:           replicas,
+			UpdatedReplicas:    replicas,
+			AvailableReplicas:  replicas,
+		}
+	}
+
+	return nil
+}
+
+// setWebhookStatus sets the status of the webhook Deployment.
+func setWebhookStatus(t *testing.T, cl client.Client, status appsv1.DeploymentStatus) {
+	t.Helper()
+
+	d := &appsv1.Deployment{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: bindata.WebhookName, Namespace: testNamespace,
+	}, d))
+
+	d.Status = status
+	require.NoError(t, cl.Status().Update(t.Context(), d))
 }
 
 func testSPOD() *spodapi.SecurityProfilesOperatorDaemon {
@@ -708,6 +754,64 @@ func TestReconcileRunningFollowsRollout(t *testing.T) {
 	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
 }
 
+// The managed webhook fails closed, so the SPOD is only running while the
+// webhook Deployment is rolled out as well.
+func TestReconcileRunningFollowsWebhookRollout(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Status.StatePending()
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+	reconcileUntilRunning(t, r, cl)
+
+	webhook := &appsv1.Deployment{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: bindata.WebhookName, Namespace: testNamespace,
+	}, webhook))
+
+	replicas := ptr.Deref(webhook.Spec.Replicas, 1)
+	rolledOut := appsv1.DeploymentStatus{
+		ObservedGeneration: webhook.Generation,
+		Replicas:           replicas,
+		UpdatedReplicas:    replicas,
+		AvailableReplicas:  replicas,
+	}
+
+	// A node drain evicts a replica, the disruption budget keeps the others.
+	drained := rolledOut
+	drained.AvailableReplicas = 1
+
+	setWebhookStatus(t, cl, drained)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+
+	unavailable := rolledOut
+	unavailable.AvailableReplicas = 0
+
+	setWebhookStatus(t, cl, unavailable)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+
+	// A single available replica of the current spec is enough to get back
+	// to Running, for example in a cluster which cannot schedule all of them.
+	setWebhookStatus(t, cl, drained)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+
+	// Replicas of an earlier spec mean that the rollout is not done yet.
+	rollingOut := rolledOut
+	rollingOut.Replicas = replicas + 1
+
+	setWebhookStatus(t, cl, rollingOut)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+
+	setWebhookStatus(t, cl, rolledOut)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+}
+
 // A deleted metrics service gets restored, even if nothing else changed.
 func TestReconcileRestoresMetricsService(t *testing.T) {
 	t.Parallel()
@@ -965,6 +1069,46 @@ func reconcileRequest() reconcile.Request {
 	return reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
 	}
+}
+
+// The size limit of an emptyDir log volume of the JSON enricher counts towards
+// the ephemeral storage limit of the pod.
+func TestReconcileJsonEnricherEmptyDirLimit(t *testing.T) {
+	t.Parallel()
+
+	logVolume, err := json.Marshal(&corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+		SizeLimit: new(resource.MustParse("500Mi")),
+	}})
+	require.NoError(t, err)
+
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: util.OperatorConfigMap, Namespace: testNamespace},
+		Data: map[string]string{
+			util.JsonEnricherLogVolumeSourceJson: string(logVolume),
+			util.JsonEnricherLogVolumeMountPath:  "/logs",
+		},
+	}
+
+	spod := testSPOD()
+	spod.Spec.Enricher.EnableJsonEnricher = new(true)
+	spod.Status.StatePending()
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{}, configMap)
+	reconcileSPOD(t, r)
+
+	containers := getDaemonSet(t, cl).Spec.Template.Spec.Containers
+	i := slices.IndexFunc(containers, func(c corev1.Container) bool {
+		return c.Name == bindata.Manifest.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Name
+	})
+	require.GreaterOrEqual(t, i, 0)
+
+	limit := containers[i].Resources.Limits[corev1.ResourceEphemeralStorage]
+	require.Equal(t, int64(628*1024*1024), limit.Value())
+
+	// The base manifest keeps its limit.
+	base := bindata.Manifest.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
+	baseLimit := base.Resources.Limits[corev1.ResourceEphemeralStorage]
+	require.Equal(t, int64(128*1024*1024), baseLimit.Value())
 }
 
 // A transient failure to read the operator ConfigMap must not render the

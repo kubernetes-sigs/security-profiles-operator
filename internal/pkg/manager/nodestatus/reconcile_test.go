@@ -920,8 +920,116 @@ func TestReconcileDeletingProfile(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.wantRequeue, res.RequeueAfter)
 			require.Equal(t, tc.wantFinalizers, storedProfile(t, c).Finalizers)
+
+			// A profile which is being deleted is Terminating, the
+			// aggregation waits for the nodes which did not report.
+			wantState := secprofnodestatusapi.ProfileStateInstalled
+			if tc.deleting {
+				wantState = secprofnodestatusapi.ProfileStateTerminating
+			}
+
+			require.Equal(t, wantState, storedProfile(t, c).Status.Status)
 		})
 	}
+}
+
+// The status of a node which still has to remove the profile does not keep
+// the profile Installed while it is being deleted.
+func TestReconcileDeletingProfileIsTerminating(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+	)
+	profile.DeletionTimestamp = new(metav1.Now())
+
+	r, c, _ := newTestReconciler(t,
+		profile,
+		selectingSpodDS(2, 2),
+		testNode("worker-1"), testNode("worker-2"),
+		spodPod("worker-1"), spodPod("worker-2"),
+		testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled),
+		testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled),
+	)
+
+	_, err := r.Reconcile(context.Background(), profileRequest("SeccompProfile", testProfileName))
+	require.NoError(t, err)
+
+	stored := storedProfile(t, c)
+	require.Equal(t, secprofnodestatusapi.ProfileStateTerminating, stored.Status.Status)
+	require.Equal(t, string(common.ReasonDeleting), stored.Status.GetReadyCondition().Reason)
+}
+
+// A profile of a disabled kind has no status, which the binding webhook skips,
+// also while it is being deleted.
+func TestReconcileDeletingProfileWithoutStatus(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile("", util.GetFinalizerNodeString("worker-1"))
+	profile.DeletionTimestamp = new(metav1.Now())
+
+	r, c, _ := newTestReconciler(t,
+		profile, selectingSpodDS(1, 1), testNode("worker-1"), spodPod("worker-1"),
+	)
+
+	_, err := r.Reconcile(context.Background(), profileRequest("SeccompProfile", testProfileName))
+	require.NoError(t, err)
+	require.Empty(t, storedProfile(t, c).Status.Status)
+}
+
+// A partial profile stays Partial while it is being deleted, which the binding
+// webhook rejects also while pods keep it from being deleted.
+func TestReconcileDeletingPartialProfileStaysPartial(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStatePartial,
+		util.GetFinalizerNodeString("worker-1"), util.HasActivePodsFinalizerString,
+	)
+	profile.Labels = map[string]string{profilebaseapi.ProfilePartialLabel: "true"}
+	profile.DeletionTimestamp = new(metav1.Now())
+
+	// The daemons report Terminating for every profile being deleted.
+	r, c, _ := newTestReconciler(t,
+		profile, selectingSpodDS(1, 1), testNode("worker-1"), spodPod("worker-1"),
+		testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateTerminating),
+	)
+
+	_, err := r.Reconcile(context.Background(), profileRequest("SeccompProfile", testProfileName))
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePartial, storedProfile(t, c).Status.Status)
+}
+
+// The Terminating state of the deletion does not replace the one of the
+// aggregation, which names the unavailable nodes, also if the cached profile
+// is outdated.
+func TestDeletingStatusKeepsTerminatingOfOutdatedCache(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(secprofnodestatusapi.ProfileStateInstalled, "finalizer")
+	profile.DeletionTimestamp = new(metav1.Now())
+
+	r, c, _ := newTestReconciler(t, profile)
+	ctx := context.Background()
+
+	outdated := storedProfile(t, c)
+
+	_, err := r.reconcileStatus(ctx, storedProfile(t, c), &aggregation{
+		state:            secprofnodestatusapi.ProfileStateTerminating,
+		unavailableNodes: []string{"worker-2"},
+	}, logr.Discard())
+	require.NoError(t, err)
+
+	want := storedProfile(t, c).Status
+
+	_, err = r.reconcileStatus(ctx, outdated, &aggregation{
+		state: secprofnodestatusapi.ProfileStateTerminating, onlyIfDeleting: true,
+	}, logr.Discard())
+	require.NoError(t, err)
+	require.Contains(t, storedProfile(t, c).Status.GetReadyCondition().Message, "worker-2")
+	require.Equal(t, want, storedProfile(t, c).Status)
 }
 
 func TestReconcileDeletingProfileNotFound(t *testing.T) {
@@ -1075,6 +1183,23 @@ func TestListStatusesForProfile(t *testing.T) {
 	require.Equal(t, mine.Name, list.Items[0].Name)
 }
 
+func TestUpdateProfileStatusOfDeletingProfile(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(secprofnodestatusapi.ProfileStateTerminating, "finalizer")
+	profile.DeletionTimestamp = new(metav1.Now())
+
+	r, c, _ := newTestReconciler(t, profile)
+
+	require.NoError(t, setProfileStatus(r, context.Background(), storedProfile(t, c),
+		secprofnodestatusapi.ProfileStateInstalled, logr.Discard()))
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateTerminating,
+		storedProfile(t, c).Status.Status,
+	)
+}
+
 func TestUpdateProfileStatus(t *testing.T) {
 	t.Parallel()
 
@@ -1222,6 +1347,27 @@ func TestUpdateProfileStatusOutdatedCache(t *testing.T) {
 	require.NoError(t, setProfileStatus(r,
 		ctx, outdated, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
 	))
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)
+}
+
+// The initialization of the status of a profile which an outdated cache shows
+// without status does not overwrite the state another reconcile set already.
+func TestInitializeStatusKeepsStateOfOutdatedCache(t *testing.T) {
+	t.Parallel()
+
+	r, c, _ := newTestReconciler(t, testProfile(""))
+	ctx := context.Background()
+
+	outdated := storedProfile(t, c)
+
+	require.NoError(t, setProfileStatus(r,
+		ctx, storedProfile(t, c), secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
+	))
+
+	_, err := r.reconcileStatus(ctx, outdated, &aggregation{
+		state: secprofnodestatusapi.ProfileStatePending, onlyIfUnset: true,
+	}, logr.Discard())
+	require.NoError(t, err)
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)
 }
 

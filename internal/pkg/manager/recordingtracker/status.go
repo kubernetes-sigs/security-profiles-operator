@@ -41,10 +41,12 @@ import (
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/seccompcheck"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -196,6 +198,40 @@ func (r *recordingStatusReconciler) readyCondition(
 		}
 	}
 
+	if bindata.UsesLogEnricherProfile(recording) {
+		allowed, err := r.enricherProfileAllowed(ctx)
+		if err != nil {
+			return metav1.Condition{}, err
+		}
+
+		if !allowed {
+			return notReady(profilerecordingapi.ReasonEnricherProfileNotAllowed, fmt.Sprintf(
+				"spec.security.allowedSyscalls of the SecurityProfilesOperatorDaemon rejects the "+
+					"%s seccomp profile, which allows every syscall to log them, so the operator "+
+					"deletes it and the recording webhook does not record the pods, "+
+					"use the Bpf recorder or leave %s out of spec.security.allowedSeccompActions",
+				config.LogEnricherProfile, seccompprofileapi.ActLog,
+			)), nil
+		}
+
+		state, err := bindata.GetLogEnricherProfileState(
+			ctx,
+			bindata.SeccompProfileGetter(r.client),
+		)
+		if err != nil {
+			return metav1.Condition{}, err
+		}
+
+		if state != bindata.LogEnricherProfileAvailable {
+			return notReady(profilerecordingapi.ReasonEnricherProfileMissing, fmt.Sprintf(
+				"the %s seccomp profile, which the recording webhook sets on the recorded "+
+					"containers, does not exist, has no status yet or is being deleted, so the "+
+					"webhook does not record the pods until it is installed again",
+				config.LogEnricherProfile,
+			)), nil
+		}
+	}
+
 	selected, err := r.namespaceSelected(ctx, recording.GetNamespace())
 	if err != nil {
 		return metav1.Condition{}, err
@@ -300,6 +336,39 @@ func (r *recordingStatusReconciler) selinuxEnabled(ctx context.Context) (bool, e
 	}
 
 	return enabled, nil
+}
+
+// enricherProfileAllowed returns whether the allow lists of the
+// SecurityProfilesOperatorDaemon allow the log enricher profile. The operator
+// deletes it otherwise, and the recording webhook does not set it. Without
+// the operator namespace or the SecurityProfilesOperatorDaemon nothing can be
+// told, and it counts as allowed.
+func (r *recordingStatusReconciler) enricherProfileAllowed(ctx context.Context) (bool, error) {
+	if r.operatorNamespace == "" {
+		return true, nil
+	}
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	if err := r.client.Get(
+		ctx, client.ObjectKey{Name: config.SPOdName, Namespace: r.operatorNamespace}, spod,
+	); err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+
+		return false, fmt.Errorf("getting SecurityProfilesOperatorDaemon: %w", err)
+	}
+
+	security := &spod.Spec.Security
+
+	// The daemons reject every seccomp profile while the allowed actions
+	// contain one which cannot be checked, the manager deletes none.
+	if _, err := seccompcheck.CheckedActions(security.AllowedSeccompActions); err != nil &&
+		len(security.AllowedSyscalls) > 0 {
+		return false, nil
+	}
+
+	return !seccompcheck.RejectedByAllowLists(bindata.DefaultLogEnricherProfile(), security), nil
 }
 
 // namespaceSelected returns whether the recording webhook selects the
@@ -416,7 +485,7 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 			replicaSuffix = strings.TrimPrefix(pod.GetName(), pod.GenerateName)
 		}
 
-		for _, ctr := range annotatedContainers(pod, recording.GetName(), false) {
+		for _, ctr := range annotatedContainers(pod, recording, false, false) {
 			if !merge {
 				names.Insert(util.RecordedProfileName(recording.GetName(), ctr, replicaSuffix))
 
@@ -472,14 +541,20 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 const admissionClockSkew = time.Minute
 
 // annotatedContainers returns the sorted names of the containers of the pod
-// which carry a recording annotation of the recording, of any kind and
-// recorder. The annotation values have the form
-// "<recording>_<container>_<nonce>_<unix time>", the underscore is not valid
-// in object names. With admitted, only the annotations of existing containers
-// count which the recording webhook set while it admitted the pod: the webhook
-// takes the time before the API server stores the pod and sets its creation
-// timestamp, while an annotation added by a later update gets a later time.
-func annotatedContainers(pod *corev1.Pod, recordingName string, admitted bool) []string {
+// which carry a recording annotation of the recording. The annotation values
+// have the form "<recording>_<container>_<nonce>_<unix time>", the underscore
+// is not valid in object names. With admitted, only the annotations of
+// existing containers count which the recording webhook set while it admitted
+// the pod: the webhook takes the time before the API server stores the pod and
+// sets its creation timestamp, while an annotation added by a later update
+// gets a later time. With matchKey, they also need the key of the kind and
+// recorder of the recording, which the profile recorder of the daemon requires
+// when the container starts. Otherwise an annotation of any kind and recorder
+// counts, so that a pod stays tracked when the recording changes them, like
+// the daemon keeps recording it.
+func annotatedContainers(
+	pod *corev1.Pod, recording *profilerecordingapi.ProfileRecording, admitted, matchKey bool,
+) []string {
 	var containers []string
 
 	for key, value := range pod.GetAnnotations() {
@@ -488,7 +563,13 @@ func annotatedContainers(pod *corev1.Pod, recordingName string, admitted bool) [
 			continue
 		}
 
-		rest, ok := strings.CutPrefix(value, recordingName+"_"+ctr+"_")
+		if matchKey {
+			if wantKey, err := recording.CtrAnnotationKey(ctr); err != nil || key != wantKey {
+				continue
+			}
+		}
+
+		rest, ok := strings.CutPrefix(value, recording.GetName()+"_"+ctr+"_")
 		if !ok || (admitted && !admittedAnnotation(pod, ctr, rest)) {
 			continue
 		}
@@ -541,7 +622,7 @@ func recordedContainers(pod *corev1.Pod, recording *profilerecordingapi.ProfileR
 			continue
 		}
 
-		key, _, err := recording.CtrAnnotation(ctr.Name)
+		key, err := recording.CtrAnnotationKey(ctr.Name)
 		if err != nil {
 			return nil
 		}

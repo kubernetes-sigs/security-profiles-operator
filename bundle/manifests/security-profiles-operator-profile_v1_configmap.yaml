@@ -161,6 +161,7 @@ data:
           - /sys/kernel/debug/tracing/events/**/id
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
           - /sys/kernel/security/lsm
+          - /sys/kernel/tracing/events/**/id
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
           - /var/run/grpc/bpf-recorder.sock

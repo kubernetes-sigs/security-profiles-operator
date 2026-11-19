@@ -193,6 +193,14 @@ spec:
       app: my-app
 ```
 
+The recording webhook sets the `log-enricher-trace` seccomp profile on the
+recorded containers. While that profile is missing, because the log enricher
+has not been enabled or the [allow lists](configuration.md#restrict-the-allowed-syscalls-in-seccomp-profiles)
+of the SPOD deleted it, or has no status yet, the webhook skips the recording
+with an admission warning and an `EnricherProfileMissing` event, so that the
+pods still start. It also removes recording annotations which the pod author
+set for such a recording.
+
 Then create a workload to be recorded, for example two containers within a
 single pod:
 
@@ -788,6 +796,14 @@ The status of a `ProfileRecording` carries two conditions:
     container (leave it unset to record all of them).
   - `SelinuxDisabled` if a `SelinuxProfile` recording cannot record because
     the SPOD does not enable SELinux (`spec.selinux.enable`).
+  - `EnricherProfileNotAllowed` if a `SeccompProfile` recording with the
+    `Logs` recorder cannot record because the allow lists of the SPOD reject
+    the `log-enricher-trace` profile. Use the `Bpf` recorder, or leave
+    `SCMP_ACT_LOG` out of `spec.security.allowedSeccompActions`.
+  - `EnricherProfileMissing` if such a recording cannot record because the
+    `log-enricher-trace` profile does not exist, has no status yet or is being
+    deleted, for example right after enabling the log enricher, until the
+    nodes installed it.
   - `Unavailable` if `kind` and `recorder` cannot be combined. The API
     rejects such recordings, so only recordings created before it validated
     the combination can have this reason.

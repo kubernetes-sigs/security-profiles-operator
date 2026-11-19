@@ -588,6 +588,11 @@ func TestNewReloadJob(t *testing.T) {
 	spec := job.Spec.Template.Spec
 	require.Equal(t, "node-1", spec.NodeName)
 	require.Equal(t, "spod", spec.ServiceAccountName)
+	require.Equal(
+		t,
+		"privileged",
+		job.Spec.Template.Annotations[bindata.OpenShiftRequiredSCCAnnotation],
+	)
 
 	// Kubelet admission rejects a pod pinned to a tainted node unless it
 	// tolerates the taints, which used to burn the retries of the job.
