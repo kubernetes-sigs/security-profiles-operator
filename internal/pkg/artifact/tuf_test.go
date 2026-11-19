@@ -17,12 +17,20 @@ limitations under the License.
 package artifact
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/tuf"
 	"github.com/stretchr/testify/require"
+	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 )
 
 func TestTUFOptions(t *testing.T) {
@@ -88,7 +96,21 @@ func TestTUFOptions(t *testing.T) {
 	require.ErrorContains(t, err, "remote.json")
 }
 
+// fastTUFRetries has the TUF requests retry without waiting until the test
+// ends. The tests which call it are not parallel, they set the TUF
+// environment.
+func fastTUFRetries(t *testing.T) {
+	t.Helper()
+
+	waitMin, waitMax := tufRetryWaitMin, tufRetryWaitMax
+	tufRetryWaitMin, tufRetryWaitMax = time.Millisecond, time.Millisecond
+
+	t.Cleanup(func() { tufRetryWaitMin, tufRetryWaitMax = waitMin, waitMax })
+}
+
 func TestTrustedMaterial(t *testing.T) {
+	fastTUFRetries(t)
+
 	sigstore := newTestSigstore(t)
 
 	material, err := (&defaultImpl{}).TrustedMaterial(t.Context(), sigstore.trustedRootPath, false)
@@ -119,4 +141,173 @@ func TestTrustedMaterial(t *testing.T) {
 	_, err = (&defaultImpl{}).TrustedMaterial(t.Context(), "", false)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNoCachedTrustedRoot)
+}
+
+func TestTUFOptionsRetry(t *testing.T) {
+	fastTUFRetries(t)
+	t.Setenv(envTUFRoot, t.TempDir())
+	t.Setenv(envTUFMirror, "")
+	t.Setenv(envTUFRootJSON, "")
+
+	var requests atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+
+			return
+		}
+
+		if _, err := w.Write([]byte("metadata")); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	opts, err := tufOptions()
+	require.NoError(t, err)
+
+	defaultFetcher, ok := opts.Fetcher.(*fetcher.DefaultFetcher)
+	require.True(t, ok)
+
+	// A transient error of the TUF repository gets retried instead of failing
+	// the verification.
+	data, err := defaultFetcher.DownloadFile(server.URL, 1024, 0)
+	require.NoError(t, err)
+	require.Equal(t, "metadata", string(data))
+	require.Equal(t, int32(2), requests.Load())
+}
+
+// TestTUFOptionsRetryStalled asserts that an attempt whose response headers do
+// not come within tufAttemptTimeout gets retried.
+func TestTUFOptionsRetryStalled(t *testing.T) {
+	fastTUFRetries(t)
+
+	attemptTimeout := tufAttemptTimeout
+	tufAttemptTimeout = time.Second
+
+	t.Cleanup(func() { tufAttemptTimeout = attemptTimeout })
+
+	t.Setenv(envTUFRoot, t.TempDir())
+	t.Setenv(envTUFMirror, "")
+	t.Setenv(envTUFRootJSON, "")
+
+	var requests atomic.Int32
+
+	release := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			<-release
+
+			return
+		}
+
+		if _, err := w.Write([]byte("metadata")); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(release) })
+
+	opts, err := tufOptions()
+	require.NoError(t, err)
+
+	defaultFetcher, ok := opts.Fetcher.(*fetcher.DefaultFetcher)
+	require.True(t, ok)
+
+	data, err := defaultFetcher.DownloadFile(server.URL, 1024, 0)
+	require.NoError(t, err)
+	require.Equal(t, "metadata", string(data))
+	// A slow runner may stall the second attempt as well.
+	require.GreaterOrEqual(t, requests.Load(), int32(2))
+}
+
+// TestTrustedMaterialCanceled asserts that a caller stops waiting for a TUF
+// refresh once its context ends, also if the mirror never answers.
+func TestTrustedMaterialCanceled(t *testing.T) {
+	fastTUFRetries(t)
+
+	requested := make(chan struct{}, 1)
+	release := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case requested <- struct{}{}:
+		default:
+		}
+
+		<-release
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+
+	rootJSON := filepath.Join(t.TempDir(), "root.json")
+	require.NoError(t, os.WriteFile(rootJSON, tuf.DefaultRoot(), 0o600))
+	t.Setenv(envTUFRoot, t.TempDir())
+	t.Setenv(envTUFMirror, server.URL)
+	t.Setenv(envTUFRootJSON, rootJSON)
+
+	// The abandoned refresh ends once the mirror answers, which the cleanup
+	// waits for, so that it does not outlive the test.
+	key := tufFetchKey("trusted-root/false")
+
+	t.Cleanup(func() {
+		// The abandoned refresh fails on the answer of the mirror.
+		_, err, _ := tufFetches.Do(key, func() (any, error) { return struct{}{}, nil })
+		t.Log("abandoned TUF refresh:", err)
+	})
+	t.Cleanup(func() { close(release) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := (&defaultImpl{}).TrustedMaterial(ctx, "", false)
+		done <- err
+	}()
+
+	select {
+	case <-requested:
+	case <-time.After(time.Minute):
+		require.Fail(t, "the TUF mirror got no request")
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Minute):
+		require.Fail(t, "the caller kept waiting for the TUF mirror")
+	}
+}
+
+// TestRetryStalledTUFAttempt asserts that an attempt whose response headers
+// did not come in time is retried, unlike a request whose context ended.
+func TestRetryStalledTUFAttempt(t *testing.T) {
+	t.Parallel()
+
+	stalled := &url.Error{
+		Op:  "Get",
+		URL: "https://tuf.example",
+		Err: fmt.Errorf("stalled: %w", context.DeadlineExceeded),
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://tuf.example", nil)
+	require.True(t, retryStalledTUFAttempt(req, nil, stalled))
+	require.True(
+		t,
+		retryStalledTUFAttempt(req, &http.Response{StatusCode: http.StatusBadGateway}, nil),
+	)
+	require.False(
+		t,
+		retryStalledTUFAttempt(req, &http.Response{StatusCode: http.StatusNotFound}, nil),
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	canceled := httptest.NewRequestWithContext(ctx, http.MethodGet, "https://tuf.example", nil)
+	require.False(t, retryStalledTUFAttempt(canceled, nil, stalled))
 }

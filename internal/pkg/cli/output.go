@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
@@ -28,12 +29,40 @@ import (
 // Stdout is the output file name which writes to the standard output of spoc.
 const Stdout = "/dev/stdout"
 
+// StandardStream returns the standard output or error of spoc if the output
+// file name refers to one of them, like /dev/stdout, /dev/fd/2 or
+// /proc/thread-self/fd/1, or to the file one of them is open on. Opening such
+// a path would truncate a file which the stream gets appended to, or which the
+// other stream shares, and fail for a socket.
+func StandardStream(name string) (*os.File, bool) {
+	// The well known names also work while the stream cannot be checked,
+	// like after it got closed.
+	switch filepath.Clean(name) {
+	case Stdout, "/dev/fd/1", "/proc/self/fd/1":
+		return os.Stdout, true
+	case "/dev/stderr", "/dev/fd/2", "/proc/self/fd/2":
+		return os.Stderr, true
+	}
+
+	target, err := os.Stat(name)
+	if err != nil {
+		return nil, false
+	}
+
+	for _, stream := range []*os.File{os.Stdout, os.Stderr} {
+		if info, err := stream.Stat(); err == nil && os.SameFile(target, info) {
+			return stream, true
+		}
+	}
+
+	return nil, false
+}
+
 // WriteFile writes the data to the file like os.WriteFile, or to the standard
-// output of spoc for Stdout. Opening /dev/stdout would truncate a file which
-// stdout gets appended to, and fail for a socket.
+// output or error of spoc for the names of StandardStream.
 func WriteFile(name string, data []byte, perm os.FileMode) error {
-	if name == Stdout {
-		_, err := os.Stdout.Write(data)
+	if stream, ok := StandardStream(name); ok {
+		_, err := stream.Write(data)
 
 		return err
 	}

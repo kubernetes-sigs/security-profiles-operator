@@ -575,18 +575,23 @@ func (r *Reconciler) annotateSyscalls(
 
 	l.Info("Updating syscall annotations", "profile", sp.Name, "annotation", key)
 
-	patch := client.MergeFrom(sp.DeepCopy())
+	// The patch decodes the profile of the API server into the patched
+	// object, whose spec may be newer than the one the syscalls got resolved
+	// from. sp stays as it is, so that the installed profile does not mix
+	// them.
+	patched := sp.DeepCopy()
+	patch := client.MergeFrom(sp)
 
-	if sp.Annotations == nil {
-		sp.Annotations = make(map[string]string)
+	if patched.Annotations == nil {
+		patched.Annotations = make(map[string]string)
 	}
 
-	sp.Annotations[key] = value
-	delete(sp.Annotations, staleKey)
+	patched.Annotations[key] = value
+	delete(patched.Annotations, staleKey)
 
 	// Patching only the annotations does not conflict with the other nodes
 	// updating the profile at the same time.
-	if err := r.client.Patch(ctx, sp, patch); err != nil {
+	if err := r.client.Patch(ctx, patched, patch); err != nil {
 		return fmt.Errorf("update seccomp profile annotations: %w", err)
 	}
 
@@ -1381,7 +1386,10 @@ func deletionReasons() common.DeletionReasons {
 // reconcileDisabled removes a disabled profile from the node, which may have
 // installed it before it got disabled. This keeps the file if another profile
 // owns it. A node without the file has nothing to remove, even while pods on
-// other nodes use the profile.
+// other nodes use the profile, and neither has a node whose file belongs to
+// the other profile, see fileOfSibling: the pods which use that file keep
+// the disabled profile in use as well, which would keep it from ever turning
+// Disabled.
 func (r *Reconciler) reconcileDisabled(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
@@ -1396,13 +1404,22 @@ func (r *Reconciler) reconcileDisabled(
 		r.errorReporter(),
 		deletionReasons(),
 		common.Removal{
-			Installed: func(secprofnodestatusapi.ProfileState) (bool, error) {
+			Installed: func(state secprofnodestatusapi.ProfileState) (bool, error) {
 				_, err := os.Lstat(r.profilePath(sp))
 				if errors.Is(err, os.ErrNotExist) {
 					return false, nil
 				}
 
-				return err == nil, err
+				// The profile owned the file before it got disabled, like
+				// while the older sibling was disabled itself, and keeps
+				// it for its pods.
+				if err != nil || state == secprofnodestatusapi.ProfileStateInstalled {
+					return err == nil, err
+				}
+
+				siblingFile, err := fileOfSibling(ctx, r.apiReader(), sp)
+
+				return !siblingFile, err
 			},
 			Remove: func() (reconcile.Result, error) {
 				return reconcile.Result{}, r.handleDeletion(ctx, sp, l)
@@ -1528,6 +1545,23 @@ func fileOwner(
 	return other.GetName(), nil
 }
 
+// fileOfSibling reports whether the file of the disabled profile sp belongs
+// to the other profile stored in the same file, which is active and created
+// before sp: sp never owned the file then, even before it got disabled, see
+// fileOwner. A disabled profile which owned the file keeps it for its pods
+// instead, until they are gone.
+func fileOfSibling(
+	ctx context.Context, reader client.Reader, sp *seccompprofileapi.SeccompProfile,
+) (bool, error) {
+	other, found, err := sibling(ctx, reader, sp)
+	if err != nil || !found {
+		return false, err
+	}
+
+	return other.IsReconcilable() && other.GetDeletionTimestamp().IsZero() &&
+		ownsFileBefore(other, sp), nil
+}
+
 // removalPending returns a function which reports whether a disabled profile
 // is still installed on this node: its node status turns Disabled once its
 // file got removed, see reconcileDisabled, and a profile created disabled
@@ -1541,6 +1575,9 @@ func (r *Reconciler) removalPending(
 		if err != nil {
 			return false
 		}
+
+		// The cache may lag behind the state this node wrote last.
+		nodeStatus.WithWrittenStates(&r.writtenStates)
 
 		state, err := nodeStatus.State(ctx)
 

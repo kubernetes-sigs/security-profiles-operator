@@ -60,10 +60,10 @@ var TerminationSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGH
 // temporary files. The returned function restores the default handling.
 //
 // The default handling gets restored shortly after the first signal as well,
-// so that a further one terminates spoc, see IgnoreDuplicateSignals. Some
-// steps do not stop on the context, like an interactive sign in or a TUF
-// refresh, and would otherwise keep spoc running with every further signal
-// ignored.
+// so that a further one terminates spoc, see IgnoreDuplicateSignals. A step
+// which does not stop on the context would otherwise keep spoc running with
+// every further signal ignored. The interactive sign in and the TUF refresh
+// take no context, waiting for them stops on it, see artifact.AwaitContext.
 func SignalContext() (context.Context, context.CancelFunc) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, TerminationSignals...)

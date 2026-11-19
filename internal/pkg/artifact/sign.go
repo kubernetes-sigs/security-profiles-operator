@@ -92,6 +92,10 @@ type signingSession struct {
 // the interactive sign in has none.
 func (a *Artifact) prepareSigning(ctx context.Context, deviceFlow bool) (*signingSession, error) {
 	material, err := a.TrustedMaterial(ctx, "", false)
+	if ctxErr := context.Cause(ctx); ctxErr != nil {
+		return nil, fmt.Errorf("load trusted root: %w", ctxErr)
+	}
+
 	if err != nil {
 		// Like cosign, the trusted root only verifies the signature bundle
 		// after signing, which is not required to sign.

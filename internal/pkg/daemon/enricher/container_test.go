@@ -206,10 +206,50 @@ func TestContainerInfosGet(t *testing.T) {
 		t.Parallel()
 
 		sut := newContainerInfos()
-		sut.infoCache.Set(containerID, &types.ContainerInfo{PodName: "cached"}, ttlcache.DefaultTTL)
+		sut.infoCache.Set(containerID, &cachedInfo{
+			info: &types.ContainerInfo{PodName: "cached"}, read: time.Now(),
+		}, ttlcache.DefaultTTL)
 
 		info, err := sut.get(containerID)
 		require.NoError(t, err)
 		require.Equal(t, "cached", info.PodName)
+	})
+
+	t.Run("reads the pod again", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newContainerInfos()
+		sut.infoCache.Set(containerID, &cachedInfo{
+			info: &types.ContainerInfo{PodName: "cached"},
+			read: time.Now().Add(-infoRefreshInterval),
+		}, ttlcache.DefaultTTL)
+
+		lw := podindextest.New(*runningPod())
+		watchPods(t, sut, lw)
+
+		info, err := sut.get(containerID)
+		require.NoError(t, err)
+		require.Equal(t, pod, info.PodName)
+
+		// The info stays once the pod is gone, for the late lines of the
+		// container.
+		lw.Delete(runningPod())
+		require.Eventually(t, func() bool {
+			_, ok := sut.pods.Get(containerID)
+
+			return !ok
+		}, time.Minute, time.Millisecond)
+
+		later := time.Now().Add(infoRefreshInterval)
+		sut.now = func() time.Time { return later }
+
+		info, err = sut.get(containerID)
+		require.NoError(t, err)
+		require.Equal(t, pod, info.PodName)
+
+		// The lines of the next interval do not look the gone pod up again.
+		item := sut.infoCache.Get(containerID)
+		require.NotNil(t, item)
+		require.Equal(t, later, item.Value().read)
 	})
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package artifact
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tuf"
+	"github.com/sigstore/sigstore/pkg/httpretry"
 	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 )
 
@@ -45,9 +47,10 @@ const (
 	// used before it gets fetched again, the refresh period of cosign.
 	trustedRootRefresh = 24 * time.Hour
 
-	// tufRequestTimeout bounds every request to the TUF repository. The TUF
-	// client takes no context, and the default HTTP client never times out.
-	tufRequestTimeout = time.Minute
+	// tufRequestTimeout bounds every request to the TUF repository, retries
+	// included. The TUF client takes no context, and the default HTTP client
+	// never times out.
+	tufRequestTimeout = 3 * time.Minute
 )
 
 // ErrNoCachedTrustedRoot is returned if an offline verification finds no
@@ -199,6 +202,89 @@ func tufTarget[T any](opts *tuf.Options, key string, get func(*tuf.Client) (T, e
 	return value, nil
 }
 
+// tufHTTPClient returns the client of the TUF requests: over Transport, and
+// retrying connection errors, 429 and 5xx like the client of
+// tuf.DefaultOptions, which it replaces. The fetcher of go-tuf tries each
+// request only once. The client is shared, it only gets built again if a
+// test changed the timeouts.
+func tufHTTPClient() *http.Client {
+	params := tufClientParams{
+		attemptTimeout: tufAttemptTimeout,
+		waitMin:        tufRetryWaitMin,
+		waitMax:        tufRetryWaitMax,
+	}
+
+	tufClient.Lock()
+	defer tufClient.Unlock()
+
+	if tufClient.client != nil && tufClient.params == params {
+		return tufClient.client
+	}
+
+	retrying := httpretry.NewTransport(tufTransport(params.attemptTimeout))
+	retrying.WaitMin, retrying.WaitMax = params.waitMin, params.waitMax
+	retrying.CheckRetry = retryStalledTUFAttempt
+
+	tufClient.params = params
+	tufClient.client = &http.Client{
+		Transport: retrying,
+		Timeout:   tufRequestTimeout,
+	}
+
+	return tufClient.client
+}
+
+// tufClientParams are the timeouts the shared TUF client got built with.
+type tufClientParams struct {
+	attemptTimeout, waitMin, waitMax time.Duration
+}
+
+// tufClient is the shared client of the TUF requests, see tufHTTPClient.
+var tufClient struct {
+	sync.Mutex
+
+	params tufClientParams
+	client *http.Client
+}
+
+// tufTransport returns a clone of Transport which waits for the response
+// headers for the timeout at most.
+func tufTransport(timeout time.Duration) http.RoundTripper {
+	base, ok := Transport().(*http.Transport)
+	if !ok {
+		return Transport()
+	}
+
+	clone := base.Clone()
+	clone.ResponseHeaderTimeout = timeout
+
+	return clone
+}
+
+// retryStalledTUFAttempt retries like httpretry.DefaultRetryPolicy, and an
+// attempt whose response headers did not come within tufAttemptTimeout as
+// well. The default policy takes that for a deadline of the request, which
+// is only the case if the request context ended.
+func retryStalledTUFAttempt(req *http.Request, resp *http.Response, err error) bool {
+	if err != nil && errors.Is(err, context.DeadlineExceeded) && req.Context().Err() == nil {
+		return true
+	}
+
+	return httpretry.DefaultRetryPolicy(req, resp, err)
+}
+
+// tufRetryWaitMin and tufRetryWaitMax bound the waits between the retries of
+// the TUF requests, variables so that tests do not have to wait for them.
+var tufRetryWaitMin, tufRetryWaitMax = httpretry.DefaultWaitMin, httpretry.DefaultWaitMax
+
+// tufAttemptTimeout bounds the wait for the response headers of a single
+// attempt, so that a stalled one gets retried within tufRequestTimeout:
+// httpretry tries up to 5 times and waits about 15s in total between the
+// attempts without a Retry-After header, which takes 165s at most for a
+// mirror which stalls every attempt. A variable, so that tests do not have to
+// wait for it.
+var tufAttemptTimeout = 30 * time.Second
+
 // tufOptions returns the options of the TUF client the way cosign sets them:
 // the cache directory from TUF_ROOT, the mirror from TUF_MIRROR or from the
 // remote.json of `cosign initialize`, and the trust anchor from TUF_ROOT_JSON,
@@ -207,9 +293,7 @@ func tufOptions() (*tuf.Options, error) {
 	opts := tuf.DefaultOptions()
 
 	if defaultFetcher, ok := opts.Fetcher.(*fetcher.DefaultFetcher); ok {
-		defaultFetcher.SetHTTPClient(
-			&http.Client{Transport: Transport(), Timeout: tufRequestTimeout},
-		)
+		defaultFetcher.SetHTTPClient(tufHTTPClient())
 	}
 
 	if cachePath := os.Getenv(envTUFRoot); cachePath != "" {

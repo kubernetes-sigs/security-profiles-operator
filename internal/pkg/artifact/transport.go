@@ -23,7 +23,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
-// Transport returns the transport of the registry, token and TUF requests:
+// Transport returns the transport of the registry, token and signing
+// requests, which the one of the TUF requests is based on, see tufTransport:
 // a clone of http.DefaultTransport, which keeps its proxy and TLS settings,
 // but not its pool of connections. Whoever calls CloseIdleConnections on
 // http.DefaultTransport, like httptest.Server.Close does, would otherwise

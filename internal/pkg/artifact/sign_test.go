@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/name"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/stretchr/testify/require"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/registry"
@@ -102,6 +103,29 @@ func TestPushSignsInBeforeTheTimeout(t *testing.T) {
 
 	require.ErrorIs(t, push(t, t.Context(), mock), ErrNoInteractiveSignIn)
 	require.Zero(t, mock.CopyCallCount())
+}
+
+// TestPrepareSigningInterrupted verifies that prepareSigning ends the signing
+// on an interrupt instead of logging that it signs without verification.
+func TestPrepareSigningInterrupted(t *testing.T) {
+	t.Parallel()
+
+	mock, _ := pushSigningMock(t)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	mock.TrustedMaterialStub = func(ctx context.Context, _ string, _ bool) (root.TrustedMaterial, error) {
+		cancel()
+
+		return nil, context.Cause(ctx)
+	}
+
+	sut := New(logr.Discard())
+	sut.impl = mock
+
+	_, err := sut.prepareSigning(ctx, false)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, mock.SigningConfigCallCount())
+	require.Zero(t, mock.IDTokenCallCount())
 }
 
 // TestNoKeylessSigner verifies that an Artifact without a signer fails to

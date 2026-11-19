@@ -22,12 +22,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
+	"golang.org/x/sync/singleflight"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
@@ -265,12 +268,56 @@ func signatureReferrers(
 	return signatures, nil
 }
 
-func (*defaultImpl) SigningConfig(context.Context) (*root.SigningConfig, error) {
-	return tufSigningConfig()
+// SigningConfig reads the signing config through TUF, whose client takes no
+// context. The caller stops waiting for it once the context ends.
+func (*defaultImpl) SigningConfig(ctx context.Context) (*root.SigningConfig, error) {
+	return awaitTUF(ctx, "signing-config", tufSigningConfig)
 }
 
+// tufFetches shares a TUF refresh between its concurrent callers. A caller
+// which stops waiting leaves the refresh running, the next caller waits for
+// that one instead of queueing another one behind it.
+var tufFetches singleflight.Group
+
+// tufFetchKey returns the key of a TUF fetch in tufFetches, which includes
+// the TUF environment like tufCacheKey.
+func tufFetchKey(fetch string) string {
+	return strings.Join([]string{
+		fetch, os.Getenv(envTUFRoot), os.Getenv(envTUFMirror), os.Getenv(envTUFRootJSON),
+	}, "\x00")
+}
+
+// awaitTUF runs the TUF fetch, or waits for the one running already, until
+// the context ends, see AwaitContext.
+func awaitTUF[T any](ctx context.Context, fetchName string, fetch func() (T, error)) (T, error) {
+	key := tufFetchKey(fetchName)
+
+	return AwaitContext(ctx, func() (T, error) {
+		value, err, _ := tufFetches.Do(key, func() (any, error) {
+			return fetch()
+		})
+		if err != nil {
+			var zero T
+
+			return zero, err
+		}
+
+		// A nil interface value becomes the zero value.
+		if result, ok := value.(T); ok {
+			return result, nil
+		}
+
+		var zero T
+
+		return zero, nil
+	})
+}
+
+// TrustedMaterial reads the trusted root from the file, or through TUF, whose
+// client takes no context. The caller stops waiting for TUF once the context
+// ends.
 func (*defaultImpl) TrustedMaterial(
-	_ context.Context, trustedRootPath string, offline bool,
+	ctx context.Context, trustedRootPath string, offline bool,
 ) (root.TrustedMaterial, error) {
 	if trustedRootPath != "" {
 		trustedRoot, err := root.NewTrustedRootFromPath(trustedRootPath)
@@ -281,7 +328,10 @@ func (*defaultImpl) TrustedMaterial(
 		return trustedRoot, nil
 	}
 
-	return tufTrustedRoot(offline)
+	return awaitTUF(ctx, "trusted-root/"+strconv.FormatBool(offline),
+		func() (root.TrustedMaterial, error) {
+			return tufTrustedRoot(offline)
+		})
 }
 
 // CheckKeylessSigner returns ErrNoKeylessSigner if the Artifact does not

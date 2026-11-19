@@ -23,6 +23,7 @@ import (
 	"path"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/moby/sys/mountinfo"
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -46,12 +48,6 @@ type NonRootEnabler struct {
 // New creates a new NonRootEnabler instance.
 func New() *NonRootEnabler {
 	return &NonRootEnabler{&defaultImpl{}}
-}
-
-// SetImpl can be used to set the internal implementation of the
-// NonRootEnabler.
-func (n *NonRootEnabler) SetImpl(i impl) {
-	n.impl = i
 }
 
 const (
@@ -75,6 +71,17 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	); err != nil {
 		return fmt.Errorf("change operator root permissions: %w", err)
 	}
+
+	// The profiles get written atomically through temporary files next to
+	// them, which a previous run killed while writing, for example for
+	// running out of memory, left behind. They are removed whatever their
+	// age, a crash looping init container restarts within a minute: no other
+	// writer uses the directory itself, the daemon writes below the operator
+	// directory, and two of these init containers never run at the same time
+	// on a node. The SPOD DaemonSet keeps the default maxSurge of 0, which
+	// starts the pod of a node only once the previous one got deleted.
+	removed, err := n.RemoveStaleTempFiles(kubeletSeccompDir, 0)
+	common.LogStaleTempFiles(logger, kubeletSeccompDir, removed, err)
 
 	logger.Info("Copying profiles into root path", "path", kubeletSeccompDir)
 
@@ -240,9 +247,14 @@ type impl interface {
 	Lchown(name string, uid, gid int) error
 	CopyFile(src, dst string, perm os.FileMode) error
 	InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error
+	RemoveStaleTempFiles(dir string, minAge time.Duration) ([]string, error)
 }
 
 type defaultImpl struct{}
+
+func (*defaultImpl) RemoveStaleTempFiles(dir string, minAge time.Duration) ([]string, error) {
+	return util.RemoveStaleTempFiles(dir, minAge)
+}
 
 func (*defaultImpl) MkdirAll(dirpath string, perm os.FileMode) error {
 	return os.MkdirAll(dirpath, perm)

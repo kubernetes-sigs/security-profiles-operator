@@ -165,6 +165,35 @@ func TestRunKubeletDirNotMounted(t *testing.T) {
 	require.Zero(t, mock.CopyFileCallCount())
 }
 
+// TestRunRemovesStaleTempFiles asserts that Run removes the temporary files
+// of interrupted writes from the kubelet seccomp directory whatever their age,
+// and only logs a failure to do so.
+func TestRunRemovesStaleTempFiles(t *testing.T) {
+	t.Parallel()
+
+	for name, sweepErr := range map[string]error{"success": nil, "failure": errTest} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := nonrootenabler.New()
+			mock := &nonrootenablerfakes.FakeImpl{}
+			mock.MountedReturns(true, nil)
+			mock.ReadlinkReturns("", os.ErrNotExist)
+			mock.RemoveStaleTempFilesReturns([]string{"stale"}, sweepErr)
+			sut.SetImpl(mock)
+
+			require.NoError(t, sut.Run(logr.Discard(), "", config.KubeletDir(), false))
+
+			require.Equal(t, 1, mock.RemoveStaleTempFilesCallCount())
+			dir, minAge := mock.RemoveStaleTempFilesArgsForCall(0)
+			require.Equal(t,
+				path.Join(config.HostRoot, config.KubeletDir(), config.SeccompProfilesFolder), dir,
+			)
+			require.Zero(t, minAge)
+		})
+	}
+}
+
 // TestRunWritesExpectedPaths asserts what Run actually does to the node, rather
 // than only that it returned no error.
 func TestRunWritesExpectedPaths(t *testing.T) {

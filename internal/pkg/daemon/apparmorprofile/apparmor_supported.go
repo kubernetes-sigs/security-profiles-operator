@@ -482,8 +482,9 @@ func loadPolicyFile(
 
 	loaded, err := a.PolicyLoaded(name)
 	if err != nil {
-		restore()
-
+		// The kernel loaded the policy, so the file with the marker stays:
+		// without it, a retry would take the loaded policy for one of the
+		// host, and the deletion would never unload it.
 		return false, fmt.Errorf("cannot check policy status: %w", err)
 	}
 
