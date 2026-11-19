@@ -94,7 +94,9 @@ func TestAuditdSourceStopReleasesForward(t *testing.T) {
 
 	sut := NewAuditdSource(logr.Discard())
 
-	lines := make(chan string, 1)
+	// Both channels are unbuffered, so the forwarding has received the line
+	// once the send returns, and blocks on sending its parsed line.
+	lines := make(chan string)
 	log := make(chan *types.AuditLine)
 	done := make(chan struct{})
 
@@ -104,7 +106,11 @@ func TestAuditdSourceStopReleasesForward(t *testing.T) {
 		sut.forward(lines, log)
 	}()
 
-	lines <- auditdTestLine
+	select {
+	case lines <- auditdTestLine:
+	case <-time.After(time.Minute):
+		t.Fatal("the forwarding did not receive the line")
+	}
 
 	// Nobody reads the line.
 	sut.Stop()

@@ -21,6 +21,7 @@ package auditsource
 import (
 	"debug/elf"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,15 @@ func TestBpfSourceStopReleasesForward(t *testing.T) {
 		t.Skip(err.Error())
 	}
 
-	events := make(chan []byte, 1)
+	// The event has to parse, otherwise the forwarding skips it instead of
+	// blocking on sending its line.
+	event := bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow", "profile")
+	_, _, err = parseBpfAuditEvent(event, time.Now(), testBootTime)
+	require.NoError(t, err)
+
+	// Both channels are unbuffered, so the forwarding has received the event
+	// once the send returns, and blocks on sending its line.
+	events := make(chan []byte)
 	log := make(chan *types.AuditLine)
 	done := make(chan struct{})
 
@@ -77,13 +86,26 @@ func TestBpfSourceStopReleasesForward(t *testing.T) {
 		sut.forward(events, log)
 	})
 
-	events <- []byte{
-		1, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 0,
-		'o', 0, 'c', 0, 'n', 0,
+	select {
+	case events <- event:
+	case <-time.After(time.Minute):
+		t.Fatal("the forwarding did not receive the event")
 	}
 
 	// Nobody reads the line. Stop waits for the forwarding to end.
-	sut.Stop()
+	stopped := make(chan struct{})
+
+	go func() {
+		defer close(stopped)
+
+		sut.Stop()
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Minute):
+		t.Fatal("stop did not release the forwarding")
+	}
 
 	select {
 	case <-done:

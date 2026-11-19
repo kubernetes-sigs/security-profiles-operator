@@ -491,8 +491,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
-	e.logEnricherOnlyTestCase()
-	e.selinuxOnlyTestCase()
+	e.selinuxLogEnricherOnlyTestCase()
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
@@ -504,8 +503,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
-	e.logEnricherOnlyTestCase()
-	e.selinuxOnlyTestCase()
+	e.selinuxLogEnricherOnlyTestCase()
 
 	restoreNs := e.switchToNs(nsRecordingDisabled)
 	defer restoreNs()
@@ -632,8 +630,7 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 }
 
 func (e *e2e) testCaseProfileRecordingMultiContainerSELinuxLogs() {
-	e.logEnricherOnlyTestCase()
-	e.selinuxOnlyTestCase()
+	e.selinuxLogEnricherOnlyTestCase()
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
@@ -787,8 +784,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 }
 
 func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
-	e.logEnricherOnlyTestCase()
-	e.selinuxOnlyTestCase()
+	e.selinuxLogEnricherOnlyTestCase()
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()

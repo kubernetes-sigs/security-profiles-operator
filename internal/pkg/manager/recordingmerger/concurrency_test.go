@@ -55,8 +55,12 @@ func mergeSyscalls(
 ) error {
 	t.Helper()
 
+	// It runs in goroutines of the test, which must not call FailNow, so it
+	// returns the errors instead.
 	partial, err := newMergeableProfile(partialSeccomp("partial", "nginx", syscalls...))
-	require.NoError(t, err)
+	if err != nil {
+		return err
+	}
 
 	_, err = createUpdateProfile(
 		t.Context(), cl, recording, name, partial,

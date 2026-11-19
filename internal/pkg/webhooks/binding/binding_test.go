@@ -2100,6 +2100,77 @@ func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 	}
 }
 
+// TestUpdatePodUninstalledProfileLosesConflict verifies that a binding to a
+// partial profile which loses against an older binding of the same container
+// does not reject the pod, which the older binding binds.
+func TestUpdatePodUninstalledProfileLosesConflict(t *testing.T) {
+	t.Parallel()
+
+	installed := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "installed"},
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			StatusBase: profilebaseapi.StatusBase{
+				Status: secprofnodestatusapi.ProfileStateInstalled,
+			},
+		},
+	}
+	partial := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "partial"},
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStatePartial},
+		},
+	}
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetAppArmorProfileStub = func(
+		_ context.Context, key types.NamespacedName,
+	) (*apparmorprofileapi.AppArmorProfile, error) {
+		if key.Name == partial.Name {
+			return partial, nil
+		}
+
+		return installed, nil
+	}
+
+	binding := func(name, profile string, created int64) profilebindingapi.ProfileBinding {
+		return profilebindingapi.ProfileBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				CreationTimestamp: metav1.NewTime(time.Unix(created, 0)),
+			},
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+					Name: profile,
+				},
+				Image: "foo",
+			},
+		}
+	}
+
+	pod, warnings, resp := newTestBinder(t, mock).updatePod(
+		t.Context(),
+		[]profilebindingapi.ProfileBinding{
+			binding("newer", partial.Name, 2),
+			binding("older", installed.Name, 1),
+		},
+		&admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    rawObject(t, testPod),
+		}},
+	)
+
+	require.Nil(t, resp)
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], "profile binding newer was not applied")
+
+	sc := pod.Spec.Containers[0].SecurityContext
+	require.NotNil(t, sc)
+	require.NotNil(t, sc.AppArmorProfile)
+	require.NotNil(t, sc.AppArmorProfile.LocalhostProfile)
+	require.Equal(t, installed.GetProfileName(), *sc.AppArmorProfile.LocalhostProfile)
+}
+
 // Bindings which cannot change the pod do not look up their profile, so that
 // a profile without status does not reject pods the binding does not bind, and
 // a binding which is being deleted does not apply to new pods anymore.

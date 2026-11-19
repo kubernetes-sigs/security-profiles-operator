@@ -45,7 +45,7 @@ the documentation of a release.
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | pod security contexts |
 | priorityClassName | string | `"system-cluster-critical"` | the priority class of the operator pods, none when empty |
 | replicaCount | int | `3` | the number of replicas of the pods |
-| restrictToNamespace | string | `""` | restrict the operator to a single namespace |
+| restrictToNamespace | string | `""` | restrict the operator to a comma separated list of namespaces, the operator namespace is always included |
 | resources.limits.cpu | string | `"500m"` | cpu limits for the pod |
 | resources.limits.memory | string | `"512Mi"` | memory limits for the pod |
 | resources.requests.cpu | string | `"250m"` | cpu requests for the pod |

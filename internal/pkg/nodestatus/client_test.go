@@ -27,9 +27,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -216,8 +216,8 @@ func TestStatusObjLabelsValidForLongNodeName(t *testing.T) {
 
 	for _, node := range []string{
 		testNode,
-		strings.Repeat("n", validation.LabelValueMaxLength),
-		strings.Repeat("n", validation.LabelValueMaxLength+1),
+		strings.Repeat("n", content.LabelValueMaxLength),
+		strings.Repeat("n", content.LabelValueMaxLength+1),
 		strings.Repeat("a", 40) + "." + strings.Repeat("b", 200),
 	} {
 		sc, err := NewForProfileOnNode(preparedProfile(), nil, node)
@@ -225,13 +225,13 @@ func TestStatusObjLabelsValidForLongNodeName(t *testing.T) {
 
 		status := sc.statusObj(secprofnodestatusapi.ProfileStateInstalled)
 		for key, value := range status.Labels {
-			require.Empty(t, validation.IsValidLabelValue(value), "label %s=%s", key, value)
+			require.Empty(t, content.IsLabelValue(value), "label %s=%s", key, value)
 		}
 
 		// The spec keeps the full node name.
 		require.Equal(t, node, status.Spec.NodeName)
 
-		if len(node) <= validation.LabelValueMaxLength {
+		if len(node) <= content.LabelValueMaxLength {
 			require.Equal(t, node, status.Labels[secprofnodestatusapi.StatusToNodeLabel])
 		}
 	}

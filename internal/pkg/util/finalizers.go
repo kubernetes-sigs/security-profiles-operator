@@ -26,9 +26,9 @@ import (
 	"strings"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -258,7 +258,7 @@ const (
 // nodeNameFits returns true if the finalizer of the node fits into the length
 // limit of a finalizer without shortening the node name.
 func nodeNameFits(nodeName string) bool {
-	return len(nodeName)+len(nodeFinalizerSuffix) <= validation.DNS1123LabelMaxLength
+	return len(nodeName)+len(nodeFinalizerSuffix) <= content.DNS1123LabelMaxLength
 }
 
 // GetFinalizerNodeString returns the finalizer which the daemon of the node
@@ -273,7 +273,7 @@ func GetFinalizerNodeString(nodeName string) string {
 	}
 
 	hashed, err := hashedName(
-		validation.DNS1123LabelMaxLength-len(nodeFinalizerSuffix),
+		content.DNS1123LabelMaxLength-len(nodeFinalizerSuffix),
 		nodeName[:nodeFinalizerHashPrefixLen],
 		nodeName,
 	)
@@ -298,5 +298,5 @@ func GetLegacyFinalizerNodeString(nodeName string) string {
 		return ""
 	}
 
-	return nodeName[:validation.DNS1123LabelMaxLength-len(nodeFinalizerSuffix)] + nodeFinalizerSuffix
+	return nodeName[:content.DNS1123LabelMaxLength-len(nodeFinalizerSuffix)] + nodeFinalizerSuffix
 }

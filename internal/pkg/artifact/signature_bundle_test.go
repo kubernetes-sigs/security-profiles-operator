@@ -161,7 +161,11 @@ func TestSignatureReferrersLimits(t *testing.T) {
 		name           string
 		predicateTypes []string
 		maxReferrers   int
-		want           int
+		// tagSchema lists the referrers through the referrers tag, which
+		// go-containerregistry sorts by digest, instead of the referrers
+		// API, whose order is random in the test registry.
+		tagSchema bool
+		want      int
 	}{
 		{
 			name: "many attestations",
@@ -186,16 +190,30 @@ func TestSignatureReferrersLimits(t *testing.T) {
 			maxReferrers:   3,
 			want:           3,
 		},
+		{
+			// Attestations count against maxReferrers, so a registry
+			// cannot keep the pull listing them.
+			name: "attestations count as referrers",
+			predicateTypes: append(
+				repeat(promotionPredicateType, 4),
+				repeat(cosignSignPredicateType, 4)...,
+			),
+			maxReferrers: 4,
+			tagSchema:    true,
+			// Two signatures sort among the first four digests, counting
+			// only signatures would return 4.
+			want: 2,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			host := testRegistry(t, true)
+			host := testRegistry(t, !tc.tagSchema)
 			subject := pushWithReferrers(t, host, "profiles/limits", tc.predicateTypes...)
+			repo := testRepository(t, host, "profiles/limits")
 
 			signatures, err := signatureReferrers(
-				t.Context(), testRepository(t, host, "profiles/limits"), &subject,
-				maxSignatures, tc.maxReferrers,
+				t.Context(), repo, &subject, maxSignatures, tc.maxReferrers,
 			)
 			require.NoError(t, err)
 			require.Len(t, signatures, tc.want)

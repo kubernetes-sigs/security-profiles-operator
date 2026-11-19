@@ -323,6 +323,8 @@ func TestEnrich(t *testing.T) {
 		name    string
 		prepare func(*testing.T, *runnerfakes.FakeImpl, chan string)
 		assert  func(*testing.T, *runnerfakes.FakeImpl, chan string)
+		// closesLines tells that assert closes the lines itself.
+		closesLines bool
 	}{
 		{
 			name: "success with seccomp line",
@@ -438,6 +440,7 @@ func TestEnrich(t *testing.T) {
 				waitForFunctionCall(t, mock.TailErrCallCount)
 				require.Zero(t, mock.PrintfCallCount())
 			},
+			closesLines: true,
 		},
 		{
 			name: "success with line of a descendant",
@@ -516,9 +519,22 @@ func TestEnrich(t *testing.T) {
 			sut.impl = mock
 			sut.pid.Store(testPid)
 
-			go sut.enrich(nil)
+			done := make(chan struct{})
+
+			go func() {
+				defer close(done)
+
+				sut.enrich(nil)
+			}()
 
 			assert(t, mock, lineChan)
+
+			// The enricher ends with the lines.
+			if !tc.closesLines {
+				close(lineChan)
+			}
+
+			<-done
 		})
 	}
 }

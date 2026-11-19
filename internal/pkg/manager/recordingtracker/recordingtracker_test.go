@@ -134,7 +134,13 @@ func TestPodMatchesRecording(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			testPodMatchesRecording(t, tc.annotations, tc.wantTracked, tc.objs...)
+			testPodMatchesRecording(
+				t,
+				tc.annotations,
+				map[string]string{"app": "test"},
+				tc.wantTracked,
+				tc.objs...,
+			)
 		})
 	}
 }
@@ -150,8 +156,14 @@ func objectSelectorWebhookConfig(
 	return webhook
 }
 
+// testPodMatchesRecording reconciles a pod labeled app=test with the
+// annotations and a recording which selects the pods with the selector labels,
+// next to the additional objects.
 func testPodMatchesRecording(
-	t *testing.T, annotations map[string]string, wantTracked bool, objs ...client.Object,
+	t *testing.T,
+	annotations, selector map[string]string,
+	wantTracked bool,
+	objs ...client.Object,
 ) {
 	t.Helper()
 
@@ -163,11 +175,9 @@ func testPodMatchesRecording(
 			Namespace: "default",
 		},
 		Spec: profilerecordingapi.ProfileRecordingSpec{
-			Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-			Recorder: profilerecordingapi.ProfileRecorderBpf,
-			PodSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "test"},
-			},
+			Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			Recorder:    profilerecordingapi.ProfileRecorderBpf,
+			PodSelector: &metav1.LabelSelector{MatchLabels: selector},
 		},
 	}
 
@@ -209,51 +219,15 @@ func testPodMatchesRecording(
 	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
 
+// TestPodDoesNotMatchRecording verifies that an annotation of the recording
+// which the webhook did not set at the admission of the pod only counts while
+// the recording selects the pod.
 func TestPodDoesNotMatchRecording(t *testing.T) {
 	t.Parallel()
 
-	scheme := utiltest.NewScheme(t)
-
-	recording := &profilerecordingapi.ProfileRecording{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-recording",
-			Namespace: "default",
-		},
-		Spec: profilerecordingapi.ProfileRecordingSpec{
-			Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-			Recorder: profilerecordingapi.ProfileRecorderBpf,
-			PodSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "other"},
-			},
-		},
-	}
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "test"},
-		},
-	}
-
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(recording).
-		WithObjects(recording, pod).
-		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
-		Build()
-
-	r := newReconciler(c)
-
-	_, err := r.Reconcile(t.Context(), reconcile.Request{
-		NamespacedName: client.ObjectKeyFromObject(pod),
-	})
-	require.NoError(t, err)
-
-	updated := &profilerecordingapi.ProfileRecording{}
-	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
-	require.Empty(t, updated.Status.ActiveWorkloads)
-	require.Empty(t, updated.GetFinalizers())
+	testPodMatchesRecording(t, map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+	}, map[string]string{"app": "other"}, false)
 }
 
 func TestPodNoLongerMatchingRecording(t *testing.T) {

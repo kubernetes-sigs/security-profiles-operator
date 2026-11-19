@@ -139,7 +139,9 @@ func Test_kubeletDirsToMount(t *testing.T) {
 
 	r := newTestReconciler()
 
-	render := func(spec *spodapi.SPODSpec, dirs ...string) *appsv1.DaemonSet {
+	// render takes the test, since the parallel sub tests must not fail the
+	// parent one.
+	render := func(t *testing.T, spec *spodapi.SPODSpec, dirs ...string) *appsv1.DaemonSet {
 		t.Helper()
 
 		ds := &appsv1.DaemonSet{}
@@ -154,10 +156,10 @@ func Test_kubeletDirsToMount(t *testing.T) {
 	}
 
 	spec := &spodapi.SPODSpec{}
-	found := render(spec, "/data/kubelet", "/mnt/resource/kubelet")
+	found := render(t, spec, "/data/kubelet", "/mnt/resource/kubelet")
 	found.Status = available
 	require.Equal(t, []string{"/data/kubelet", "/mnt/resource/kubelet"}, mountedKubeletDirs(found))
-	require.Empty(t, mountedKubeletDirs(render(spec)))
+	require.Empty(t, mountedKubeletDirs(render(t, spec)))
 
 	withStatus := func(ds *appsv1.DaemonSet) *appsv1.DaemonSet {
 		ds.Status = available
@@ -256,7 +258,7 @@ func Test_kubeletDirsToMount(t *testing.T) {
 			// while the pods are available.
 			name:         "directory which is no longer valid",
 			spec:         spec,
-			found:        withStatus(render(spec, "/mnt/resource/kubelet", "/var/lib/kubelet/cpu_manager_state/kubelet")),
+			found:        withStatus(render(t, spec, "/mnt/resource/kubelet", "/var/lib/kubelet/cpu_manager_state/kubelet")),
 			nodeDirs:     []string{"/mnt/resource/kubelet"},
 			want:         []string{"/mnt/resource/kubelet"},
 			dropsInvalid: true,
@@ -270,7 +272,7 @@ func Test_kubeletDirsToMount(t *testing.T) {
 				found = tc.found
 			}
 
-			configured := render(tc.spec)
+			configured := render(t, tc.spec)
 			dirs, needsUpdate := kubeletDirsToMount(configured, found, tc.nodeDirs)
 			require.Equal(t, tc.want, dirs)
 

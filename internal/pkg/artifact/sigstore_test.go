@@ -754,6 +754,23 @@ func TestVerifyKeyBundle(t *testing.T) {
 	)
 	// A key signature has no certificate to match an identity.
 	require.ErrorContains(t, pull(PullOptions{}), "verify signature")
+
+	// A valid bundle of the trusted key which signs another digest does not
+	// verify the artifact it is attached to.
+	misplaced := pushUnsigned(t, sut, host, "misplaced")
+	otherBundle, otherPublicKey := sigstore.keyBundle(
+		t, digest.FromString("other"), cosignSignPredicateType,
+	)
+	require.NoError(t, sut.attachSignatureBundle(
+		t.Context(), testRepository(t, host, "misplaced"), &misplaced, otherBundle,
+	))
+
+	_, err = sut.Pull(t.Context(), host+"/misplaced:v1", "", "", nil, &PullOptions{
+		PlainHTTP:       true,
+		TrustedRootPath: sigstore.trustedRootPath,
+		KeyRef:          otherPublicKey,
+	})
+	require.ErrorContains(t, err, "verify signature")
 }
 
 // TestVerifyLegacySignatures verifies the signature tags cosign v2 and older

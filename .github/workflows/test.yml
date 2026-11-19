@@ -239,7 +239,8 @@ jobs:
           name: e2e-test-binary
       # The download loses the executable bit.
       - run: chmod +x e2e.test
-      - run: ./e2e.test -test.run '^Test(ShardCosts|AnyRunnable)$' -test.v
+      # Every test but the suite, which needs a cluster.
+      - run: ./e2e.test -test.skip '^TestSuite$' -test.v
 
   # The SELinux tests run in VMs of their own, see hack/ci/e2e-fedora.sh. The
   # test cases of each suite get split between shards, see E2E_SHARD in
@@ -303,7 +304,7 @@ jobs:
       - uses: ./.github/actions/e2e-vm-artifacts
         if: always()
         with:
-          name: ${{ matrix.name }}-shard-${{ matrix.shard }}
+          name: ${{ matrix.name }}-shard-${{ matrix.shard }}-of-${{ matrix.shards }}
           job-status: ${{ job.status }}
 
   # Runs the e2e suite on a kubernix cluster on the runner, which is the node.
@@ -378,14 +379,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: junit-flaky-e2e-ubuntu-${{ matrix.arch }}-shard-${{ matrix.shard }}
+          name: junit-flaky-e2e-ubuntu-${{ matrix.arch }}-shard-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: build/junit-flaky-e2e.xml
           if-no-files-found: ignore
       - name: Upload the diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-artifacts-e2e-ubuntu-${{ matrix.arch }}-shard-${{ matrix.shard }}
+          name: e2e-artifacts-e2e-ubuntu-${{ matrix.arch }}-shard-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: build/e2e-artifacts
           if-no-files-found: ignore
       - name: Show kubernix logs
@@ -686,14 +687,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: junit-flaky-e2e-kind-shard-${{ matrix.shard }}
+          name: junit-flaky-e2e-kind-shard-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: build/junit-flaky-e2e.xml
           if-no-files-found: ignore
       - name: Upload the diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-artifacts-e2e-kind-shard-${{ matrix.shard }}
+          name: e2e-artifacts-e2e-kind-shard-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: build/e2e-artifacts
           if-no-files-found: ignore
 

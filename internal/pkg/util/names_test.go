@@ -22,8 +22,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/validation"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -196,37 +196,37 @@ func TestDNSLengthName(t *testing.T) {
 
 	// Documented off-by-one: the threshold is part of the persisted naming
 	// scheme of the node statuses.
-	exact := strings.Repeat("n", validation.DNS1123LabelMaxLength)
+	exact := strings.Repeat("n", content.DNS1123LabelMaxLength)
 	require.NotEqual(t, exact, DNSLengthName("kind", "%s", exact))
-	require.Len(t, DNSLengthName("kind", "%s", exact), validation.DNS1123LabelMaxLength)
+	require.Len(t, DNSLengthName("kind", "%s", exact), content.DNS1123LabelMaxLength)
 
 	long := DNSLengthName("kind", "%s-%s", "kind", strings.Repeat("n", 100))
-	require.Len(t, long, validation.DNS1123LabelMaxLength)
+	require.Len(t, long, content.DNS1123LabelMaxLength)
 	require.True(t, strings.HasPrefix(long, "kind-"))
-	require.Empty(t, validation.IsDNS1123Label(long))
+	require.Empty(t, content.IsDNS1123Label(long))
 
 	// A prefix leaving no room for the hash gets shortened.
 	tooLongPrefix := DNSLengthName(
-		strings.Repeat("p", validation.DNS1123LabelMaxLength), "%s", strings.Repeat("n", 100),
+		strings.Repeat("p", content.DNS1123LabelMaxLength), "%s", strings.Repeat("n", 100),
 	)
-	require.Len(t, tooLongPrefix, validation.DNS1123LabelMaxLength)
+	require.Len(t, tooLongPrefix, content.DNS1123LabelMaxLength)
 	require.True(t, strings.HasPrefix(
-		tooLongPrefix, strings.Repeat("p", validation.DNS1123LabelMaxLength-1-dnsMinHashLen)+"-",
+		tooLongPrefix, strings.Repeat("p", content.DNS1123LabelMaxLength-1-dnsMinHashLen)+"-",
 	))
-	require.Empty(t, validation.IsDNS1123Label(tooLongPrefix))
+	require.Empty(t, content.IsDNS1123Label(tooLongPrefix))
 }
 
 func TestNodeNameLabelValue(t *testing.T) {
 	t.Parallel()
 
-	short := strings.Repeat("n", validation.LabelValueMaxLength)
+	short := strings.Repeat("n", content.LabelValueMaxLength)
 	require.Equal(t, short, NodeNameLabelValue(short))
 
 	long := "node-" + strings.Repeat("a", 100) + ".example.com"
 	hashed := NodeNameLabelValue(long)
-	require.Len(t, hashed, validation.LabelValueMaxLength)
+	require.Len(t, hashed, content.LabelValueMaxLength)
 	require.True(t, strings.HasPrefix(hashed, long[:nodeLabelHashPrefixLen]+"-"))
-	require.Empty(t, validation.IsValidLabelValue(hashed))
+	require.Empty(t, content.IsLabelValue(hashed))
 	require.Equal(t, hashed, NodeNameLabelValue(long))
 
 	// Names which only differ after the kept prefix stay apart.

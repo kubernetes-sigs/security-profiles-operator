@@ -47,35 +47,39 @@ var fuzzProfileSeeds = []fuzzProfileInput{
 	{name: "/path/to/my/profile"},
 	{name: "my profile"},
 	{name: "profile\n  audit network inet,"},
-	{readOnly: "/proc/@{pid}/cgroup\x00/@{HOME}/.bashrc"},
-	{readOnly: "/var/log/**\x00/etc/nginx/conf.d/*.conf\x00/lib/tls/i686/cmov/lib*.so?"},
-	{readOnly: "/opt/my-app/v1.2+3/run_app\x00/My Documents/test file"},
+	{name: "variables", readOnly: "/proc/@{pid}/cgroup\x00/@{HOME}/.bashrc"},
 	{
+		name:     "globs",
+		readOnly: "/var/log/**\x00/etc/nginx/conf.d/*.conf\x00/lib/tls/i686/cmov/lib*.so?",
+	},
+	{name: "special-characters", readOnly: "/opt/my-app/v1.2+3/run_app\x00/My Documents/test file"},
+	{
+		name:        "spaces",
 		executables: "/opt/my app/bin", libraries: "/opt/my app/lib.so",
 		readOnly: "/My Documents/test file\x00/etc/passwd", writeOnly: "/var/log/my app.log",
 		readWrite: "/tmp/@{pid}/a b/*",
 	},
-	{readOnly: "/"},
+	{name: "root", readOnly: "/"},
 	{name: "PtraceEnforce", readOnly: "ptrace (read),\x00/etc/passwd", writeOnly: "ptrace (Read),"},
 	{name: "PtraceComplain", readWrite: "ptrace (readby),  # comment", complain: true},
-	{readOnly: "ptrace (everything),"},
-	{executables: "ptrace (read),"},
-	{readOnly: "ptrace (read) /etc/shadow r,"},
-	{readOnly: "usr/bin/nginx"},
-	{readOnly: `/etc/"passwd"`},
-	{readOnly: "/usr/bin/$(whoami)"},
-	{readOnly: "/usr/bin/nginx, /etc/passwd"},
-	{readOnly: "/usr/bin/nginx ; rm -rf /"},
-	{executables: "/usr/bin/nginx"},
-	{libraries: "/lib/x86_64-linux-gnu/**"},
-	{executables: "/var/log/app.log\n  audit network inet,"},
-	{libraries: `/var/log/"app".log`},
-	{executables: "/usr/bin/../etc/shadow"},
-	{capabilities: "chown"},
-	{capabilities: "DAC_OVERRIDE"},
-	{capabilities: "CAP_CHOWN"},
-	{capabilities: "chown, net_admin"},
-	{capabilities: "audit"},
+	{name: "ptrace-unknown-access", readOnly: "ptrace (everything),"},
+	{name: "ptrace-executable", executables: "ptrace (read),"},
+	{name: "ptrace-injection", readOnly: "ptrace (read) /etc/shadow r,"},
+	{name: "relative-path", readOnly: "usr/bin/nginx"},
+	{name: "quoted-path", readOnly: `/etc/"passwd"`},
+	{name: "command-substitution", readOnly: "/usr/bin/$(whoami)"},
+	{name: "two-rules", readOnly: "/usr/bin/nginx, /etc/passwd"},
+	{name: "shell-command", readOnly: "/usr/bin/nginx ; rm -rf /"},
+	{name: "executable", executables: "/usr/bin/nginx"},
+	{name: "libraries", libraries: "/lib/x86_64-linux-gnu/**"},
+	{name: "executable-newline", executables: "/var/log/app.log\n  audit network inet,"},
+	{name: "quoted-library", libraries: `/var/log/"app".log`},
+	{name: "dot-dot", executables: "/usr/bin/../etc/shadow"},
+	{name: "lowercase-capability", capabilities: "chown"},
+	{name: "capability", capabilities: "DAC_OVERRIDE"},
+	{name: "prefixed-capability", capabilities: "CAP_CHOWN"},
+	{name: "capability-list", capabilities: "chown, net_admin"},
+	{name: "unknown-capability", capabilities: "audit"},
 	{name: "net", raw: true, tcp: true, udp: true},
 	{name: "net-deny", tcp: true},
 	{name: "brace", readOnly: "/a/{b}/c"},
@@ -277,12 +281,9 @@ func TestGenerateProfileApparmorParser(t *testing.T) {
 
 	for i := range fuzzProfileSeeds {
 		in := fuzzProfileSeeds[i]
-		if in.name == "" || strings.HasPrefix(in.name, "/") {
-			// The seeds without a name test their rules, and an empty name
-			// is rejected before anything gets rendered, see
-			// TestGenerateProfileRejectsEmptyName. A path name is attached
-			// by path and only makes sense for spoc.
-			in.name = "fuzz-seed"
+		if strings.HasPrefix(in.name, "/") {
+			// A path name is attached by path and only makes sense for spoc.
+			in.name = "path-name"
 		}
 
 		profile, err := GenerateProfile(in.name, in.mode(), in.abstract())
