@@ -48,6 +48,15 @@ type containerKeys struct {
 	byKey           map[uint64]string
 	byContainer     map[string]map[uint64]struct{}
 	maxPerContainer int
+
+	// mntnsByKey is the mount namespace of the process which reported a key,
+	// if known. A key equals its mount namespace only without unique keys,
+	// see get_key in recorder.bpf.c.
+	mntnsByKey map[uint64]uint32
+
+	// reported holds the keys whose mount namespace got reported for the
+	// profile of their container, see SetReported and TakeUnreported.
+	reported map[uint64]struct{}
 }
 
 func newContainerKeys(maxPerContainer int) *containerKeys {
@@ -55,6 +64,8 @@ func newContainerKeys(maxPerContainer int) *containerKeys {
 		byKey:           map[uint64]string{},
 		byContainer:     map[string]map[uint64]struct{}{},
 		maxPerContainer: maxPerContainer,
+		mntnsByKey:      map[uint64]uint32{},
+		reported:        map[uint64]struct{}{},
 	}
 }
 
@@ -64,6 +75,26 @@ func (c *containerKeys) Insert(key uint64, containerID string) bool {
 	c.l.Lock()
 	defer c.l.Unlock()
 
+	return c.insert(key, containerID)
+}
+
+// InsertWithMntns is Insert, and also remembers the mount namespace of the
+// process which reported the key, see MountNamespaces.
+func (c *containerKeys) InsertWithMntns(key uint64, mntns uint32, containerID string) bool {
+	c.l.Lock()
+	defer c.l.Unlock()
+
+	if !c.insert(key, containerID) {
+		return false
+	}
+
+	c.mntnsByKey[key] = mntns
+
+	return true
+}
+
+// insert is Insert for callers holding the lock.
+func (c *containerKeys) insert(key uint64, containerID string) bool {
 	keys, ok := c.byContainer[containerID]
 	if _, owned := keys[key]; owned {
 		return true
@@ -93,6 +124,8 @@ func (c *containerKeys) Insert(key uint64, containerID string) bool {
 func (c *containerKeys) removeKeyFrom(containerID string, key uint64) {
 	keys := c.byContainer[containerID]
 	delete(keys, key)
+	delete(c.mntnsByKey, key)
+	delete(c.reported, key)
 
 	if len(keys) == 0 {
 		delete(c.byContainer, containerID)
@@ -115,6 +148,52 @@ func (c *containerKeys) Keys(containerID string) []uint64 {
 	defer c.l.RUnlock()
 
 	return slices.Sorted(maps.Keys(c.byContainer[containerID]))
+}
+
+// SetReported marks whether the mount namespace of key got reported for the
+// profile of its container. It does nothing for an unknown key.
+func (c *containerKeys) SetReported(key uint64, reported bool) {
+	c.l.Lock()
+	defer c.l.Unlock()
+
+	if _, ok := c.byKey[key]; !ok {
+		return
+	}
+
+	if reported {
+		c.reported[key] = struct{}{}
+	} else {
+		delete(c.reported, key)
+	}
+}
+
+// TakeUnreported marks the keys of containerID with a known mount namespace
+// as reported, and returns the sorted mount namespaces of the ones which were
+// not reported before.
+func (c *containerKeys) TakeUnreported(containerID string) []uint32 {
+	c.l.Lock()
+	defer c.l.Unlock()
+
+	mntns := []uint32{}
+
+	for key := range c.byContainer[containerID] {
+		ns, ok := c.mntnsByKey[key]
+		if !ok {
+			continue
+		}
+
+		if _, reported := c.reported[key]; reported {
+			continue
+		}
+
+		c.reported[key] = struct{}{}
+
+		mntns = append(mntns, ns)
+	}
+
+	slices.Sort(mntns)
+
+	return slices.Compact(mntns)
 }
 
 // KeysOf returns the sorted keys of all containerIDs.
@@ -171,6 +250,8 @@ func (c *containerKeys) DeleteContainer(containerID string) {
 
 	for key := range c.byContainer[containerID] {
 		delete(c.byKey, key)
+		delete(c.mntnsByKey, key)
+		delete(c.reported, key)
 	}
 
 	delete(c.byContainer, containerID)
@@ -183,6 +264,8 @@ func (c *containerKeys) Clear() {
 
 	clear(c.byKey)
 	clear(c.byContainer)
+	clear(c.mntnsByKey)
+	clear(c.reported)
 }
 
 // Containers returns the containers which own a key.

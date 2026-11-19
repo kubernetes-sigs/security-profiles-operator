@@ -121,6 +121,48 @@ func TestContainerKeysLimitsKeysPerContainer(t *testing.T) {
 	require.Equal(t, []uint64{2, 4}, sut.Keys("a"))
 }
 
+// TestContainerKeysTakeUnreported asserts that the mount namespace of every
+// key gets reported once, that a claimed key is left out, and that the state
+// goes with the key.
+func TestContainerKeysTakeUnreported(t *testing.T) {
+	t.Parallel()
+
+	sut := newContainerKeys(4)
+
+	require.True(t, sut.InsertWithMntns(3, 30, "a"))
+	require.True(t, sut.InsertWithMntns(1, 10, "a"))
+	require.True(t, sut.InsertWithMntns(2, 10, "a"))
+	require.True(t, sut.Insert(4, "a"))
+	require.False(t, sut.InsertWithMntns(5, 50, "a"), "over the limit")
+
+	// A key claimed by the process which reports it itself is left out.
+	sut.SetReported(3, true)
+	require.Equal(t, []uint32{10}, sut.TakeUnreported("a"))
+	require.Empty(t, sut.TakeUnreported("a"), "reported once")
+
+	// A claim given up by a failed lookup gets reported later.
+	sut.SetReported(3, false)
+	require.Equal(t, []uint32{30}, sut.TakeUnreported("a"))
+
+	// A key reused by another container is unreported there.
+	require.True(t, sut.InsertWithMntns(3, 31, "b"))
+	require.Equal(t, []uint32{31}, sut.TakeUnreported("b"))
+
+	sut.SetReported(42, true)
+	require.NotContains(t, sut.reported, uint64(42), "unknown key")
+
+	sut.Delete(1)
+	require.NotContains(t, sut.reported, uint64(1))
+
+	sut.DeleteContainer("a")
+	require.NotContains(t, sut.reported, uint64(2))
+	require.Empty(t, sut.TakeUnreported("a"))
+
+	sut.Clear()
+	require.Empty(t, sut.reported)
+	require.Empty(t, sut.mntnsByKey)
+}
+
 // Size returns the number of known keys.
 func (c *containerKeys) Size() int {
 	c.l.RLock()

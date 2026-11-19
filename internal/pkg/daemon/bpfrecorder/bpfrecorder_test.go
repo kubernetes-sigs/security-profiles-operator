@@ -1456,7 +1456,7 @@ func TestForgetStaleLookupKeepsCurrentRecording(t *testing.T) {
 	sut.containersNotFound.Set("other-container", struct{}{}, ttlcache.DefaultTTL)
 
 	// A handler of the current recording registered the same container.
-	inserted, current := sut.insertKey(7, containerID, sut.recordingGeneration.Load())
+	inserted, current := sut.insertKey(7, 7, containerID, sut.recordingGeneration.Load())
 	require.True(t, inserted)
 	require.True(t, current)
 
@@ -1509,7 +1509,7 @@ func TestDeleteKeyKeepsKeyOfNextRecording(t *testing.T) {
 
 	require.NoError(t, sut.StopRecording())
 
-	inserted, current := sut.insertKey(7, "container-id", sut.recordingGeneration.Load())
+	inserted, current := sut.insertKey(7, 7, "container-id", sut.recordingGeneration.Load())
 	require.True(t, inserted)
 	require.True(t, current)
 
