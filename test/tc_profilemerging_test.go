@@ -102,8 +102,7 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 const selinuxMergingTrigger = "exec 3<>/dev/tcp/localhost/8080 && sleep 5"
 
 func (e *e2e) testSelinuxLogsProfileMerging() {
-	e.logEnricherOnlyTestCase()
-	e.selinuxOnlyTestCase()
+	e.selinuxLogEnricherOnlyTestCase()
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
@@ -119,8 +118,7 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 }
 
 func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
-	e.logEnricherOnlyTestCase()
-	e.selinuxOnlyTestCase()
+	e.selinuxLogEnricherOnlyTestCase()
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()

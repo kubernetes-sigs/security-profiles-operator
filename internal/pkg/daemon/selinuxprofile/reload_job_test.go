@@ -26,14 +26,15 @@ import (
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 )
 
 func TestCreatePolicyReloadJob(t *testing.T) {
@@ -87,7 +88,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 		neededSince     time.Time
 		kind            *reloadKind
 		podOnlyInReader bool
-		wantErr         bool
+		wantErr         error
 		wantJobCreated  bool
 		wantState       reloadJobState
 		wantJobDeleted  string
@@ -99,7 +100,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			namespace:      testNamespace,
 			policyName:     "test-policy",
 			existingObjs:   nil,
-			wantErr:        false,
 			wantJobCreated: true,
 		},
 		{
@@ -109,7 +109,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			policyName:      "test-policy",
 			existingObjs:    nil,
 			podOnlyInReader: true,
-			wantErr:         false,
 			wantJobCreated:  true,
 		},
 		{
@@ -222,7 +221,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					testNodeName, "test-policy", testAction, 0, 0,
 				),
 			},
-			wantErr:        false,
 			wantJobCreated: false,
 			wantState:      reloadJobBusy,
 		},
@@ -237,7 +235,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					testNodeName, "test-policy", testAction, 1, 0,
 				),
 			},
-			wantErr:        false,
 			wantJobCreated: true,
 		},
 		{
@@ -254,7 +251,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					1, 0, time.Now().Add(-30*time.Second),
 				),
 			},
-			wantErr:        false,
 			wantJobCreated: true,
 		},
 		{
@@ -268,7 +264,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					testNodeName, "test-policy", testAction, 0, 1,
 				),
 			},
-			wantErr:        false,
 			wantJobCreated: false,
 			wantState:      reloadJobBusy,
 		},
@@ -283,7 +278,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					testNodeName, "test-policy", testAction, 0, 4,
 				), batchv1.JobFailed),
 			},
-			wantErr:        false,
 			wantJobCreated: true,
 		},
 		{
@@ -349,7 +343,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			namespace:      testNamespace,
 			policyName:     "test-policy",
 			existingObjs:   nil,
-			wantErr:        true,
+			wantErr:        nodestatus.ErrNoNodeName,
 			wantJobCreated: false,
 		},
 	}
@@ -378,9 +372,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			// The dedup List goes through the uncached API reader, which in a
 			// real cluster serves the same objects as the cached client.
 			readerObjs := copies(append([]runtime.Object{testPod}, tt.existingObjs...)...)
-			if tt.nodeName == "" {
-				readerObjs = nil
-			}
 
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(schemeInstance).
@@ -410,8 +401,12 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				tt.neededSince, logger,
 			)
 
-			if tt.wantErr {
-				require.Error(t, err)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				jobs := &batchv1.JobList{}
+				require.NoError(t, fakeClient.List(context.Background(), jobs))
+				require.Len(t, jobs.Items, len(tt.existingObjs))
 
 				return
 			}
@@ -575,13 +570,13 @@ func TestNewReloadJob(t *testing.T) {
 	require.Equal(t, "remove", job.Labels[reloadJobLabelAction])
 	require.Equal(t, "3", job.Labels[reloadJobLabelGeneration])
 	require.Equal(t, string(testUID), job.Labels[reloadJobLabelProfileUID])
-	require.Empty(t, validation.IsValidLabelValue(job.Labels[reloadJobLabelProfileUID]))
+	require.Empty(t, content.IsLabelValue(job.Labels[reloadJobLabelProfileUID]))
 	require.NotContains(t, job.Labels, reloadJobLabelPolicyHash)
 
 	hash := policyHash("(blockinherit container)")
 	installJob := newReloadJob("ns", "node-1", "policy", "install", testUID, 3, hash, pod, selinuxd)
 	require.Equal(t, hash, installJob.Labels[reloadJobLabelPolicyHash])
-	require.Empty(t, validation.IsValidLabelValue(hash))
+	require.Empty(t, content.IsLabelValue(hash))
 	require.Equal(t, reloadJobTTL, *job.Spec.TTLSecondsAfterFinished)
 	require.Equal(t, reloadJobDeadline, *job.Spec.ActiveDeadlineSeconds)
 
@@ -682,7 +677,7 @@ func TestCreatePolicyReloadJobNames(t *testing.T) {
 
 	for i := range jobs.Items {
 		job := &jobs.Items[i]
-		require.Empty(t, validation.IsDNS1123Subdomain(job.Name), job.Name)
+		require.Empty(t, content.IsDNS1123Subdomain(job.Name), job.Name)
 		require.True(t, strings.HasPrefix(job.Name, reloadJobNamePrefix), job.Name)
 		require.NotNil(t, job.Spec.ActiveDeadlineSeconds)
 	}
@@ -719,7 +714,7 @@ func TestAsLabelValue(t *testing.T) {
 		require.Len(t, got, maxLen)
 		require.True(t, strings.HasPrefix(got, "a"))
 
-		errs := validation.IsValidLabelValue(got)
+		errs := content.IsLabelValue(got)
 		require.Empty(t, errs)
 	})
 

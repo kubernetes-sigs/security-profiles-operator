@@ -28,7 +28,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -477,6 +476,9 @@ func TestReconcileWaitsForInheritedProfile(t *testing.T) {
 	}, status))
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
 
+	policyFile := filepath.Join(f.r.policyDir, testReconcileProfile+".cil")
+	require.NoFileExists(t, policyFile)
+
 	// Once the ancestor is installed on the node, the installation proceeds.
 	ns, err := nodestatus.NewForProfileOnNode(ancestor, f.client, testReconcileNode)
 	require.NoError(t, err)
@@ -487,13 +489,9 @@ func TestReconcileWaitsForInheritedProfile(t *testing.T) {
 		ns.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
 	)
 
-	installed, err := f.r.inheritedProfilesInstalled(
-		context.Background(), &inheritingFakeHandler{
-			ancestors: []selinuxprofileapi.SelinuxProfileObject{ancestor},
-		}, logr.Discard(),
-	)
+	_, err = f.r.Reconcile(context.Background(), f.request)
 	require.NoError(t, err)
-	require.True(t, installed)
+	require.FileExists(t, policyFile)
 }
 
 func TestReconcileDisabledProfileIsSkipped(t *testing.T) {

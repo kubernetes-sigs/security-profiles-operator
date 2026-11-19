@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -283,7 +283,7 @@ func TestGetFinalizerNodeString(t *testing.T) {
 	t.Parallel()
 
 	longName := strings.Repeat("n", 200)
-	maxFitting := strings.Repeat("n", validation.DNS1123LabelMaxLength-len(nodeFinalizerSuffix))
+	maxFitting := strings.Repeat("n", content.DNS1123LabelMaxLength-len(nodeFinalizerSuffix))
 
 	t.Run("short node names are used as is", func(t *testing.T) {
 		t.Parallel()
@@ -296,10 +296,10 @@ func TestGetFinalizerNodeString(t *testing.T) {
 		t.Parallel()
 
 		got := GetFinalizerNodeString(longName)
-		require.Len(t, got, validation.DNS1123LabelMaxLength)
+		require.Len(t, got, content.DNS1123LabelMaxLength)
 		require.True(t, strings.HasSuffix(got, nodeFinalizerSuffix))
 		require.True(t, strings.HasPrefix(got, longName[:nodeFinalizerHashPrefixLen]+"-"))
-		require.Empty(t, validation.IsQualifiedName(got))
+		require.Empty(t, content.IsLabelKey(got))
 		require.Equal(t, got, GetFinalizerNodeString(longName), "shortening is deterministic")
 	})
 
@@ -307,7 +307,7 @@ func TestGetFinalizerNodeString(t *testing.T) {
 		t.Parallel()
 
 		got := GetFinalizerNodeString(maxFitting)
-		require.Len(t, got, validation.DNS1123LabelMaxLength)
+		require.Len(t, got, content.DNS1123LabelMaxLength)
 		require.Equal(t, maxFitting+nodeFinalizerSuffix, got)
 		require.Empty(t, GetLegacyFinalizerNodeString(maxFitting))
 	})
@@ -330,7 +330,7 @@ func TestGetFinalizerNodeString(t *testing.T) {
 		t.Parallel()
 
 		got := GetLegacyFinalizerNodeString(longName)
-		require.Len(t, got, validation.DNS1123LabelMaxLength)
+		require.Len(t, got, content.DNS1123LabelMaxLength)
 		require.Equal(t, strings.Repeat("n", 55)+nodeFinalizerSuffix, got)
 		require.NotEqual(t, got, GetFinalizerNodeString(longName))
 	})
@@ -340,7 +340,7 @@ func TestGetFinalizerNodeString(t *testing.T) {
 
 		name := "worker-01.region-" + strings.Repeat("a", 60) + ".example.com"
 		got := GetFinalizerNodeString(name)
-		require.Len(t, got, validation.DNS1123LabelMaxLength)
-		require.Empty(t, validation.IsQualifiedName(got))
+		require.Len(t, got, content.DNS1123LabelMaxLength)
+		require.Empty(t, content.IsLabelKey(got))
 	})
 }

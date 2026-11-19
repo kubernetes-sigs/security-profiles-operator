@@ -70,19 +70,26 @@ func testNodeStatus(
 	return nsc
 }
 
-// statusGetFn returns a Get interceptor that reports a node status in the
-// provided state and leaves all other objects untouched.
+// statusGetFn returns a Get interceptor that reports a node status with the
+// requested name in the provided state and leaves all other objects
+// untouched.
 func statusGetFn(state secprofnodestatusapi.ProfileState) func(
 	context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption,
 ) error {
-	return utiltest.GetReturns(nil, func(obj client.Object) {
+	return func(
+		_ context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object,
+		_ ...client.GetOption,
+	) error {
 		if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+			ns.Name = key.Name
 			ns.Status.Status = state
 			ns.Labels = map[string]string{
 				secprofnodestatusapi.StatusStateLabel: string(state),
 			}
 		}
-	})
+
+		return nil
+	}
 }
 
 func TestReconcileDeletion(t *testing.T) {
@@ -90,6 +97,11 @@ func TestReconcileDeletion(t *testing.T) {
 
 	errTest := errors.New("test error")
 	finalizer := util.GetFinalizerNodeString(testNodeName)
+
+	// The writes of the case which sets the status to terminating, which no
+	// other case shares. The fake client calls the interceptors in the
+	// goroutine of the sub test.
+	var terminatingPatch, deletedStatus string
 
 	cases := []struct {
 		name           string
@@ -100,6 +112,7 @@ func TestReconcileDeletion(t *testing.T) {
 		wantErr        bool
 		wantIncError   bool
 		wantHandled    bool
+		assert         func(t *testing.T)
 	}{
 		{
 			name:    "NoFinalizer_NothingToDo",
@@ -115,13 +128,45 @@ func TestReconcileDeletion(t *testing.T) {
 			name:    "StatusExistsNotTerminating_SetsTerminatingAndDeletes",
 			profile: testProfile(finalizer),
 			funcs: interceptor.Funcs{
-				Get:              statusGetFn(secprofnodestatusapi.ProfileStatePending),
-				Patch:            utiltest.PatchReturns(nil),
-				SubResourcePatch: utiltest.SubResourcePatchReturns(nil),
-				Delete:           utiltest.DeleteReturns(nil),
+				Get:   statusGetFn(secprofnodestatusapi.ProfileStatePending),
+				Patch: utiltest.PatchReturns(nil),
+				SubResourcePatch: func(
+					_ context.Context, _ client.Client, _ string, obj client.Object,
+					patch client.Patch, _ ...client.SubResourcePatchOption,
+				) error {
+					data, err := patch.Data(obj)
+					if err != nil {
+						return err
+					}
+
+					terminatingPatch = string(data)
+
+					return nil
+				},
+				Delete: func(
+					_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.DeleteOption,
+				) error {
+					if _, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+						deletedStatus = obj.GetName()
+					}
+
+					return nil
+				},
 			},
 			wantResult:  reconcile.Result{},
 			wantHandled: true,
+			assert: func(t *testing.T) {
+				t.Helper()
+
+				require.Contains(
+					t,
+					terminatingPatch,
+					string(secprofnodestatusapi.ProfileStateTerminating),
+					"the status must be patched",
+				)
+				require.Equal(t, "seccompprofile-test-profile-"+testNodeName, deletedStatus,
+					"the node status of the profile must be deleted")
+			},
 		},
 		{
 			name:    "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
@@ -244,6 +289,10 @@ func TestReconcileDeletion(t *testing.T) {
 			require.Equal(t, tc.wantResult, gotResult)
 			require.Equal(t, tc.wantIncError, incErrorCalled)
 			require.Equal(t, tc.wantHandled, handled)
+
+			if tc.assert != nil {
+				tc.assert(t)
+			}
 		})
 	}
 }

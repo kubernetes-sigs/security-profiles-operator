@@ -177,22 +177,23 @@ broken version bump gets fixed before the release is tagged: the fix leaves
 `VERSION` alone, so it needs `/override pull-security-profiles-operator-verify`.
 
 The script creates the signed, annotated tag `vx.y.z` for the version in the
-[`VERSION`](../VERSION) file, which needs a git signing key
-(`user.signingkey`, GPG or SSH with `gpg.format=ssh`), and verifies it with
-`git verify-tag`. It installs `crane` with `go install`, so it needs Go, and
-refuses to run with an `SPO_REPOSITORY_URL` of a
-[rehearsal](#rehearsing-the-release-artifacts-job) left in the environment. It refuses to tag a development version, a dirty tree or an
-existing tag, and pushes nothing. It also refuses to tag a commit whose images
-the `vx.y.z` staging tags don't point to: with `crane`, it compares the
-digests of the `vx.y.z` tag and of the tag of the commit, which ends with
-`-g<abbreviated commit>`, of the manifest list, every per-arch image, the
-bundle and the catalog. Staging builds of two commits with the same `VERSION`
-can run at the same time, and until the release is tagged, they move the
-`vx.y.z` tags of the per-arch images, the bundle and the catalog one by one, so
-the tags can end up on the images of both. Then rerun the
-`post-security-profiles-operator-push-image` job of the commit to tag, which
-pushes the same images and sets all its tags again. Check the signature once
-more and push the tag right away to
+[`VERSION`](../VERSION) file, which needs a git signing key (`user.signingkey`,
+GPG or SSH with `gpg.format=ssh`), and verifies it with `git verify-tag`. It
+installs `crane` with `go install`, so it needs Go, and like the other release
+scripts, refuses to run with an `SPO_REPOSITORY_URL` other than the upstream
+one, like the one of a [rehearsal](#rehearsing-the-release-artifacts-job) left
+in the environment, unless `SIGN=false` is set as well. It refuses to tag a
+development version, a dirty tree or an existing tag, and pushes nothing. It
+also refuses to tag a commit whose images the `vx.y.z` staging tags don't point
+to: with `crane`, it compares the digests of the `vx.y.z` tag and of the tag of
+the commit, which ends with `-g<abbreviated commit>`, of the manifest list,
+every per-arch image, the bundle and the catalog. Staging builds of two commits
+with the same `VERSION` can run at the same time, and until the release is
+tagged, they move the `vx.y.z` tags of the per-arch images, the bundle and the
+catalog one by one, so the tags can end up on the images of both. Then rerun
+the `post-security-profiles-operator-push-image` job of the commit to tag,
+which pushes the same images and sets all its tags again. Check the signature
+once more and push the tag right away to
 `kubernetes-sigs/security-profiles-operator`, while no other staging build of
 the same `VERSION` runs:
 
@@ -517,19 +518,18 @@ don't use it.
 
 ## Security profiles
 
-The base profiles and the `seccomp-test-profiles` are published from `main`
-and promoted between releases, see [base profiles](release-baseprofiles.md).
-Their digests only depend on the profiles, since spoc writes no creation time
-into the manifests, so the `profiles` job of the
-[`build`](../.github/workflows/build.yml) workflow publishes them like the
+The base profiles and the `seccomp-test-profiles` are published from `main` and
+promoted between releases, see [base profiles](release-baseprofiles.md). Their
+digests only depend on the profiles, since spoc writes a fixed creation time
+into the manifests unless `SOURCE_DATE_EPOCH` is set, so the `profiles` job of
+the [`build`](../.github/workflows/build.yml) workflow publishes them like the
 staging build does, with spoc built from the commit, to a throwaway registry,
 without OIDC token and write access. For every push to `main`, the isolated
 [`provenance`](../.github/workflows/provenance.yml) workflow attests their
-digests at SLSA Build L3, named after their repository
-and tag, for example `base/runc:v<version>`, and stores the provenance as
-artifact attestation of the repository. Releases need no provenance of their
-own for the profiles: a release is tagged on a commit of `main`, whose push
-attested them already.
+digests at SLSA Build L3, named after their repository and tag, for example
+`base/runc:v<version>`, and stores the provenance as artifact attestation of
+the repository. Releases need no provenance of their own for the profiles: a
+release is tagged on a commit of `main`, whose push attested them already.
 
 In its last step, after everything else got published and attested, the
 staging build fetches that provenance by digest from the attestation API of
@@ -847,11 +847,11 @@ The attestations are:
   repository and ref with the built commit, `config` the Cloud Build
   configuration and `tag` the image tag. `resolvedDependencies` lists the
   source and what else went into the artifact: the image the binaries are
-  built in, the nixpkgs revision and the BuildKit image that builds them for
-  the per-arch images, the opm release binary that renders the catalog, the
-  opm image it is built on and the bundle for the catalog, the helm release
-  archive for the chart, and the `spoc` binary, with the image it was copied
-  from, for the profiles.
+  built in and the nixpkgs revision for the per-arch images, the BuildKit
+  image that builds the per-arch images, the bundle and the catalog, the opm
+  release binary that renders the catalog, the opm image it is built on and
+  the bundle for the catalog, the helm release archive for the chart, and the
+  `spoc` binary, with the image it was copied from, for the profiles.
   `internalParameters` names the Cloud Build project and service account,
   `runDetails.metadata.invocationId` links to the build. The build writes and
   signs the provenance itself, which makes it SLSA Build L1, so

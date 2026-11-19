@@ -24,8 +24,8 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -76,15 +76,15 @@ const dnsMinHashLen = 16
 // status objects and their labels, so changing the threshold would orphan
 // the statuses of every profile whose friendly name has exactly that length.
 func DNSLengthName(hashPrefix, format string, a ...any) string {
-	const maxPrefixLen = validation.DNS1123LabelMaxLength - 1 - dnsMinHashLen
+	const maxPrefixLen = content.DNS1123LabelMaxLength - 1 - dnsMinHashLen
 
 	friendlyName := fmt.Sprintf(format, a...)
-	if len(friendlyName) < validation.DNS1123LabelMaxLength {
+	if len(friendlyName) < content.DNS1123LabelMaxLength {
 		return friendlyName
 	}
 
 	return withHash(
-		validation.DNS1123LabelMaxLength,
+		content.DNS1123LabelMaxLength,
 		hashPrefix[:min(len(hashPrefix), maxPrefixLen)],
 		friendlyName,
 	)
@@ -193,16 +193,16 @@ const nodeLabelHashPrefixLen = 16
 // them. Shorter node names are returned as is, so that existing label values
 // do not change.
 func NodeNameLabelValue(nodeName string) string {
-	if len(nodeName) <= validation.LabelValueMaxLength {
+	if len(nodeName) <= content.LabelValueMaxLength {
 		return nodeName
 	}
 
 	hashed, err := hashedName(
-		validation.LabelValueMaxLength, nodeName[:nodeLabelHashPrefixLen], nodeName,
+		content.LabelValueMaxLength, nodeName[:nodeLabelHashPrefixLen], nodeName,
 	)
 	if err != nil {
 		// Cannot happen: the prefix leaves room for the hash.
-		return nodeName[:validation.LabelValueMaxLength]
+		return nodeName[:content.LabelValueMaxLength]
 	}
 
 	return hashed

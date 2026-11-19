@@ -640,12 +640,16 @@ by one of the identities which publish them:
 That applies as long as the allowed identity and issuer regexps are left at
 their default `.*`: `spoc pull` without `--allowed-identity-regexp` and
 `--allowed-oidc-issuer-regexp`, and the SPOD without
-`spec.security.allowedIdentityRegexp` and `allowedOidcIssuerRegexp`. Any
-other value is used as given, for all registries. Profiles from other
-registries are verified against the configured regexps, and with the default
-`.*` any valid signature is accepted, which only proves that somebody signed
-the profile. `spoc pull` and the daemon log a warning then. To verify the
-official profiles explicitly:
+`spec.security.allowedIdentityRegexp` and `allowedOidcIssuerRegexp`. Any other
+value is used as given, for all registries. `spoc pull --key` verifies against
+the public key instead of the official signers, and `--certificate-identity`
+or `--certificate-oidc-issuer` replaces only its own half of the official
+signers, the other one stays pinned, see [the spoc
+documentation](cli.md#pull-security-profiles-from-oci-registries). Profiles
+from other registries are verified against the configured regexps, and with
+the default `.*` any valid signature is accepted, which only proves that
+somebody signed the profile. `spoc pull` and the daemon log a warning then. To
+verify the official profiles explicitly:
 
 ```shell
 spoc pull \

@@ -1297,6 +1297,22 @@ func (e *e2e) logEnricherOnlyTestCase() {
 	e.enableLogEnricherInSpod()
 }
 
+// selinuxLogEnricherOnlyTestCase checks both switches before it enables the
+// log enricher and SELinux, so that a skipped test case does not change the
+// SPOD and wait for its rollout first.
+func (e *e2e) selinuxLogEnricherOnlyTestCase() {
+	if !e.logEnricherEnabled {
+		e.T().Skip("Skipping log-enricher related test")
+	}
+
+	if !e.selinuxEnabled {
+		e.T().Skip("Skipping SELinux-related test")
+	}
+
+	e.enableLogEnricherInSpod()
+	e.enableSelinuxInSpod()
+}
+
 // logEnricherBpfOnlyTestCase has its own switch, since the BPF source reports
 // AppArmor audit events only, through a kprobe on aa_audit, so its test case
 // needs nodes with AppArmor enabled.

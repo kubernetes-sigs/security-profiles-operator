@@ -27,17 +27,29 @@ runs, oldest first, this reports:
   failed on their own, like in the setup of the cluster, which no quarantine
   helps against, so they do not fail the check.
 - quarantined test cases, the ones of TestSecurityProfilesOperator_Flaky,
-  which passed on the first try in each of the last --promote-after runs.
-  They are candidates for promotion, see doc/hacking.md.
+  which ran in the newest run and passed on the first try in each of the last
+  --promote-after runs in which they ran. Runs which skipped them or have no
+  report of them do not count, like ones whose job failed without report or
+  skipped the suite on a slow runner. The complete reports of a job which ran
+  a test case before, but which leave it out, count as a failure, like the
+  ones of a test binary which timed out or crashed, unless the test case
+  moved to another job. They are candidates for promotion, see
+  doc/hacking.md.
 
 Each argument is the report of one run, or a directory with the reports of
-one run, like the artifacts of all e2e jobs of a workflow run. The summary is
+one run, like the artifacts of all e2e jobs of a workflow run, one directory
+per job, whose name tells the job. The jobs of a sharded suite end with
+-shard-N-of-M, and the reports of such a job are complete when the run has
+all M of them. Before the total was part of the name, they ended with
+-shard-N, which leaves their completeness unknown: the outcomes in them
+count, a test case missing from them does not. The summary is
 Markdown, for $GITHUB_STEP_SUMMARY. --self-test runs the tests of this
 script against synthetic reports.
 """
 
 import argparse
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -49,6 +61,14 @@ FIRST_TRY = "passed on the first try"
 RETRY = "passed on retry"
 FAILED = "failed"
 SKIPPED = "skipped"
+
+# The suffix of the jobs of a sharded suite, like e2e-kind-shard-2-of-3.
+SHARD_SUFFIX = re.compile(r"-shard-\d+-of-(?P<total>\d+)$")
+# The suffix of the jobs of a sharded suite before the total was part of it.
+LEGACY_SHARD_SUFFIX = re.compile(r"-shard-\d+$")
+
+# The suite method which runs the quarantined test cases.
+QUARANTINE_SUITE_METHOD = "TestSuite" + QUARANTINE_METHOD.rstrip("/")
 
 
 def report_files(path):
@@ -104,33 +124,151 @@ def report_outcomes(report):
     return outcomes
 
 
-def run_outcomes(path):
-    """Returns the outcome of each test case of one run.
+def report_job(report):
+    """Returns the job of a report, the directory it got downloaded to without
+    the shard suffix, and the number of its shards, None if unknown."""
+    name = pathlib.Path(report).parent.name
+    if match := SHARD_SUFFIX.search(name):
+        return name[: match.start()], int(match.group("total"))
+    if match := LEGACY_SHARD_SUFFIX.search(name):
+        return name[: match.start()], None
+    return name, 1
 
-    A run has a report per environment. A test case skipped in one environment
-    keeps the outcome of the others, a failure in any environment wins over a
-    pass on retry, which wins over a pass on the first try.
+
+def reached_quarantine(outcomes):
+    """Reports whether the test binary of a report got to the quarantined test
+    cases: it has one of them, or skipped them all, like a shard without
+    any."""
+    return outcomes.get(QUARANTINE_SUITE_METHOD) == SKIPPED or any(
+        QUARANTINE_METHOD in name for name in outcomes
+    )
+
+
+def run_jobs(path):
+    """Returns the jobs of one run, each with whether its reports are
+    complete, see missing_failed, and the outcomes of its test cases."""
+    reports = {}
+    for report in report_files(path):
+        job, total = report_job(report)
+        reports.setdefault(job, (total, []))[1].append(report_outcomes(report))
+
+    jobs = {}
+    for job, (total, per_report) in reports.items():
+        outcomes = {
+            name: combine([o[name] for o in per_report if name in o])
+            for name in set().union(*per_report)
+        }
+        complete = (
+            total is not None
+            and len(per_report) == total
+            and all(reached_quarantine(o) for o in per_report)
+        )
+        jobs[job] = (complete, outcomes)
+    return jobs
+
+
+def combine(results):
+    """Returns the outcome of a test case from its outcomes in several reports.
+
+    A test case skipped in one report keeps the outcome of the others, a
+    failure in any report wins over a pass on retry, which wins over a pass on
+    the first try.
     """
-    per_report = [report_outcomes(report) for report in report_files(path)]
-    outcomes = {}
-    for name in set().union(*per_report):
-        results = [report[name] for report in per_report if name in report]
-        ran = [result for result in results if result != SKIPPED]
-        if not ran:
-            outcomes[name] = SKIPPED
-        elif FAILED in ran:
-            outcomes[name] = FAILED
-        elif RETRY in ran:
-            outcomes[name] = RETRY
-        else:
-            outcomes[name] = FIRST_TRY
-    return outcomes
+    ran = [result for result in results if result != SKIPPED]
+    if not ran:
+        return SKIPPED
+    if FAILED in ran:
+        return FAILED
+    if RETRY in ran:
+        return RETRY
+    return FIRST_TRY
+
+
+def missing_failed(runs_jobs):
+    """Returns the outcomes of each run, given the jobs of the runs, oldest
+    first.
+
+    A test case which a job ran in an earlier run, but which the complete
+    reports of that job leave out, failed in that run: the test binary timed
+    out or crashed before it got to the test case. A run without complete
+    reports of the job does not change that. A test case which runs in a new
+    job moved there from the jobs whose complete reports of that run leave it
+    out, which do not count anymore, without a failure, neither does a job
+    whose complete reports skip it. The reports of a job are complete
+    when the run has a report of each of its shards, and the test binary of
+    each one got to the quarantined test cases, so that a shard which failed
+    in its setup does not count against them.
+    """
+    # The jobs which run each test case, as far as the earlier runs tell.
+    ran_by = {}
+    runs = []
+    for jobs in runs_jobs:
+        ran_now = {}
+        for job, (_, job_outcomes) in jobs.items():
+            for name, result in job_outcomes.items():
+                if result != SKIPPED:
+                    ran_now.setdefault(name, set()).add(job)
+
+        outcomes = {}
+        for name in set().union(*(o for _, o in jobs.values())):
+            outcomes[name] = combine([o[name] for _, o in jobs.values() if name in o])
+
+        for name in set(ran_by) | set(ran_now):
+            before, now = ran_by.get(name, set()), ran_now.get(name, set())
+            moved = bool(now - before)
+            kept = set()
+            for job in before:
+                complete, job_outcomes = jobs.get(job, (False, {}))
+                if not complete:
+                    # A run without complete reports of the job does not
+                    # tell whether it still runs the test case.
+                    kept.add(job)
+                elif name not in job_outcomes:
+                    # The test case runs in a new job now, so it moved there
+                    # from the jobs which leave it out. Otherwise the test
+                    # binary of the job timed out or crashed before it.
+                    if not moved:
+                        kept.add(job)
+                        if is_test_case(name):
+                            outcomes[name] = FAILED
+                elif job_outcomes[name] != SKIPPED:
+                    kept.add(job)
+            ran_by[name] = now | kept
+        runs.append(outcomes)
+    return runs
 
 
 def streak(runs, name, outcome, length):
-    """Reports whether the test case had the outcome in the last runs."""
-    last = runs[-length:]
-    return len(last) == length and all(run.get(name) == outcome for run in last)
+    """Reports whether the test case had the outcome in the last runs in which
+    it ran.
+
+    Runs which skipped the test case, or have no report of it, do not count.
+    The test cases of a single environment, like the SELinux ones, would
+    otherwise rarely get a streak, since every run in which their job failed or
+    got skipped breaks it. A complete report which leaves out a test case its
+    job runs counts as a failure, see missing_failed.
+    """
+    ran = [run[name] for run in runs if run.get(name, SKIPPED) != SKIPPED]
+    last = ran[-length:]
+    return len(last) == length and all(result == outcome for result in last)
+
+
+def promotable(runs, name, length):
+    """Reports whether the quarantined test case passed on the first try in
+    the last runs which ran it.
+
+    It has to have run in the newest run as well, which leaves out a test case
+    whose job uploaded no report in the newest run, although the other jobs
+    list it as skipped, and one which got promoted, renamed or deleted since,
+    which the newest run does not have under its name anymore, or fails in it,
+    see missing_failed.
+    """
+    return (
+        QUARANTINE_METHOD in name
+        and bool(runs)
+        and runs[-1].get(name) not in (None, SKIPPED)
+        and streak(runs, name, FIRST_TRY, length)
+    )
 
 
 def is_test_case(name):
@@ -178,11 +316,120 @@ class SelfTest(unittest.TestCase):
     """Tests of the outcome calculation with synthetic reports."""
 
     def outcomes(self, *reports):
-        """Returns the run outcomes of one report per environment."""
+        """Returns the outcomes of a run with one job and report per
+        environment."""
+        return self.runs({f"env-{i}": report for i, report in enumerate(reports)})[0]
+
+    def runs(self, *runs):
+        """Returns the outcomes of runs, each a map of job directories to
+        their reports."""
+        jobs = []
         with tempfile.TemporaryDirectory() as tmp:
-            for i, report in enumerate(reports):
-                pathlib.Path(tmp, f"env-{i}.xml").write_text(report)
-            return run_outcomes(tmp)
+            for i, run in enumerate(runs):
+                for job, report in run.items():
+                    path = pathlib.Path(tmp, str(i), job)
+                    path.mkdir(parents=True)
+                    pathlib.Path(path, "junit-flaky-e2e.xml").write_text(report)
+                jobs.append(run_jobs(pathlib.Path(tmp, str(i))))
+        return missing_failed(jobs)
+
+    def test_missing_from_complete_report(self):
+        flaky = "TestSuite" + QUARANTINE_METHOD
+        a, b = flaky + "a", flaky + "b"
+        both = junit((a, FIRST_TRY), (b, FIRST_TRY))
+        # The test binary timed out in a and never got to b.
+        timed_out = junit((a, FAILED))
+        skipped = junit((a, SKIPPED), (b, SKIPPED))
+        runs = self.runs(
+            {"e2e-vm": both, "e2e-kind": skipped},
+            {"e2e-vm": timed_out, "e2e-kind": skipped},
+            # The job uploaded no report.
+            {"e2e-kind": skipped},
+            # The job failed in its setup, before the quarantined test cases.
+            {"e2e-vm": junit(("TestSuite", FAILED)), "e2e-kind": skipped},
+        )
+        self.assertEqual([run.get(b) for run in runs], [FIRST_TRY, FAILED, SKIPPED, SKIPPED])
+
+    def test_missing_shard(self):
+        flaky = "TestSuite" + QUARANTINE_METHOD
+        a, b = flaky + "a", flaky + "b"
+        one, two = "e2e-kind-shard-1-of-2", "e2e-kind-shard-2-of-2"
+        runs = self.runs(
+            {one: junit((a, FIRST_TRY)), two: junit((b, FIRST_TRY))},
+            # A shard without report may be the one of the test case.
+            {one: junit((a, FIRST_TRY))},
+            # The test case moved to another shard.
+            {one: junit((a, FIRST_TRY), (b, FIRST_TRY)), two: junit((a, SKIPPED))},
+            # The shards are complete, but none has the test case.
+            {one: junit((a, FIRST_TRY)), two: junit((a, SKIPPED))},
+            # A single shard now, which is complete on its own.
+            {"e2e-kind-shard-1-of-1": junit((a, FIRST_TRY))},
+            # A shard without quarantined test cases skips them all.
+            {one: junit((a, FIRST_TRY)), two: junit((QUARANTINE_SUITE_METHOD, SKIPPED))},
+            # Shard names without the total leave the completeness unknown.
+            {"e2e-kind-shard-1": junit((a, FIRST_TRY)), "e2e-kind-shard-2": junit((a, SKIPPED))},
+        )
+        self.assertEqual(
+            [run.get(b) for run in runs],
+            [FIRST_TRY, None, FIRST_TRY, FAILED, FAILED, FAILED, None],
+        )
+
+    def test_moved_to_other_job(self):
+        flaky = "TestSuite" + QUARANTINE_METHOD
+        a, b = flaky + "a", flaky + "b"
+        runs = self.runs(
+            {"e2e-ubuntu": junit((a, FIRST_TRY), (b, FIRST_TRY)), "e2e-kind": junit((a, FIRST_TRY))},
+            # b runs in e2e-kind now, the complete report of e2e-ubuntu does
+            # not fail it.
+            {"e2e-ubuntu": junit((a, FIRST_TRY)), "e2e-kind": junit((a, FIRST_TRY), (b, FIRST_TRY))},
+            {"e2e-ubuntu": junit((a, FIRST_TRY)), "e2e-kind": junit((a, FIRST_TRY), (b, FIRST_TRY))},
+            # The test binary of e2e-kind timed out before b.
+            {"e2e-ubuntu": junit((a, FIRST_TRY)), "e2e-kind": junit((a, FAILED))},
+        )
+        self.assertEqual([run.get(b) for run in runs], [FIRST_TRY, FIRST_TRY, FIRST_TRY, FAILED])
+
+    def test_crash_after_run_without_report(self):
+        flaky = "TestSuite" + QUARANTINE_METHOD
+        a, b = flaky + "a", flaky + "b"
+        both = junit((a, FIRST_TRY), (b, FIRST_TRY))
+        runs = self.runs(
+            {"e2e-ubuntu": both, "e2e-kind": both},
+            # e2e-ubuntu uploaded no report, like when its flaky step got
+            # skipped.
+            {"e2e-kind": both},
+            # Its test binary crashed before b, while e2e-kind passes it.
+            {"e2e-ubuntu": junit((a, FAILED)), "e2e-kind": both},
+            {"e2e-ubuntu": junit((a, FAILED)), "e2e-kind": both},
+        )
+        self.assertEqual([run.get(b) for run in runs], [FIRST_TRY, FIRST_TRY, FAILED, FAILED])
+
+    def test_crash_after_move_run_without_report(self):
+        flaky = "TestSuite" + QUARANTINE_METHOD
+        a, b = flaky + "a", flaky + "b"
+        both = junit((a, FIRST_TRY), (b, FIRST_TRY))
+        runs = self.runs(
+            {"e2e-ubuntu": both, "e2e-kind": junit((a, FIRST_TRY))},
+            # e2e-kind runs b as well now, while e2e-ubuntu uploaded no
+            # report, so it may still run b.
+            {"e2e-kind": both},
+            # Its test binary crashed before b.
+            {"e2e-ubuntu": junit((a, FAILED)), "e2e-kind": both},
+        )
+        self.assertEqual([run.get(b) for run in runs], [FIRST_TRY, FIRST_TRY, FAILED])
+
+    def test_shard_setup_failure(self):
+        flaky = "TestSuite" + QUARANTINE_METHOD
+        a, b = flaky + "a", flaky + "b"
+        one, two = "e2e-kind-shard-1-of-2", "e2e-kind-shard-2-of-2"
+        passed = {
+            one: junit(("TestSuite", FIRST_TRY), (QUARANTINE_SUITE_METHOD, FIRST_TRY), (a, FIRST_TRY)),
+            two: junit(("TestSuite", FIRST_TRY), (QUARANTINE_SUITE_METHOD, FIRST_TRY), (b, FIRST_TRY)),
+        }
+        # The second shard failed in its setup, before its test cases.
+        setup_failure = dict(passed)
+        setup_failure[two] = junit(("TestSuite", FAILED), (QUARANTINE_SUITE_METHOD, FAILED))
+        runs = self.runs(passed, setup_failure, passed)
+        self.assertEqual([run.get(b) for run in runs], [FIRST_TRY, None, FIRST_TRY])
 
     def test_attempts(self):
         self.assertEqual(
@@ -246,6 +493,29 @@ class SelfTest(unittest.TestCase):
         self.assertTrue(streak(runs, "a", RETRY, 3))
         self.assertFalse(streak(runs, "a", RETRY, 4))
         self.assertFalse(streak(runs + [{"a": FIRST_TRY}], "a", RETRY, 3))
+        # Runs which skipped the test case or have no report of it do not
+        # count, neither for nor against the streak.
+        passed = {"a": FIRST_TRY}
+        skipped = [{"a": SKIPPED}, {}]
+        self.assertTrue(streak([passed, *skipped, passed, *skipped], "a", FIRST_TRY, 2))
+        self.assertFalse(streak([passed, *skipped], "a", FIRST_TRY, 2))
+        self.assertFalse(streak(skipped * 3, "a", FIRST_TRY, 1))
+        # The reports do not tell why a test case is missing, so a run whose
+        # job died before uploading its report does not break the streak.
+        self.assertTrue(streak([passed, {"b": FAILED}, passed], "a", FIRST_TRY, 2))
+        # A failure in a run before the streak does not count.
+        self.assertTrue(streak([{"a": FAILED}, passed, {}, passed], "a", FIRST_TRY, 2))
+        self.assertFalse(streak([passed, {"a": FAILED}, {}, passed], "a", FIRST_TRY, 2))
+
+    def test_promotable(self):
+        name = "TestSuite" + QUARANTINE_METHOD + "a"
+        passed = {name: FIRST_TRY}
+        self.assertTrue(promotable([passed, passed], name, 2))
+        # Promoted since, the newest run has it under another method.
+        self.assertFalse(promotable([passed, passed, {"TestSuite/T/a": FIRST_TRY}], name, 2))
+        self.assertFalse(promotable([{"TestSuite/T/a": FIRST_TRY}] * 2, "TestSuite/T/a", 2))
+        # Its job uploaded no report in the newest run, the others skip it.
+        self.assertFalse(promotable([passed, passed, {name: SKIPPED}], name, 2))
 
     def test_flaky(self):
         passed, retried, failed = {"a": FIRST_TRY}, {"a": RETRY}, {"a": FAILED}
@@ -282,7 +552,7 @@ def main():
     if args.self_test:
         return self_test()
 
-    runs = [run_outcomes(run) for run in args.runs]
+    runs = missing_failed([run_jobs(run) for run in args.runs])
     names = sorted(set().union(*runs))
 
     flakes = [
@@ -292,11 +562,7 @@ def main():
         name for name in flakes if is_test_case(name) and QUARANTINE_METHOD not in name
     ]
     setup_flakes = [name for name in flakes if not is_test_case(name)]
-    to_promote = [
-        name
-        for name in names
-        if QUARANTINE_METHOD in name and streak(runs, name, FIRST_TRY, args.promote_after)
-    ]
+    to_promote = [name for name in names if promotable(runs, name, args.promote_after)]
 
     print(f"## E2E flakes of the last {len(runs)} runs\n")
     print(
@@ -308,7 +574,10 @@ def main():
     print("\nThe suite or its methods passed only on retry like that, check their setup:\n")
     for name in setup_flakes or ["none"]:
         print(f"- `{name}`")
-    print(f"\nQuarantined, passed on the first try in the last {args.promote_after} runs, promote them:\n")
+    print(
+        f"\nQuarantined, passed on the first try in the last {args.promote_after} runs "
+        "which ran them, promote them:\n"
+    )
     for name in to_promote or ["none"]:
         print(f"- `{name}`")
 

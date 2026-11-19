@@ -20,6 +20,7 @@ import (
 	"errors"
 	"testing"
 
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
@@ -101,6 +102,43 @@ func TestRun(t *testing.T) {
 			assert(t, err)
 		})
 	}
+}
+
+// TestRunPushOptions verifies that every option reaches the push.
+func TestRunPushOptions(t *testing.T) {
+	t.Parallel()
+
+	mock := &pusherfakes.FakeImpl{}
+
+	options := Default()
+	options.inputFiles = map[*v1.Platform]string{nil: "profile.yaml"}
+	options.pushTo = "registry.example.com/profile:v1"
+	options.username = "user"
+	options.password = "secret"
+	options.annotations = map[string]string{"key": "value"}
+	options.disableSigning = true
+	options.disableArtifactValidation = true
+	options.plainHTTP = true
+	options.oidcDeviceFlow = true
+
+	sut := New(options)
+	sut.impl = mock
+
+	require.NoError(t, sut.Run())
+	require.Equal(t, 1, mock.PushCallCount())
+
+	_, files, to, username, password, annotations, pushOpts := mock.PushArgsForCall(0)
+	require.Equal(t, options.inputFiles, files)
+	require.Equal(t, "registry.example.com/profile:v1", to)
+	require.Equal(t, "user", username)
+	require.Equal(t, "secret", password)
+	require.Equal(t, map[string]string{"key": "value"}, annotations)
+	require.Equal(t, &artifact.PushOptions{
+		DisableSigning:            true,
+		DisableArtifactValidation: true,
+		PlainHTTP:                 true,
+		OIDCDeviceFlow:            true,
+	}, pushOpts)
 }
 
 func TestWithSigningHint(t *testing.T) {

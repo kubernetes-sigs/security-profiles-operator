@@ -337,3 +337,62 @@ func TestVerifySignatureOfKeepsReferrersErrorOnLegacyFailure(t *testing.T) {
 	require.ErrorIs(t, err, errLegacy)
 	require.ErrorIs(t, err, errTest)
 }
+
+// TestSignatureFetchLimits verifies that oversized signature manifests,
+// bundles and legacy signatures are rejected before they are fetched.
+func TestSignatureFetchLimits(t *testing.T) {
+	t.Parallel()
+
+	bundleManifest := func(t *testing.T, size int64) []byte {
+		t.Helper()
+
+		raw, err := json.Marshal(ocispec.Manifest{
+			Layers: []ocispec.Descriptor{{MediaType: bundleMediaType, Size: size}},
+		})
+		require.NoError(t, err)
+
+		return raw
+	}
+
+	for _, tc := range []struct {
+		name         string
+		candidate    ocispec.Descriptor
+		legacy       bool
+		manifest     []byte
+		wantFetchAll int
+	}{
+		{
+			name:      "bundle manifest",
+			candidate: ocispec.Descriptor{Size: maxSignatureManifestSize + 1},
+		},
+		{
+			name:         "bundle",
+			candidate:    ocispec.Descriptor{Size: 1},
+			manifest:     bundleManifest(t, maxSignatureSize+1),
+			wantFetchAll: 1,
+		},
+		{
+			name:      "legacy signature",
+			candidate: ocispec.Descriptor{Size: maxSignatureSize + 1},
+			legacy:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &artifactfakes.FakeImpl{}
+			mock.FetchAllReturns(tc.manifest, nil)
+
+			sut := New(logr.Discard())
+			sut.impl = mock
+
+			subject := testSubject()
+			err := sut.verifyCandidate(
+				t.Context(), &remote.Repository{}, &tc.candidate, tc.legacy,
+				subject.Digest, &root.BaseTrustedMaterial{}, nil,
+			)
+			require.ErrorIs(t, err, ErrBlobTooLarge)
+			require.Equal(t, tc.wantFetchAll, mock.FetchAllCallCount())
+		})
+	}
+}

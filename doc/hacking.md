@@ -741,28 +741,45 @@ quarantined, ideally with a link to the issue which tracks it.
   attempts, `build/junit-flaky-e2e.xml`, so a test case which only passes on
   retry stays visible. Only the kind job runs the seccomp tests, so it is the
   only one which covers the quarantined seccomp test cases.
-- [`test/ci/junit-flakes.py`](../test/ci/junit-flakes.py) takes the reports
-  of several runs, oldest first. It fails for test cases which are not
-  quarantined but passed only on retry in at least two of the last ten runs,
-  and lists the quarantined ones which passed on the first try in the last ten
-  runs. `TestSuite` and its methods only fail on their own when their setup
-  does, like the one of the cluster, so they are listed apart and do not fail
-  the check. To cover all test cases, run the whole suite with retries:
+- [`test/ci/junit-flakes.py`](../test/ci/junit-flakes.py) takes the reports of
+  several runs, oldest first. It fails for test cases which are not quarantined
+  but passed only on retry in at least two of the last ten runs, and lists the
+  quarantined ones which passed on the first try in the last ten runs which ran
+  them, as long as they ran in the newest run: a test case whose job uploaded
+  no report in the newest run is not listed for that run, also when the other
+  jobs list it as skipped. Runs which skipped a quarantined test case or have
+  no report of it do not count for its promotion, like ones whose job failed
+  without report or skipped the suite on a slow runner. The complete reports of
+  a job which ran the test case before, also when the job uploaded no report in
+  between, but which leave it out, count as a failure: the test binary timed
+  out or crashed before it got there. A test case which runs in a new job moved
+  there from the jobs whose complete reports of that run leave it out, which
+  does not count as a failure, and neither does a job whose complete reports
+  skip it. The reports of a job are complete when the run has the report of
+  each shard, which the artifact names `junit-flaky-<job>-shard-<n>-of-<total>`
+  tell, and the test binary of each one got to the quarantined test cases or
+  skipped them as a shard without any. A shard which failed in its setup, or
+  the older artifact names without the total, leave the completeness unknown:
+  the outcomes in the reports count, a test case missing from them does not. A
+  test case which kills its job before any report gets uploaded, like by
+  crashing the VM, does not break its streak, the failed jobs of the runs show
+  it, and a failed scheduled run opens an issue. `TestSuite` and its methods
+  only fail on their own when their setup does, like the one of the cluster, so
+  they are listed apart and do not fail the check. To cover all test cases, run
+  the whole suite with retries:
   `make test-flaky-e2e E2E_RETRY_RUN=^TestSuite E2E_RETRY_TIMEOUT=120m`.
   A test case skipped in some environments counts with its outcome in the
   others. `python3 test/ci/junit-flakes.py --self-test` runs the tests of the
   script.
 - The nightly [e2e-flakes workflow](../.github/workflows/e2e-flakes.yml) does
   that on kubernix, on kind for the seccomp test cases and in the Fedora VM for
-  the SELinux and bpf recorder ones. It runs the script over the reports of
-  its last runs, and over the reports of the last runs of the test workflow
-  on `main`, which cover the quarantined test cases on all e2e environments.
-  It downloads the reports of 15 runs, so that a run without reports, like a
-  cancelled one, does not keep a test case from getting promoted. A run which
-  failed partway and uploaded a partial report counts, and a test case missing
-  from it did not pass in that run. It fails when a test case needs to be
-  quarantined and lists the ones to promote in the job summary. A failed
-  scheduled run opens an issue, or comments on the open one.
+  the SELinux and bpf recorder ones. It runs the script over the reports of its
+  last runs, and over the reports of the last runs of the test workflow on
+  `main`, which cover the quarantined test cases on all e2e environments. It
+  downloads the reports of 15 runs, so that a run without reports, like a
+  cancelled one, does not keep a test case from getting promoted. It fails when
+  a test case needs to be quarantined and lists the ones to promote in the job
+  summary. A failed scheduled run opens an issue, or comments on the open one.
 
 To quarantine a flaky test case, set `flaky: true` and its `issue`. To promote
 it, remove both again. New test cases start quarantined with

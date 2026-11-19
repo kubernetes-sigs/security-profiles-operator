@@ -40,6 +40,7 @@ import (
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 const (
@@ -121,6 +122,10 @@ func readPolicy(t *testing.T, file string) *admissionregv1.ValidatingAdmissionPo
 	require.NotNil(t, policy)
 	require.NotNil(t, binding)
 	require.Equal(t, policy.Name, binding.Spec.PolicyName)
+	// The binding applies the policy wherever it matches, see evaluate.
+	require.Nil(t, binding.Spec.MatchResources)
+	require.Nil(t, binding.Spec.ParamRef)
+	utiltest.RequireOnlyResourceRules(t, policy)
 	require.Equal(t,
 		[]admissionregv1.ValidationAction{admissionregv1.Deny},
 		binding.Spec.ValidationActions,
@@ -134,8 +139,11 @@ func readPolicy(t *testing.T, file string) *admissionregv1.ValidatingAdmissionPo
 type request struct {
 	operation string
 	kind      string
-	namespace string
-	username  string
+	// subresource is the sub resource of the request, like status, which is
+	// empty for the main resource.
+	subresource string
+	namespace   string
+	username    string
 	// nodes is the node name claim of the service account token.
 	nodes     []any
 	object    map[string]any
@@ -164,10 +172,45 @@ func newEnv(t *testing.T) *cel.Env {
 	return envSet.NewExpressionsEnv()
 }
 
+// kindResources are the API groups and resources of the kinds of the
+// requests, which the resource rules of the policies match.
+var kindResources = map[string]struct{ group, resource string }{
+	"Job":                       {"batch", "jobs"},
+	"ProfileRecording":          {spoGroup, "profilerecordings"},
+	"SecurityProfileNodeStatus": {spoGroup, "securityprofilenodestatuses"},
+	"SeccompProfile":            {spoGroup, "seccompprofiles"},
+	"AppArmorProfile":           {spoGroup, "apparmorprofiles"},
+	"SelinuxProfile":            {spoGroup, "selinuxprofiles"},
+	"RawSelinuxProfile":         {spoGroup, "rawselinuxprofiles"},
+}
+
+const spoGroup = "security-profiles-operator.x-k8s.io"
+
+// matchesRules returns whether one of the resource rules of the policy
+// matches the operation on the resource of the request, like the API server
+// does before it evaluates the policy.
+func matchesRules(
+	t *testing.T, policy *admissionregv1.ValidatingAdmissionPolicy, req *request,
+) bool {
+	t.Helper()
+
+	gr, ok := kindResources[req.kind]
+	require.True(t, ok, "unknown kind %q", req.kind)
+
+	return utiltest.MatchesResourceRules(policy, &utiltest.ResourceRequest{
+		Operation:   admissionregv1.OperationType(req.operation),
+		Group:       gr.group,
+		Version:     "v1",
+		Resource:    gr.resource,
+		Subresource: req.subresource,
+	})
+}
+
 // evaluate evaluates the policy like the API server does and returns whether
-// it admits the request. A request which does not match the policy is
-// admitted. The API server evaluates the variables lazily, so a variable
-// which fails is left out and only fails the expressions which use it.
+// it admits the request. A request which does not match the resource rules
+// or the match conditions of the policy is admitted. The API server evaluates
+// the variables lazily, so a variable which fails is left out and only fails
+// the expressions which use it.
 func evaluate(
 	t *testing.T,
 	env *cel.Env,
@@ -175,6 +218,10 @@ func evaluate(
 	req *request,
 ) bool {
 	t.Helper()
+
+	if !matchesRules(t, policy, req) {
+		return true
+	}
 
 	userInfo := map[string]any{"username": req.username}
 	if req.nodes != nil {
@@ -186,6 +233,10 @@ func evaluate(
 		"kind":      map[string]any{"kind": req.kind},
 		"userInfo":  userInfo,
 	}
+	if req.subresource != "" {
+		reqVar["subResource"] = req.subresource
+	}
+
 	if req.namespace != "" {
 		reqVar["namespace"] = req.namespace
 	}
@@ -710,6 +761,25 @@ func TestSpodProfilesPolicyMetadata(t *testing.T) {
 			req: &request{
 				operation: "CREATE",
 				kind:      "SeccompProfile",
+				object:    profile("SeccompProfile", spec(), nil),
+			},
+			admitted: false,
+		},
+		{
+			name: "create profile without recording ID",
+			req: &request{
+				operation: "CREATE",
+				kind:      "SeccompProfile",
+				object: profile("SeccompProfile", spec(),
+					map[string]any{"spo.x-k8s.io/recording-namespace": "default"}),
+			},
+			admitted: false,
+		},
+		{
+			name: "create profile without recording namespace",
+			req: &request{
+				operation: "CREATE",
+				kind:      "SeccompProfile",
 				object:    profile("SeccompProfile", spec(), map[string]any{recordingIDLabel: "recording"}),
 			},
 			admitted: false,
@@ -883,7 +953,11 @@ func TestSpodJobsPolicy(t *testing.T) {
 		"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
 			"serviceAccountName": "spod",
 			"nodeName":           "node-a",
-			"containers":         []any{map[string]any{"name": "reload", "image": "image"}},
+			"containers": []any{map[string]any{
+				"name":  "reload",
+				"image": "image",
+				"env":   []any{map[string]any{"name": "NODE_NAME", "value": "node-a"}},
+			}},
 			"volumes": []any{map[string]any{
 				"name":     "etc-selinux",
 				"hostPath": map[string]any{"path": "/etc/selinux", "type": "Directory"},
@@ -891,27 +965,217 @@ func TestSpodJobsPolicy(t *testing.T) {
 		}}},
 	}
 
+	// podSpec returns the pod spec of the job.
+	podSpec := func(t *testing.T, job map[string]any) map[string]any {
+		t.Helper()
+
+		spec, ok := job["spec"].(map[string]any)
+		require.True(t, ok)
+		template, ok := spec["template"].(map[string]any)
+		require.True(t, ok)
+		podSpec, ok := template["spec"].(map[string]any)
+		require.True(t, ok)
+
+		return podSpec
+	}
+
+	// container returns the container of the pod spec.
+	container := func(t *testing.T, podSpec map[string]any) map[string]any {
+		t.Helper()
+
+		containers, ok := podSpec["containers"].([]any)
+		require.True(t, ok)
+		c, ok := containers[0].(map[string]any)
+		require.True(t, ok)
+
+		return c
+	}
+
+	hostPath := func(path, pathType string) map[string]any {
+		volume := map[string]any{"path": path}
+		if pathType != "" {
+			volume["type"] = pathType
+		}
+
+		return map[string]any{"name": "host", "hostPath": volume}
+	}
+
 	for _, tc := range []struct {
-		name     string
+		name      string
+		operation string
+		username  string
+		// nodes is the node name claim, node-a unless noClaim is set.
 		nodes    []any
+		noClaim  bool
+		mutate   func(t *testing.T, podSpec map[string]any)
 		admitted bool
 	}{
-		{name: "node of the requesting pod", nodes: []any{"node-a"}, admitted: true},
-		{name: "other node", nodes: []any{"node-b"}, admitted: false},
-		{name: "no node claim", nodes: nil, admitted: false},
-		{name: "empty node claim", nodes: []any{}, admitted: false},
+		{name: "node of the requesting pod", admitted: true},
+		{name: "update on the node of the requesting pod", operation: "UPDATE", admitted: true},
+		{name: "other node", nodes: []any{"node-b"}},
+		{name: "update on other node", operation: "UPDATE", nodes: []any{"node-b"}},
+		{name: "no node claim", noClaim: true},
+		{name: "empty node claim", nodes: []any{}},
+		{
+			name: "no node name",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				delete(podSpec, "nodeName")
+			},
+		},
+		{
+			name:     "other user",
+			username: "system:serviceaccount:security-profiles-operator:other",
+			nodes:    []any{"node-b"},
+			admitted: true,
+		},
+		{
+			name:     "spod of other namespace",
+			username: "system:serviceaccount:other:spod",
+			nodes:    []any{"node-b"},
+			admitted: true,
+		},
+		{
+			name: "other service account",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["serviceAccountName"] = "default"
+			},
+		},
+		{
+			name: "default service account",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				delete(podSpec, "serviceAccountName")
+			},
+		},
+		{
+			name: "host network",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["hostNetwork"] = true
+			},
+		},
+		{
+			name: "host PID",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["hostPID"] = true
+			},
+		},
+		{
+			name: "host IPC",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["hostIPC"] = true
+			},
+		},
+		{
+			name: "host namespaces disabled",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["hostNetwork"] = false
+				podSpec["hostPID"] = false
+				podSpec["hostIPC"] = false
+			},
+			admitted: true,
+		},
+		{
+			name: "second container",
+			mutate: func(t *testing.T, podSpec map[string]any) {
+				t.Helper()
+
+				podSpec["containers"] = []any{
+					container(t, podSpec), map[string]any{"name": "other", "image": "image"},
+				}
+			},
+		},
+		{
+			name: "init container",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["initContainers"] = []any{map[string]any{"name": "init", "image": "image"}}
+			},
+		},
+		{
+			name: "env from secret",
+			mutate: func(t *testing.T, podSpec map[string]any) {
+				t.Helper()
+
+				container(t, podSpec)["envFrom"] = []any{
+					map[string]any{"secretRef": map[string]any{"name": "secret"}},
+				}
+			},
+		},
+		{
+			name: "env value from secret",
+			mutate: func(t *testing.T, podSpec map[string]any) {
+				t.Helper()
+
+				container(t, podSpec)["env"] = []any{map[string]any{
+					"name": "TOKEN",
+					"valueFrom": map[string]any{"secretKeyRef": map[string]any{
+						"name": "secret", "key": "token",
+					}},
+				}}
+			},
+		},
+		{
+			name: "other host path",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["volumes"] = []any{hostPath("/etc", "Directory")}
+			},
+		},
+		{
+			name: "SELinux host path without type",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["volumes"] = []any{hostPath("/etc/selinux", "")}
+			},
+		},
+		{
+			name: "SELinux host path of other type",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["volumes"] = []any{hostPath("/sys/fs/selinux", "DirectoryOrCreate")}
+			},
+		},
+		{
+			name: "volume which is no host path",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				podSpec["volumes"] = []any{map[string]any{
+					"name": "secret", "secret": map[string]any{"secretName": "secret"},
+				}}
+			},
+		},
+		{
+			name: "no volumes",
+			mutate: func(_ *testing.T, podSpec map[string]any) {
+				delete(podSpec, "volumes")
+			},
+			admitted: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.admitted, evaluate(t, env, policy, &request{
+			object := deepCopy(t, job)
+			if tc.mutate != nil {
+				tc.mutate(t, podSpec(t, object))
+			}
+
+			req := &request{
 				operation: "CREATE",
 				kind:      "Job",
 				namespace: "security-profiles-operator",
 				username:  spodUser,
-				nodes:     tc.nodes,
-				object:    job,
-			}))
+				nodes:     []any{"node-a"},
+				object:    object,
+			}
+			if tc.operation != "" {
+				req.operation = tc.operation
+				req.oldObject = job
+			}
+
+			if tc.username != "" {
+				req.username = tc.username
+			}
+
+			if tc.nodes != nil || tc.noClaim {
+				req.nodes = tc.nodes
+			}
+
+			require.Equal(t, tc.admitted, evaluate(t, env, policy, req))
 		})
 	}
 }
@@ -1525,6 +1789,15 @@ func TestSpodNodeStatusesPolicy(t *testing.T) {
 			}
 
 			require.Equal(t, tc.admitted, evaluate(t, env, policy, tc.req))
+
+			// The daemons write the state through the status sub resource,
+			// which has to be restricted the same way.
+			if tc.req.operation == "UPDATE" {
+				status := *tc.req
+				status.subresource = "status"
+
+				require.Equal(t, tc.admitted, evaluate(t, env, policy, &status), "status")
+			}
 		})
 	}
 }

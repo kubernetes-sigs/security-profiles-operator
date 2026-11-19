@@ -32,6 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 // policy returns the policy with the provided name.
@@ -44,6 +46,11 @@ func (p *AdmissionPolicies) policy(
 	for _, obj := range p.objects {
 		if policy, ok := obj.(*admissionregv1.ValidatingAdmissionPolicy); ok &&
 			policy.Name == name {
+			// evaluatePolicyRequest evaluates the resource rules, the
+			// variables and the validations only.
+			utiltest.RequireOnlyResourceRules(t, policy)
+			require.Empty(t, policy.Spec.MatchConditions)
+
 			return policy
 		}
 	}
@@ -53,9 +60,10 @@ func (p *AdmissionPolicies) policy(
 	return nil
 }
 
-// evaluatePolicy evaluates the policy like the API server does: the variables
-// in order, followed by the validations. It returns whether the object in the
-// namespace gets admitted.
+// evaluatePolicy evaluates the policy for the creation of the pod like the
+// API server does: the resource rules, then the variables in order, followed
+// by the validations. It returns whether the pod in the namespace gets
+// admitted.
 func evaluatePolicy(
 	t *testing.T,
 	policy *admissionregv1.ValidatingAdmissionPolicy,
@@ -68,7 +76,7 @@ func evaluatePolicy(
 }
 
 // evaluatePolicyRequest is evaluatePolicy for an update of the provided sub
-// resource, for which the old object is set.
+// resource of the pod, for which the old object is set.
 func evaluatePolicyRequest(
 	t *testing.T,
 	policy *admissionregv1.ValidatingAdmissionPolicy,
@@ -77,6 +85,20 @@ func evaluatePolicyRequest(
 	ns *corev1.Namespace,
 ) bool {
 	t.Helper()
+
+	operation := admissionregv1.Create
+	if oldObj != nil {
+		operation = admissionregv1.Update
+	}
+
+	if !utiltest.MatchesResourceRules(policy, &utiltest.ResourceRequest{
+		Operation:   operation,
+		Version:     "v1",
+		Resource:    "pods",
+		Subresource: subResource,
+	}) {
+		return true
+	}
 
 	env, err := cel.NewEnv(
 		ext.Strings(),

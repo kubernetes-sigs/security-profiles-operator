@@ -994,12 +994,20 @@ func TestReconcile(t *testing.T) {
 					},
 				}, nil)
 				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+				// The first lookup selects the namespaces of the recording
+				// webhook, the second one checks the recorder.
 				mock.GetSPODReturns(nil, errTest)
+				mock.GetSPODReturnsOnCall(0, &spodapi.SecurityProfilesOperatorDaemon{}, nil)
 			},
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.ErrorIs(t, err, errTest)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				require.Equal(t, 2, mock.GetSPODCallCount())
+				require.Zero(t, mock.DialBpfRecorderCallCount())
 			},
 		},
 		{
@@ -1506,12 +1514,20 @@ func TestReconcile(t *testing.T) {
 					},
 				}, nil)
 				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
+				// The first lookup selects the namespaces of the recording
+				// webhook, the second one checks the recorder.
 				mock.GetSPODReturns(nil, errTest)
+				mock.GetSPODReturnsOnCall(0, &spodapi.SecurityProfilesOperatorDaemon{}, nil)
 			},
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.ErrorIs(t, err, errTest)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				require.Equal(t, 2, mock.GetSPODCallCount())
+				require.Zero(t, mock.DialBpfRecorderCallCount())
 			},
 		},
 		{
@@ -2975,6 +2991,9 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 		annotation string
 		recordings *recordingapi.ProfileRecordingList
 		namespace  *corev1.Namespace
+		// wantEvent is part of the event which tells why the annotation
+		// got ignored, which tells the cases apart.
+		wantEvent string
 	}{
 		{
 			// The recording webhook does not apply to the namespace, so the
@@ -2990,11 +3009,13 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 			name:       "malformed annotation",
 			annotation: "junk",
 			recordings: &recordingapi.ProfileRecordingList{},
+			wantEvent:  "ignoring malformed recording annotation",
 		},
 		{
 			name:       "no matching profile recording",
 			annotation: "other-recording_ctr_4bbwm_1700000000",
 			recordings: &recordingapi.ProfileRecordingList{},
+			wantEvent:  "no matching profile recording: other-recording",
 		},
 		{
 			name:       "recording exists but selects no pods",
@@ -3011,6 +3032,7 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 					},
 				}},
 			},
+			wantEvent: "no matching profile recording: profile",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3021,7 +3043,7 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 				Status: corev1.PodStatus{Phase: corev1.PodPending},
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						config.SeccompProfileRecordBpfAnnotationKey: tc.annotation,
+						config.SeccompProfileRecordBpfAnnotationKey + "ctr": tc.annotation,
 					},
 				},
 				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
@@ -3037,14 +3059,20 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 				mock.GetNamespaceReturns(tc.namespace, nil)
 			}
 
+			recorder := events.NewFakeRecorder(10)
 			sut := &RecorderReconciler{
 				impl:   mock,
 				log:    logr.Discard(),
-				record: events.NewFakeRecorder(10),
+				record: recorder,
 			}
 
 			_, err := sut.Reconcile(t.Context(), testRequest)
 			require.NoError(t, err)
+
+			if tc.wantEvent != "" {
+				require.Len(t, recorder.Events, 1)
+				require.Contains(t, <-recorder.Events, tc.wantEvent)
+			}
 
 			assert.Zero(t, mock.DialBpfRecorderCallCount(), "the recorder must not be dialed")
 			assert.Zero(t, mock.StartBpfRecorderCallCount(), "the recorder must not be armed")
@@ -3523,14 +3551,27 @@ func TestHoldRecording(t *testing.T) {
 		got.GetFinalizers(),
 	)
 
-	// A merged profile or a final one needs no finalizer.
+	// A merged profile or a final one needs no finalizer, so a recording
+	// without one keeps its finalizers.
+	unheld := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "unheld",
+			Namespace:  "ns",
+			Finalizers: []string{"other"},
+		},
+	}
+	require.NoError(t, kubeClient.Create(t.Context(), unheld))
+
 	for _, target := range []*profileTarget{
-		{state: recordingState{partial: true}, recording: cached, merge: true},
-		{state: recordingState{}, recording: cached},
+		{state: recordingState{partial: true}, recording: unheld, merge: true},
+		{state: recordingState{}, recording: unheld},
 		{state: recordingState{partial: true}},
 	} {
 		require.NoError(t, sut.holdRecording(t.Context(), target))
 	}
+
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKeyFromObject(unheld), got))
+	require.Equal(t, []string{"other"}, got.GetFinalizers())
 }
 
 // TestHoldRecordingRetriesConflict asserts that the first finalizer of a

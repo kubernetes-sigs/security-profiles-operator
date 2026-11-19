@@ -169,8 +169,6 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "SELinux: Metrics (update, delete)",
 			fn:          e.testCaseSelinuxMetrics,
-			flaky:       true,
-			issue:       nodeAwareMetricsIssue,
 		},
 		{
 			description: "SPOD: Update SELinux flag",
@@ -241,8 +239,6 @@ func (e *e2e) testCases() []testCase {
 			description:     "Selinux: Verify that the SPOD can deny permissive policies",
 			fn:              e.testCaseSelinuxDeniedPermissivePolicy,
 			clusterWideOnly: true,
-			flaky:           true,
-			issue:           newTestCaseIssue,
 		},
 		{
 			description:     "Selinux: Verify the policy can be marked as permissive: disabled",
@@ -397,9 +393,6 @@ func (e *e2e) testCases() []testCase {
 }
 
 const (
-	// nodeAwareMetricsIssue marks the metrics test cases, which only ran on
-	// single node clusters before they scraped the daemons of all nodes.
-	nodeAwareMetricsIssue = "scrapes the daemons of all nodes now, promote it once it passes reliably in CI"
 	// bpfEnricherIssue marks the log enricher test case with the BPF
 	// source, which no CI job runs yet, see E2E_TEST_BPF_LOG_ENRICHER in
 	// doc/hacking.md. A quarantined case which fails on retry fails the
@@ -407,6 +400,8 @@ const (
 	bpfEnricherIssue = "needs nodes with AppArmor for its kprobe on aa_audit, not proven in CI yet"
 	// newTestCaseIssue marks new test cases, which start quarantined, see
 	// doc/hacking.md.
+	//
+	//nolint:unused // for the next new test case, see doc/hacking.md
 	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"
 )
 

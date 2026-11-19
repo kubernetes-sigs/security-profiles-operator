@@ -115,7 +115,7 @@ func TestRunPullOptions(t *testing.T) {
 	options.pullFrom = "registry.example.com/profile:v1"
 	options.username = "user"
 	options.password = "secret"
-	options.disableSignatureVerification = false
+	options.disableSignatureVerification = true
 	options.allowedIdentityRegexp = "^me$"
 	options.allowedOidcIssuerRegexp = "^https://issuer$"
 	options.keyRef = "cosign.pub"
@@ -137,14 +137,15 @@ func TestRunPullOptions(t *testing.T) {
 	require.Equal(t, "secret", password)
 	require.Nil(t, platform)
 	require.Equal(t, &artifact.PullOptions{
-		AllowedIdentityRegexp:   "^me$",
-		AllowedOidcIssuerRegexp: "^https://issuer$",
-		KeyRef:                  "cosign.pub",
-		CertIdentity:            "me@example.com",
-		CertOidcIssuer:          "https://issuer",
-		TrustedRootPath:         "root.json",
-		Offline:                 true,
-		PlainHTTP:               true,
+		DisableSignatureVerification: true,
+		AllowedIdentityRegexp:        "^me$",
+		AllowedOidcIssuerRegexp:      "^https://issuer$",
+		KeyRef:                       "cosign.pub",
+		CertIdentity:                 "me@example.com",
+		CertOidcIssuer:               "https://issuer",
+		TrustedRootPath:              "root.json",
+		Offline:                      true,
+		PlainHTTP:                    true,
 		// spoc writes the pulled content as is.
 		KeepRawRuntimeProfile: true,
 	}, pullOpts)

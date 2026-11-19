@@ -57,48 +57,58 @@ func bindingIndexFunc(obj client.Object) []string {
 	return pb.Status.ActiveWorkloads
 }
 
-func TestPodMatchesBindingNilSelector(t *testing.T) {
+// TestTrackedPodMatchesBindingSelector verifies that a tracked pod without
+// the annotation of the applied bindings, which got created before the
+// webhook set it, stays tracked only while it matches the selector of the
+// binding.
+func TestTrackedPodMatchesBindingSelector(t *testing.T) {
 	t.Parallel()
 
-	scheme := utiltest.NewScheme(t)
-
-	binding := &profilebindingapi.ProfileBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-binding",
-			Namespace: "default",
+	for _, tc := range []struct {
+		name        string
+		selector    *metav1.LabelSelector
+		wantTracked bool
+	}{
+		{name: "no selector", wantTracked: true},
+		{
+			name:        "matching selector",
+			selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}},
+			wantTracked: true,
 		},
-		Spec: profilebindingapi.ProfileBindingSpec{
-			ProfileRef: profilebindingapi.ProfileRef{
-				Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
-				Name: "test-profile",
-			},
-			Image: "test-image",
+		{
+			name:     "other selector",
+			selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "other"}},
 		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			binding := testBinding("test-image", "default/test-pod")
+			binding.Spec.PodSelector = tc.selector
+
+			// The tracking adds the finalizer again, the untracking of the
+			// last pod removes it.
+			if tc.wantTracked {
+				binding.Finalizers = nil
+			} else {
+				require.Contains(t, binding.GetFinalizers(), finalizer)
+			}
+
+			updated := reconcileTestPod(
+				t,
+				binding,
+				testPod(map[string]string{"app": "test"}, "test-image"),
+			)
+
+			if tc.wantTracked {
+				require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+				require.Contains(t, updated.GetFinalizers(), finalizer)
+			} else {
+				require.Empty(t, updated.Status.ActiveWorkloads)
+				require.NotContains(t, updated.GetFinalizers(), finalizer)
+			}
+		})
 	}
-
-	pod := testPod(nil, "test-image")
-	pod.Annotations = map[string]string{
-		profilebindingapi.AppliedBindingsAnnotation: "test-binding",
-	}
-
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(binding).
-		WithObjects(binding, pod, testProfile()).
-		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
-		Build()
-
-	r := newReconciler(c)
-
-	_, err := r.Reconcile(t.Context(), reconcile.Request{
-		NamespacedName: client.ObjectKeyFromObject(pod),
-	})
-	require.NoError(t, err)
-
-	updated := &profilebindingapi.ProfileBinding{}
-	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
-	require.Contains(t, updated.Status.ActiveWorkloads, "default/test-pod")
-	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
 
 // testLocalhostProfile is the localhost profile of the test profile.
@@ -688,56 +698,6 @@ func TestDeletingBindingDoesNotTrackNewPods(t *testing.T) {
 
 	updated := reconcileTestPod(t, binding, testPod(map[string]string{"app": "bound"}, "nginx"))
 	require.Equal(t, []string{"default/other-pod"}, updated.Status.ActiveWorkloads)
-}
-
-func TestPodDoesNotMatchBindingSelector(t *testing.T) {
-	t.Parallel()
-
-	scheme := utiltest.NewScheme(t)
-
-	binding := &profilebindingapi.ProfileBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-binding",
-			Namespace: "default",
-		},
-		Spec: profilebindingapi.ProfileBindingSpec{
-			ProfileRef: profilebindingapi.ProfileRef{
-				Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
-				Name: "test-profile",
-			},
-			Image: "test-image",
-			PodSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "other"},
-			},
-		},
-	}
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "test"},
-		},
-	}
-
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(binding).
-		WithObjects(binding, pod).
-		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
-		Build()
-
-	r := newReconciler(c)
-
-	_, err := r.Reconcile(t.Context(), reconcile.Request{
-		NamespacedName: client.ObjectKeyFromObject(pod),
-	})
-	require.NoError(t, err)
-
-	updated := &profilebindingapi.ProfileBinding{}
-	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
-	require.Empty(t, updated.Status.ActiveWorkloads)
-	require.Empty(t, updated.GetFinalizers())
 }
 
 func TestPodDeletedRemovesFromActiveWorkloads(t *testing.T) {

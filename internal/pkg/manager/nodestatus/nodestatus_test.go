@@ -118,11 +118,16 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 	}
 
+	// The API server has a newer version of the profile than the cache,
+	// which the retry has to write.
+	fresh := profile.DeepCopy()
+	fresh.SetAnnotations(map[string]string{"version": "fresh"})
+
 	getCalls := 0
 	apiReader := fake.NewClientBuilder().
 		WithScheme(testScheme).
-		WithStatusSubresource(profile).
-		WithObjects(profile).
+		WithStatusSubresource(fresh).
+		WithObjects(fresh).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(
 				ctx context.Context,
@@ -138,7 +143,11 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 		}).
 		Build()
 
-	updateCalls := 0
+	var (
+		updateCalls int
+		retried     client.Object
+	)
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(testScheme).
 		WithStatusSubresource(profile).
@@ -163,6 +172,10 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 					)
 				}
 
+				if copied, ok := obj.DeepCopyObject().(client.Object); ok {
+					retried = copied
+				}
+
 				return c.SubResource(subresource).Update(ctx, obj, opts...)
 			},
 		}).
@@ -180,4 +193,7 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 	require.Equal(t, 2, updateCalls)
 	// Only the conflict reads the profile from the API server.
 	require.Equal(t, 1, getCalls)
+	// The retry writes the status onto the profile it read.
+	require.NotNil(t, retried)
+	require.Equal(t, "fresh", retried.GetAnnotations()["version"])
 }
