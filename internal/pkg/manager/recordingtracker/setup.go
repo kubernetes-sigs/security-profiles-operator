@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -56,6 +57,11 @@ func (r *RecordingTrackerReconciler) Setup(
 	r.client = mgr.GetClient()
 	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(name)
+
+	// Without it, a missing webhook configuration selects every pod.
+	if namespace, err := config.TryToGetOperatorNamespace(); err == nil {
+		r.operatorNamespace = namespace
+	}
 
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx,
@@ -231,8 +237,16 @@ func (r *RecordingTrackerReconciler) setupStatus(
 			&corev1.Namespace{},
 			handler.EnqueueRequestsFromMapFunc(status.recordingsInNamespace),
 			builder.OnlyMetadata,
-			builder.WithPredicates(labelsChanged()),
+			builder.WithPredicates(bindata.NamespaceLabelsChanged()),
 		)
+
+	// The recording webhook skips the logs seccomp recordings while the log
+	// enricher profile is missing.
+	b = b.Watches(
+		&seccompprofileapi.SeccompProfile{},
+		handler.EnqueueRequestsFromMapFunc(status.allRecordings),
+		builder.WithPredicates(enricherProfileEvents()),
+	)
 
 	for _, k := range recordingkinds.All {
 		b = b.Watches(
@@ -268,18 +282,6 @@ func recordingStatusPredicate() predicate.Funcs {
 					newRecording.Status.ActiveWorkloads,
 				)
 		},
-	}
-}
-
-// labelsChanged passes the label changes of existing objects.
-func labelsChanged() predicate.Funcs {
-	return predicate.Funcs{
-		CreateFunc: func(event.CreateEvent) bool { return false },
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !maps.Equal(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
-		},
-		DeleteFunc:  func(event.DeleteEvent) bool { return false },
-		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
 }
 
@@ -368,5 +370,26 @@ func (r *recordingStatusReconciler) recordingsWritingProfile(
 		}
 
 		return requests
+	}
+}
+
+// enricherProfileEvents passes the creation and deletion of the log enricher
+// profile and the start of its deletion.
+func enricherProfileEvents() predicate.Funcs {
+	isEnricherProfile := func(obj client.Object) bool {
+		return obj.GetName() == config.LogEnricherProfile
+	}
+
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool { return isEnricherProfile(e.Object) },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return isEnricherProfile(e.ObjectNew) &&
+				e.ObjectOld.GetDeletionTimestamp().
+					IsZero() !=
+					e.ObjectNew.GetDeletionTimestamp().
+						IsZero()
+		},
+		DeleteFunc:  func(e event.DeleteEvent) bool { return isEnricherProfile(e.Object) },
+		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
 }

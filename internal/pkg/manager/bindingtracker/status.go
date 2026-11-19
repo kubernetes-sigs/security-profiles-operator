@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -92,6 +93,14 @@ func (r *bindingStatusReconciler) allBindings(
 	return r.listBindings(ctx)
 }
 
+// bindingsInNamespace maps a namespace to reconcile requests for its
+// bindings.
+func (r *bindingStatusReconciler) bindingsInNamespace(
+	ctx context.Context, obj client.Object,
+) []reconcile.Request {
+	return r.listBindings(ctx, client.InNamespace(obj.GetName()))
+}
+
 // listBindings returns reconcile requests for the cached bindings. A failing
 // list is logged, as a map function cannot return an error.
 func (r *bindingStatusReconciler) listBindings(
@@ -139,6 +148,26 @@ func (r *bindingStatusReconciler) Reconcile(
 		return reconcile.Result{}, r.setCondition(ctx, req, &condition)
 	}
 
+	// The binding webhook does not apply the binding in a namespace which it
+	// does not select, whatever the state of its profile.
+	selected, err := bindata.WebhookSelectsNamespace(
+		ctx, r.client, bindata.BindingWebhookName, binding.GetNamespace(),
+	)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("checking whether binding is enabled: %w", err)
+	}
+
+	if !selected {
+		condition := common.Unavailable(fmt.Sprintf(
+			"the binding webhook does not select the namespace %s, so the binding is not "+
+				"applied, by default namespaces need the %s label",
+			binding.GetNamespace(), bindata.EnableBindingLabel,
+		))
+		condition.Reason = string(profilebindingapi.ReasonBindingNotEnabled)
+
+		return reconcile.Result{}, r.setCondition(ctx, req, &condition)
+	}
+
 	condition, err := r.readyCondition(ctx, binding.Spec.ProfileRef)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("looking up profile of binding: %w", err)
@@ -174,9 +203,6 @@ func (r *bindingStatusReconciler) readyCondition(
 	}
 
 	state := profile.GetStatusBase().Status
-	if state == secprofnodestatusapi.ProfileStateInstalled {
-		return common.Available(), nil
-	}
 
 	if state == "" {
 		disabled, err := r.profileKindDisabled(ctx, ref.Kind)
@@ -196,6 +222,37 @@ func (r *bindingStatusReconciler) readyCondition(
 			profilebindingapi.ReasonProfileNotInstalled,
 			"has no status yet, so pods matching the binding are rejected",
 		), nil
+	}
+
+	// The binding webhook checks the states in this order: no status, a
+	// partial profile, which it rejects, and then the deletion.
+	if state == secprofnodestatusapi.ProfileStatePartial {
+		return notReady(
+			profilebindingapi.ReasonProfileNotInstalled,
+			"is not installed, its status is %s",
+			state,
+		), nil
+	}
+
+	// The binding webhook rejects the pods of a profile which is being
+	// deleted once no pod uses it anymore, also while its status still says
+	// Installed, for example because a node whose SPOd pod is unavailable
+	// keeps its finalizer.
+	if profileDeleting(profile) {
+		return notReady(
+			profilebindingapi.ReasonProfileDeleting,
+			"is being deleted, so pods matching the binding are rejected",
+		), nil
+	}
+
+	// The binding webhook keeps binding a profile which is being deleted
+	// while pods use it, whose state is Terminating then.
+	if !profile.GetDeletionTimestamp().IsZero() {
+		return common.Available(), nil
+	}
+
+	if state == secprofnodestatusapi.ProfileStateInstalled {
+		return common.Available(), nil
 	}
 
 	return notReady(
@@ -247,6 +304,13 @@ func (r *bindingStatusReconciler) profileKindDisabled(
 	}
 
 	return !enabled, nil
+}
+
+// profileDeleting returns true if the profile is being deleted and no pod
+// uses it anymore, which the binding webhook rejects.
+func profileDeleting(profile client.Object) bool {
+	return !profile.GetDeletionTimestamp().IsZero() &&
+		!controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString)
 }
 
 // profileState returns the state in the status of a profile.

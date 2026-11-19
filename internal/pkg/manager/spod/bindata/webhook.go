@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -38,6 +39,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -362,9 +365,9 @@ const (
 	// mutating webhook configuration.
 	RecordingWebhookName = "recording.spo.io"
 
-	// openshiftRequiredSCCAnnotation pins the SCC which OpenShift admits a pod
+	// OpenShiftRequiredSCCAnnotation pins the SCC which OpenShift admits a pod
 	// with, instead of choosing one of the SCCs the pod is allowed to use.
-	openshiftRequiredSCCAnnotation = "openshift.io/required-scc"
+	OpenShiftRequiredSCCAnnotation = "openshift.io/required-scc"
 
 	webhookName                  = config.OperatorName + "-webhook"
 	webhookPriorityClassName     = "system-cluster-critical"
@@ -654,6 +657,103 @@ func RecordingWebhookSelectsNamespace(
 	return selectsNamespace(ctx, c, hook, namespace)
 }
 
+// RecordingWebhookSelectsPod returns whether the recording webhook selects the
+// pod, see RecordingWebhookPodSelector.
+func RecordingWebhookSelectsPod(
+	ctx context.Context, c client.Reader, operatorNamespace string, pod *corev1.Pod,
+) (bool, error) {
+	selects, err := RecordingWebhookPodSelector(ctx, c, operatorNamespace, pod.GetNamespace())
+	if err != nil {
+		return false, err
+	}
+
+	return selects(pod), nil
+}
+
+// RecordingWebhookPodSelector returns a function which tells whether the
+// recording webhook selects a pod of the namespace, by its object selector
+// and its namespace selector, like the profile recorder of the daemon checks
+// it. The namespace is only looked up once. Like for the daemon, the
+// selectors are the ones which the operator deploys for the SPOD in the
+// operator namespace while the webhook configuration does not exist, and an
+// invalid object selector selects no pod. Without the configuration, the SPOD
+// or the namespace nothing can be told, and the pods count as selected.
+func RecordingWebhookPodSelector(
+	ctx context.Context, c client.Reader, operatorNamespace, namespace string,
+) (func(*corev1.Pod) bool, error) {
+	all := func(*corev1.Pod) bool { return true }
+	none := func(*corev1.Pod) bool { return false }
+
+	webhookConfig, found, err := mutatingWebhookConfig(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+
+	var hook *admissionregv1.MutatingWebhook
+
+	if found {
+		if hook = RecordingWebhook(webhookConfig); hook == nil {
+			return none, nil
+		}
+	} else {
+		hook, err = spodRecordingWebhook(ctx, c, operatorNamespace)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	selected, err := selectsNamespace(ctx, c, hook, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	if !selected {
+		return none, nil
+	}
+
+	if hook.ObjectSelector == nil {
+		return all, nil
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(hook.ObjectSelector)
+	if err != nil {
+		return none, nil //nolint:nilerr // an invalid selector selects no pod
+	}
+
+	return func(pod *corev1.Pod) bool { return selector.Matches(labels.Set(pod.GetLabels())) }, nil
+}
+
+// spodRecordingWebhook returns the recording webhook with the selectors which
+// the operator deploys for the SPOD, see RecordingWebhookSelectors. Without the
+// operator namespace or the SPOD, its selectors select everything.
+func spodRecordingWebhook(
+	ctx context.Context, c client.Reader, operatorNamespace string,
+) (*admissionregv1.MutatingWebhook, error) {
+	if operatorNamespace == "" {
+		return &admissionregv1.MutatingWebhook{}, nil
+	}
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	if err := c.Get(
+		ctx, client.ObjectKey{Name: config.SPOdName, Namespace: operatorNamespace}, spod,
+	); err != nil {
+		if errors.IsNotFound(err) {
+			return &admissionregv1.MutatingWebhook{}, nil
+		}
+
+		return nil, fmt.Errorf("getting SPOD: %w", err)
+	}
+
+	namespaceSelector, objectSelector := RecordingWebhookSelectors(
+		spod.Spec.Webhook.Options, ptr.Deref(spod.Spec.Webhook.StaticConfig, false),
+	)
+
+	return &admissionregv1.MutatingWebhook{
+		NamespaceSelector: namespaceSelector,
+		ObjectSelector:    objectSelector,
+	}, nil
+}
+
 // WebhookSelectsNamespace returns whether the webhook of the mutating webhook
 // configuration of the operator selects the namespace. Without the webhook
 // configuration, the webhook in it or the namespace nothing can be told, and
@@ -674,6 +774,20 @@ func WebhookSelectsNamespace(
 	}
 
 	return selectsNamespace(ctx, c, &webhookConfig.Webhooks[i], namespace)
+}
+
+// NamespaceLabelsChanged passes the label changes of namespaces, which can
+// change whether a webhook selects them. A new namespace has no bindings or
+// recordings yet.
+func NamespaceLabelsChanged() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return !maps.Equal(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
 }
 
 // selectsNamespace returns whether the webhook selects the namespace. Without
@@ -1527,7 +1641,7 @@ var webhookDeployment = &appsv1.Deployment{
 				Annotations: map[string]string{
 					// The webhook needs no privileges, so pin the most
 					// restricted SCC on OpenShift.
-					openshiftRequiredSCCAnnotation: "restricted-v2",
+					OpenShiftRequiredSCCAnnotation: "restricted-v2",
 				},
 				Labels: map[string]string{
 					labelApp:  config.OperatorName,
@@ -1569,8 +1683,12 @@ var webhookDeployment = &appsv1.Deployment{
 								corev1.ResourceMemory: resource.MustParse("32Mi"),
 								corev1.ResourceCPU:    resource.MustParse("250m"),
 							},
+							// The webhook caches every profile, binding and
+							// recording. The cache strips the profiles only
+							// after decoding a full list, and the webhook fails
+							// closed, so an out of memory kill rejects pods.
 							Limits: corev1.ResourceList{
-								corev1.ResourceMemory: resource.MustParse("64Mi"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
 							},
 						},
 						Env: []corev1.EnvVar{

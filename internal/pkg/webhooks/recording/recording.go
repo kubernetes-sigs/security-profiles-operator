@@ -28,11 +28,11 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -50,6 +50,11 @@ import (
 // reasonConflictingRecording is the reason of the event of a recording which
 // does not record a container, because an older one records it already.
 const reasonConflictingRecording = "ConflictingRecording"
+
+// reasonEnricherProfileMissing is the reason of the event of a logs seccomp
+// recording which does not record a pod, because the log enricher profile,
+// which the recording would set on its containers, does not exist.
+const reasonEnricherProfileMissing = "EnricherProfileMissing"
 
 // reasonContainerBound is the reason of the event of a logs recording which
 // does not record a container, because a binding enforces a profile of the
@@ -85,6 +90,7 @@ func RegisterWebhook(
 // Security Profiles Operator Webhook RBAC permissions
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
 
 //nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p *podSeccompRecorder) Handle(
@@ -144,10 +150,12 @@ func (p *podSeccompRecorder) Handle(
 	claimed := map[string]string{}
 
 	// bound are the containers which bindings bind, which only get listed
-	// once a logs recording selects the pod.
+	// once a logs recording selects the pod. The log enricher profile only
+	// gets looked up once a logs seccomp recording selects the pod.
 	var (
-		bound    boundContainers
-		warnings []string
+		bound           boundContainers
+		enricherProfile enricherProfileLookup
+		warnings        []string
 	)
 
 	for i := range items {
@@ -204,6 +212,28 @@ func (p *podSeccompRecorder) Handle(
 				}
 			}
 
+			warning, err := p.skipWithoutEnricherProfile(
+				ctx, &item, pod, podName, claimed, bound, &enricherProfile,
+			)
+			if err != nil {
+				p.log.Error(err, "Could not get the log enricher profile")
+
+				return admission.Errored(http.StatusInternalServerError, err)
+			}
+
+			if warning != "" {
+				warnings = append(warnings, warning)
+
+				// The recording annotations of the pod author would still
+				// start recording the containers, which run without the log
+				// enricher profile.
+				if dropAuthorAnnotations(pod, &item, claimed) {
+					podMatched = true
+				}
+
+				continue
+			}
+
 			skipped, err := p.updatePod(pod, podName, &item, claimed, bound)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
@@ -229,6 +259,154 @@ func (p *podSeccompRecorder) Handle(
 	// already, for example when the webhook gets invoked again after another
 	// webhook changed the security context.
 	return utils.PodPatchResponse(p.decoder, &req, pod).WithWarnings(warnings...)
+}
+
+// enricherProfileLookup is the result of the lookup of the log enricher
+// profile during an admission.
+type enricherProfileLookup struct {
+	done  bool
+	state bindata.LogEnricherProfileState
+}
+
+// skipWithoutEnricherProfile returns a warning if the recording would record
+// a container of the pod and set the log enricher profile on it, which is not
+// available, so that the recording must not record the pod. A container which
+// a binding binds or an older recording records does not count, see
+// updatePod. The lookup is done once per admission.
+func (p *podSeccompRecorder) skipWithoutEnricherProfile(
+	ctx context.Context,
+	pr *profilerecordingapi.ProfileRecording,
+	pod *corev1.Pod,
+	podName string,
+	claimed map[string]string,
+	bound boundContainers,
+	lookup *enricherProfileLookup,
+) (string, error) {
+	if !bindata.UsesLogEnricherProfile(pr) ||
+		!slices.ContainsFunc(util.PodContainers(pod), func(ctr *corev1.Container) bool {
+			return recordsContainer(pr, ctr, claimed, bound)
+		}) {
+		return "", nil
+	}
+
+	if !lookup.done {
+		state, err := bindata.GetLogEnricherProfileState(ctx, p.GetSeccompProfile)
+		if err != nil {
+			return "", err
+		}
+
+		*lookup = enricherProfileLookup{done: true, state: state}
+	}
+
+	if lookup.state == bindata.LogEnricherProfileAvailable {
+		return "", nil
+	}
+
+	return p.enricherProfileMissing(pr, podName, lookup.state), nil
+}
+
+// dropAuthorAnnotation removes the recording annotation with the key, unless a
+// recording of this admission set it, and returns whether it removed it.
+func dropAuthorAnnotation(pod *corev1.Pod, key string, claimed map[string]string) bool {
+	if _, ok := claimed[key]; ok {
+		return false
+	}
+
+	if _, ok := pod.Annotations[key]; !ok {
+		return false
+	}
+
+	delete(pod.Annotations, key)
+
+	return true
+}
+
+// dropAuthorAnnotations removes the recording annotations of the recording
+// from the containers it selects, see dropAuthorAnnotation, and returns
+// whether it removed one.
+func dropAuthorAnnotations(
+	pod *corev1.Pod, pr *profilerecordingapi.ProfileRecording, claimed map[string]string,
+) bool {
+	dropped := false
+
+	for _, ctr := range util.PodContainers(pod) {
+		if !util.RecordsContainer(pr, ctr.Name) {
+			continue
+		}
+
+		key, err := pr.CtrAnnotationKey(ctr.Name)
+		if err != nil {
+			continue
+		}
+
+		if dropAuthorAnnotation(pod, key, claimed) {
+			dropped = true
+		}
+	}
+
+	return dropped
+}
+
+// recordsContainer returns true if updatePod records the container for the
+// recording: the recording selects it, no binding binds a profile of the
+// recorded kind to it, and no older recording records it.
+func recordsContainer(
+	pr *profilerecordingapi.ProfileRecording,
+	ctr *corev1.Container,
+	claimed map[string]string,
+	bound boundContainers,
+) bool {
+	if !util.RecordsContainer(pr, ctr.Name) {
+		return false
+	}
+
+	if _, ok := boundBy(pr, ctr, bound); ok {
+		return false
+	}
+
+	key, err := pr.CtrAnnotationKey(ctr.Name)
+	if err != nil {
+		return false
+	}
+
+	owner, ok := claimed[key]
+
+	return !ok || owner == pr.Name
+}
+
+// enricherProfileMissing records that the recording does not record the pod,
+// because the log enricher profile is not available, and returns a warning for
+// the admission response.
+func (p *podSeccompRecorder) enricherProfileMissing(
+	pr *profilerecordingapi.ProfileRecording,
+	podName string,
+	state bindata.LogEnricherProfileState,
+) string {
+	var reason string
+
+	switch state {
+	case bindata.LogEnricherProfileDeleting:
+		reason = "is being deleted"
+	case bindata.LogEnricherProfileWithoutStatus:
+		reason = "has no status yet, so no node installed it"
+	case bindata.LogEnricherProfileAvailable, bindata.LogEnricherProfileMissing:
+		reason = "does not exist: the log enricher has not been enabled or the allow lists " +
+			"of the SPOD reject the profile"
+	}
+
+	msg := fmt.Sprintf(
+		"profile recording %s does not record pod %s, because the seccomp profile %s, "+
+			"which the logs recorder sets on the containers, %s",
+		pr.Name, podName, config.LogEnricherProfile, reason,
+	)
+
+	p.log.Info(msg)
+	p.record.Eventf(
+		pr, nil, corev1.EventTypeWarning, reasonEnricherProfileMissing, util.EventActionMutate,
+		"%s", msg,
+	)
+
+	return msg
 }
 
 // boundBinding is the binding which binds a container.
@@ -373,9 +551,7 @@ func (p *podSeccompRecorder) updatePod(
 
 			// A recording annotation of the pod author would still start a
 			// recording of the container, like the overwritten ones below.
-			if _, ok := claimed[key]; !ok {
-				delete(pod.Annotations, key)
-			}
+			dropAuthorAnnotation(pod, key, claimed)
 
 			continue
 		}
@@ -704,7 +880,7 @@ func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 func (p *podSeccompRecorder) warnEventIfNameTooLong(
 	profileRecording *profilerecordingapi.ProfileRecording,
 ) {
-	errs := validation.IsValidLabelValue(profileRecording.Name)
+	errs := content.IsLabelValue(profileRecording.Name)
 	if len(errs) == 0 {
 		return
 	}

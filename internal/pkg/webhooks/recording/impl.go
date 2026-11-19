@@ -24,6 +24,7 @@ import (
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 type defaultImpl struct {
@@ -41,6 +42,10 @@ type impl interface {
 		context.Context,
 		...client.ListOption,
 	) (*profilebindingapi.ProfileBindingList, error)
+	GetSeccompProfile(
+		context.Context,
+		client.ObjectKey,
+	) (*seccompprofileapi.SeccompProfile, error)
 }
 
 func (d *defaultImpl) ListProfileRecordings(
@@ -63,4 +68,15 @@ func (d *defaultImpl) ListProfileBindings(
 	}
 
 	return profileBindings, nil
+}
+
+func (d *defaultImpl) GetSeccompProfile(
+	ctx context.Context, key client.ObjectKey,
+) (*seccompprofileapi.SeccompProfile, error) {
+	seccompProfile := &seccompprofileapi.SeccompProfile{}
+	if err := d.client.Get(ctx, key, seccompProfile); err != nil {
+		return nil, fmt.Errorf("get seccomp profile: %w", err)
+	}
+
+	return seccompProfile, nil
 }

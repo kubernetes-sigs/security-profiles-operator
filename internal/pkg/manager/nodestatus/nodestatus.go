@@ -353,7 +353,9 @@ func (r *StatusReconciler) reconcileNodeStatus(
 			)
 		}
 
-		prof, err = r.reconcileStatus(ctx, prof, &aggregation{state: targetStatus}, lprof)
+		prof, err = r.reconcileStatus(
+			ctx, prof, &aggregation{state: targetStatus, onlyIfUnset: true}, lprof,
+		)
 		if err != nil || prof == nil {
 			return reconcile.Result{}, err
 		}
@@ -734,6 +736,20 @@ type aggregation struct {
 	// lowestState.
 	unsupportedNodes []string
 	onlyUnsupported  bool
+
+	// onlyIfUnset only sets the state on a profile without status. The
+	// initialization of the status relies on it: after a conflict the
+	// profile gets read again, and another reconcile may have set a state
+	// already, which the initial one must not overwrite.
+	onlyIfUnset bool
+
+	// onlyIfDeleting only sets the Terminating state on a profile which has
+	// a status other than Terminating and is not partial, checked on the
+	// profile as read again after a conflict as well. A profile without
+	// status, whose kind is disabled, keeps it, the webhook skips such
+	// profiles. A partial one stays Partial, see updateProfileStatus. A Terminating one keeps
+	// the message of the aggregation, which names the unavailable nodes.
+	onlyIfDeleting bool
 }
 
 // unsupportedMessage returns the part of the message of the Ready condition
@@ -1141,6 +1157,14 @@ func (r *StatusReconciler) reconcileDeletingProfile(
 		return reconcile.Result{}, nil
 	}
 
+	// The aggregation of the node statuses may wait for nodes which do not
+	// report anymore, so the state gets set here, see updateProfileStatus.
+	if _, err := r.reconcileStatus(ctx, prof, &aggregation{
+		state: secprofnodestatusapi.ProfileStateTerminating, onlyIfDeleting: true,
+	}, logger); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	// The finalizers of deleted nodes go first, they do not depend on the
 	// SPOd DaemonSet.
 	if err := r.removeDeletedNodeFinalizers(ctx, prof, view, logger); err != nil {
@@ -1386,6 +1410,16 @@ func (r *StatusReconciler) updateProfileStatus(
 	agg *aggregation,
 	l logr.Logger,
 ) (profilebaseapi.StatusBaseUser, error) {
+	if agg.onlyIfUnset && prof.GetStatusBase().Status != "" {
+		return prof, nil
+	}
+
+	if current := prof.GetStatusBase().Status; agg.onlyIfDeleting &&
+		(current == "" || current == secprofnodestatusapi.ProfileStateTerminating ||
+			profilebaseapi.IsPartial(prof)) {
+		return prof, nil
+	}
+
 	pCopy := prof.DeepCopyToStatusBaseIf()
 
 	// We always set this status
@@ -1395,9 +1429,26 @@ func (r *StatusReconciler) updateProfileStatus(
 
 	var condition metav1.Condition
 
+	// A profile which is being deleted is Terminating, whatever the state of
+	// the node statuses which are left. The daemons delete their statuses
+	// once they removed the profile, and the aggregation waits for the
+	// statuses of all nodes, so it would keep the last state otherwise, for
+	// example Installed while a node whose SPOd pod is unavailable keeps its
+	// finalizer.
+	// A partial profile, which its label tells, stays Partial, which the
+	// binding webhook rejects, also while pods which use it keep it from
+	// being deleted and the daemons report Terminating for it.
+	state := agg.state
+	if !prof.GetDeletionTimestamp().IsZero() {
+		state = secprofnodestatusapi.ProfileStateTerminating
+		if profilebaseapi.IsPartial(prof) {
+			state = secprofnodestatusapi.ProfileStatePartial
+		}
+	}
+
 	// The reasons of the conditions are part of the API, only the messages
 	// may change.
-	switch agg.state {
+	switch state {
 	case secprofnodestatusapi.ProfileStatePending, "":
 		outStatus.Status = secprofnodestatusapi.ProfileStatePending
 		condition = common.Creating()

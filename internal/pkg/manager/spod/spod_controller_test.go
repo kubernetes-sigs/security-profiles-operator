@@ -19,6 +19,7 @@ package spod
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -89,7 +90,7 @@ func Test_configureJsonEnricher(t *testing.T) {
 	}
 
 	ctr := v1.Container{Name: "json-enricher"}
-	newTestReconciler().configureJsonEnricher(cfg, &ctr)
+	newTestReconciler().configureJsonEnricher(cfg, &ctr, nil)
 
 	require.Contains(t, ctr.Args, "--audit-log-interval-seconds=60")
 	require.Contains(t, ctr.Args, "--audit-log-maxsize=10")
@@ -113,13 +114,178 @@ func Test_configureJsonEnricherNilInterval(t *testing.T) {
 	}
 
 	ctr := v1.Container{Name: "json-enricher"}
-	newTestReconciler().configureJsonEnricher(cfg, &ctr)
+	newTestReconciler().configureJsonEnricher(cfg, &ctr, nil)
 
 	for _, arg := range ctr.Args {
 		require.NotContains(t, arg, "--audit-log-interval-seconds")
 	}
 
 	require.Contains(t, ctr.Args, "--audit-log-maxsize=10")
+}
+
+// An audit log in an emptyDir with a size limit keeps as many rotated files as
+// fit into it, unless their number or age is limited.
+func Test_configureJsonEnricherRotationInEmptyDir(t *testing.T) {
+	t.Parallel()
+
+	emptyDir := &jsonEnricherLogVolume{
+		source: &v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{
+			SizeLimit: new(resource.MustParse("500Mi")),
+		}},
+		mountPath: "/data/logs/jsonenricher",
+	}
+	hostPath := &jsonEnricherLogVolume{
+		source:    &v1.VolumeSource{HostPath: &v1.HostPathVolumeSource{Path: "/var/log/spo"}},
+		mountPath: "/data/logs/jsonenricher",
+	}
+
+	for name, tc := range map[string]struct {
+		volume     *jsonEnricherLogVolume
+		path       string
+		maxSize    *int32
+		maxAge     *int32
+		maxBackups *int32
+		wantArgs   []string
+		// wantTooSmall is true if the volume cannot hold two files.
+		wantTooSmall bool
+	}{
+		// 500Mi * 4/5 holds 4 files of the default 100 MB.
+		"file in the emptyDir": {
+			volume:   emptyDir,
+			path:     "/data/logs/jsonenricher/audit.log",
+			maxSize:  new(int32(100)),
+			wantArgs: []string{"--audit-log-maxsize=100", "--audit-log-maxbackup=3"},
+		},
+		"smaller files": {
+			volume:   emptyDir,
+			path:     "/data/logs/jsonenricher/audit.log",
+			maxSize:  new(int32(10)),
+			wantArgs: []string{"--audit-log-maxsize=10", "--audit-log-maxbackup=39"},
+		},
+		"files larger than the volume keep one backup": {
+			volume:       emptyDir,
+			path:         "/data/logs/jsonenricher/audit.log",
+			maxSize:      new(int32(1000)),
+			wantArgs:     []string{"--audit-log-maxsize=1000", "--audit-log-maxbackup=1"},
+			wantTooSmall: true,
+		},
+		// Four fifths of 500Mi hold one file of 300 MiB, but not two.
+		"two files do not fit": {
+			volume:       emptyDir,
+			path:         "/data/logs/jsonenricher/audit.log",
+			maxSize:      new(int32(300)),
+			wantArgs:     []string{"--audit-log-maxsize=300", "--audit-log-maxbackup=1"},
+			wantTooSmall: true,
+		},
+		"maximum size unset": {
+			volume:   emptyDir,
+			path:     "/data/logs/jsonenricher/audit.log",
+			wantArgs: []string{"--audit-log-maxbackup=3"},
+		},
+		"maximum age configured": {
+			volume:  emptyDir,
+			path:    "/data/logs/jsonenricher/audit.log",
+			maxSize: new(int32(100)),
+			maxAge:  new(int32(1)),
+			wantArgs: []string{
+				"--audit-log-maxage=1", "--audit-log-maxsize=100",
+			},
+		},
+		// 0 means the default of the JSON enricher, like unset.
+		"backups and age set to 0": {
+			volume:     emptyDir,
+			path:       "/data/logs/jsonenricher/audit.log",
+			maxSize:    new(int32(100)),
+			maxAge:     new(int32(0)),
+			maxBackups: new(int32(0)),
+			wantArgs: []string{
+				"--audit-log-maxage=0", "--audit-log-maxsize=100", "--audit-log-maxbackup=3",
+			},
+		},
+		"memory backed emptyDir": {
+			volume: &jsonEnricherLogVolume{
+				source: &v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{
+					Medium:    v1.StorageMediumMemory,
+					SizeLimit: new(resource.MustParse("500Mi")),
+				}},
+				mountPath: "/data/logs/jsonenricher",
+			},
+			path:     "/data/logs/jsonenricher/audit.log",
+			maxSize:  new(int32(100)),
+			wantArgs: []string{"--audit-log-maxsize=100"},
+		},
+		"backups configured": {
+			volume:     emptyDir,
+			path:       "/data/logs/jsonenricher/audit.log",
+			maxBackups: new(int32(2)),
+			wantArgs:   []string{"--audit-log-maxbackup=2"},
+		},
+		"file outside of the emptyDir": {
+			volume: emptyDir,
+			path:   "/data/logs/other/audit.log",
+		},
+		"file named like the emptyDir": {
+			volume: emptyDir,
+			path:   "/data/logs/jsonenricher.log",
+		},
+		"host path volume": {
+			volume: hostPath,
+			path:   "/data/logs/jsonenricher/audit.log",
+		},
+		"no volume": {
+			path: "/data/logs/jsonenricher/audit.log",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Enricher: spodapi.SPODEnricherConfig{
+						JsonEnricherOptions: &spodapi.JsonEnricherOptions{
+							AuditLogPath:       &tc.path,
+							AuditLogMaxSize:    tc.maxSize,
+							AuditLogMaxAge:     tc.maxAge,
+							AuditLogMaxBackups: tc.maxBackups,
+						},
+					},
+				},
+			}
+
+			ctr := v1.Container{Name: "json-enricher"}
+			r := newTestReconciler()
+			r.configureJsonEnricher(cfg, &ctr, tc.volume)
+
+			recorder, ok := r.record.(*events.FakeRecorder)
+			require.True(t, ok)
+
+			if tc.wantTooSmall {
+				require.Len(t, recorder.Events, 1)
+				require.Contains(t, <-recorder.Events, reasonJsonEnricherLogVolumeTooSmall)
+
+				// The next reconcile of the same configuration does not
+				// report it again, a new generation does.
+				r.configureJsonEnricher(cfg, &v1.Container{Name: "json-enricher"}, tc.volume)
+				require.Empty(t, recorder.Events)
+
+				cfg.Generation++
+				r.configureJsonEnricher(cfg, &v1.Container{Name: "json-enricher"}, tc.volume)
+				require.Len(t, recorder.Events, 1)
+			} else {
+				require.Empty(t, recorder.Events)
+			}
+
+			var rotation []string
+
+			for _, arg := range ctr.Args {
+				if strings.HasPrefix(arg, "--audit-log-max") {
+					rotation = append(rotation, arg)
+				}
+			}
+
+			require.Equal(t, tc.wantArgs, rotation)
+		})
+	}
 }
 
 // Test_getConfiguredSPOdDoesNotMutateBase asserts that rendering the SPOd

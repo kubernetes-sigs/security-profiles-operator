@@ -210,21 +210,3 @@ func (r *ReconcileSPOd) notAllowed(
 
 	return true
 }
-
-// rejectedByAllowLists returns true if the allow lists of the SPOD reject the
-// profile, which has no base profile, like reconcileAllowList decides it.
-func rejectedByAllowLists(
-	sp *seccompprofileapi.SeccompProfile, security *spodapi.SPODSecurityConfig,
-) bool {
-	if len(security.AllowedSyscalls) == 0 {
-		return false
-	}
-
-	if _, err := seccompcheck.CheckedActions(security.AllowedSeccompActions); err != nil {
-		return false
-	}
-
-	return seccompcheck.AllowProfile(
-		sp, security.AllowedSyscalls, security.AllowedSeccompActions,
-	) != nil
-}

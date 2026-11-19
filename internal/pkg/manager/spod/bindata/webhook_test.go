@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -566,9 +567,9 @@ func TestWebhook_DeploymentRequiredSCC(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "restricted-v2",
-		webhookDeployment.Spec.Template.Annotations[openshiftRequiredSCCAnnotation])
+		webhookDeployment.Spec.Template.Annotations[OpenShiftRequiredSCCAnnotation])
 	assert.Equal(t, "privileged",
-		Manifest.Spec.Template.Annotations[openshiftRequiredSCCAnnotation])
+		Manifest.Spec.Template.Annotations[OpenShiftRequiredSCCAnnotation])
 }
 
 func newTestWebhook(t *testing.T, tolerations []corev1.Toleration) *Webhook {
@@ -1751,6 +1752,133 @@ func TestProfileKindEnabled(t *testing.T) {
 				return
 			}
 
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestNamespaceLabelsChanged(t *testing.T) {
+	t.Parallel()
+
+	pred := NamespaceLabelsChanged()
+	old := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+	labeled := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "ns", Labels: map[string]string{EnableRecordingLabel: ""},
+	}}
+
+	require.False(t, pred.Create(event.CreateEvent{Object: old}))
+	require.False(t, pred.Delete(event.DeleteEvent{Object: old}))
+	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: old}))
+	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: labeled}))
+}
+
+func TestRecordingWebhookPodSelector(t *testing.T) {
+	t.Parallel()
+
+	const operatorNamespace = "operator"
+
+	labeled := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "ns", Labels: map[string]string{EnableRecordingLabel: ""},
+	}}
+	unlabeled := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+	webhookConfig := func(objectSelector *metav1.LabelSelector) *admissionregv1.MutatingWebhookConfiguration {
+		return &admissionregv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: MutatingWebhookConfigName},
+			Webhooks: []admissionregv1.MutatingWebhook{{
+				Name:              RecordingWebhookName,
+				NamespaceSelector: requireLabel(EnableRecordingLabel),
+				ObjectSelector:    objectSelector,
+			}},
+		}
+	}
+	spod := func(opts ...spodapi.WebhookOptions) *spodapi.SecurityProfilesOperatorDaemon {
+		return &spodapi.SecurityProfilesOperatorDaemon{
+			ObjectMeta: metav1.ObjectMeta{Name: config.SPOdName, Namespace: operatorNamespace},
+			Spec:       spodapi.SPODSpec{Webhook: spodapi.SPODWebhookConfig{Options: opts}},
+		}
+	}
+	appA := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "a"}}
+
+	for name, tc := range map[string]struct {
+		objs              []client.Object
+		operatorNamespace string
+		want              bool
+	}{
+		"selected by the webhook": {
+			objs: []client.Object{webhookConfig(appA), labeled},
+			want: true,
+		},
+		"namespace not selected": {
+			objs: []client.Object{webhookConfig(appA), unlabeled},
+		},
+		"object selector does not match": {
+			objs: []client.Object{webhookConfig(&metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "b"},
+			}), labeled},
+		},
+		"invalid object selector": {
+			objs: []client.Object{webhookConfig(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "app", Operator: "invalid"}},
+			}), labeled},
+		},
+		"configuration without recording webhook": {
+			objs: []client.Object{&admissionregv1.MutatingWebhookConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: MutatingWebhookConfigName},
+			}, labeled},
+		},
+		// Like the daemon, the selectors of the SPOD apply without the
+		// configuration, which require the namespace label by default.
+		"no configuration, default SPOD": {
+			objs:              []client.Object{spod(), unlabeled},
+			operatorNamespace: operatorNamespace,
+		},
+		"no configuration, SPOD selecting the namespace": {
+			objs:              []client.Object{spod(), labeled},
+			operatorNamespace: operatorNamespace,
+			want:              true,
+		},
+		"no configuration, SPOD object selector does not match": {
+			objs: []client.Object{spod(spodapi.WebhookOptions{
+				Name:           RecordingWebhookName,
+				ObjectSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "b"}},
+			}), labeled},
+			operatorNamespace: operatorNamespace,
+		},
+		"no configuration, no SPOD": {
+			objs:              []client.Object{unlabeled},
+			operatorNamespace: operatorNamespace,
+			want:              true,
+		},
+		"no configuration, no operator namespace": {
+			objs: []client.Object{spod(), unlabeled},
+			want: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+			require.NoError(t, spodapi.AddToScheme(scheme))
+
+			// Building the client sets the resource versions of the objects,
+			// which the parallel subtests share.
+			objs := make([]client.Object, 0, len(tc.objs))
+			for _, obj := range tc.objs {
+				copied, ok := obj.DeepCopyObject().(client.Object)
+				require.True(t, ok)
+
+				objs = append(objs, copied)
+			}
+
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Name: "pod", Namespace: "ns", Labels: map[string]string{"app": "a"},
+			}}
+
+			got, err := RecordingWebhookSelectsPod(t.Context(), c, tc.operatorNamespace, pod)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})

@@ -22,6 +22,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -37,6 +39,8 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
@@ -181,6 +185,80 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			podSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"in valid": "app"}},
 			wantReason:  profilebindingapi.ReasonInvalidPodSelector,
 		},
+		// A node whose SPOd pod is unavailable keeps its finalizer, so the
+		// state stays Installed, while the webhook rejects the pods.
+		"profile being deleted": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs: []client.Object{&seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "profile",
+					DeletionTimestamp: new(metav1.Now()),
+					Finalizers:        []string{"node-1-delete"},
+				},
+				Status: seccompprofileapi.SeccompProfileStatus{StatusBase: installed},
+			}},
+			wantReason:  profilebindingapi.ReasonProfileDeleting,
+			wantMessage: "SeccompProfile profile is being deleted, so pods matching the binding are rejected",
+		},
+		// The webhook keeps binding a profile which pods still use.
+		"profile in use being deleted": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs: []client.Object{&seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "profile",
+					DeletionTimestamp: new(metav1.Now()),
+					Finalizers:        []string{util.HasActivePodsFinalizerString},
+				},
+				Status: seccompprofileapi.SeccompProfileStatus{
+					StatusBase: profilebasev1.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateTerminating,
+					},
+				},
+			}},
+			wantReason: common.ReasonAvailable,
+		},
+		// The webhook rejects a partial profile, also while pods use it.
+		"partial profile in use being deleted": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs: []client.Object{&seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "profile",
+					DeletionTimestamp: new(metav1.Now()),
+					Finalizers:        []string{util.HasActivePodsFinalizerString},
+				},
+				Status: seccompprofileapi.SeccompProfileStatus{
+					StatusBase: profilebasev1.StatusBase{
+						Status: secprofnodestatusapi.ProfileStatePartial,
+					},
+				},
+			}},
+			wantReason:  profilebindingapi.ReasonProfileNotInstalled,
+			wantMessage: "SeccompProfile profile is not installed, its status is Partial",
+		},
+		"namespace not selected by the binding webhook": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs: []client.Object{
+				&seccompprofileapi.SeccompProfile{
+					ObjectMeta: meta, Status: seccompprofileapi.SeccompProfileStatus{StatusBase: installed},
+				},
+				bindingWebhookConfig(),
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+			},
+			wantReason: profilebindingapi.ReasonBindingNotEnabled,
+		},
+		"namespace selected by the binding webhook": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+			objs: []client.Object{
+				&seccompprofileapi.SeccompProfile{
+					ObjectMeta: meta, Status: seccompprofileapi.SeccompProfileStatus{StatusBase: installed},
+				},
+				bindingWebhookConfig(),
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+					Name: "default", Labels: map[string]string{bindata.EnableBindingLabel: ""},
+				}},
+			},
+			wantReason: common.ReasonAvailable,
+		},
 		// Like for the webhook, a missing configuration counts as enabled.
 		"selinux without SPOD": {
 			kind:       profilebindingapi.ProfileBindingKindSelinuxProfile,
@@ -252,6 +330,23 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 			require.Zero(t, statusUpdates)
 			require.Equal(t, []string{"default/pod"}, updated.Status.ActiveWorkloads)
 		})
+	}
+}
+
+// bindingWebhookConfig returns the webhook configuration of the operator whose
+// binding webhook selects the namespaces with the enable binding label.
+func bindingWebhookConfig() *admissionregv1.MutatingWebhookConfiguration {
+	return &admissionregv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: bindata.MutatingWebhookConfigName},
+		Webhooks: []admissionregv1.MutatingWebhook{{
+			Name: bindata.BindingWebhookName,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      bindata.EnableBindingLabel,
+					Operator: metav1.LabelSelectorOpExists,
+				}},
+			},
+		}},
 	}
 }
 

@@ -17,6 +17,7 @@ limitations under the License.
 package recordingtracker
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +35,7 @@ import (
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
@@ -152,6 +154,17 @@ func namespaceObject(name string, labels map[string]string) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
 }
 
+// enricherProfile returns the log enricher profile, which logs seccomp
+// recordings need.
+func enricherProfile() *seccompprofileapi.SeccompProfile {
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: config.LogEnricherProfile},
+	}
+	profile.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+
+	return profile
+}
+
 // reconcileStatus reconciles the status of the recording and returns its
 // conditions.
 func reconcileStatus(
@@ -252,7 +265,7 @@ func TestRecordingStatusReportsDisabledRecorder(t *testing.T) {
 		"logs enabled by the environment": {
 			recorder:   profilerecordingapi.ProfileRecorderLogs,
 			env:        recorderEnv{logEnricher: true},
-			spods:      []client.Object{spod("spod", false, false)},
+			spods:      []client.Object{spod("spod", false, false), enricherProfile()},
 			wantReason: common.ReasonAvailable,
 		},
 		"no spod": {
@@ -384,6 +397,165 @@ func TestRecordingStatusReportsSelinuxDisabled(t *testing.T) {
 				operatorNamespace: testOperatorNamespace,
 				isOpenShift:       tc.isOpenShift,
 				env:               recorderEnv{logEnricher: true},
+			}
+
+			_, err := r.Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(recording),
+			})
+			require.NoError(t, err)
+
+			updated := &profilerecordingapi.ProfileRecording{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+
+			ready := updated.Status.GetReadyCondition()
+			require.Equal(t, string(tc.wantReason), ready.Reason)
+		})
+	}
+}
+
+func TestRecordingStatusReportsEnricherProfileProblems(t *testing.T) {
+	t.Parallel()
+
+	allowListSPOD := func(
+		syscalls []string, actions ...seccompprofileapi.Action,
+	) *spodapi.SecurityProfilesOperatorDaemon {
+		s := spod("spod", true, true)
+		s.Spec.Security.AllowedSyscalls = syscalls
+		s.Spec.Security.AllowedSeccompActions = actions
+
+		return s
+	}
+
+	deleting := enricherProfile()
+	deleting.DeletionTimestamp = new(metav1.Now())
+	deleting.Finalizers = []string{"node-1-delete"}
+
+	for name, tc := range map[string]struct {
+		recorder   profilerecordingapi.ProfileRecorder
+		kind       profilerecordingapi.ProfileRecordingKind
+		spods      []client.Object
+		profile    *seccompprofileapi.SeccompProfile
+		noProfile  bool
+		wantReason common.ConditionReason
+	}{
+		"enricher profile missing": {
+			recorder:   profilerecordingapi.ProfileRecorderLogs,
+			spods:      []client.Object{allowListSPOD(nil)},
+			noProfile:  true,
+			wantReason: profilerecordingapi.ReasonEnricherProfileMissing,
+		},
+		"enricher profile without status": {
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			spods:    []client.Object{allowListSPOD(nil)},
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: config.LogEnricherProfile},
+			},
+			wantReason: profilerecordingapi.ReasonEnricherProfileMissing,
+		},
+		// The kubelet retries the containers until the nodes installed it.
+		"enricher profile pending": {
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			spods:    []client.Object{allowListSPOD(nil)},
+			profile: func() *seccompprofileapi.SeccompProfile {
+				profile := enricherProfile()
+				profile.Status.Status = secprofnodestatusapi.ProfileStatePending
+
+				return profile
+			}(),
+			wantReason: common.ReasonAvailable,
+		},
+		"enricher profile being deleted": {
+			recorder:   profilerecordingapi.ProfileRecorderLogs,
+			spods:      []client.Object{allowListSPOD(nil)},
+			profile:    deleting,
+			wantReason: profilerecordingapi.ReasonEnricherProfileMissing,
+		},
+		"bpf recorder without enricher profile": {
+			recorder:   profilerecordingapi.ProfileRecorderBpf,
+			spods:      []client.Object{allowListSPOD(nil)},
+			noProfile:  true,
+			wantReason: common.ReasonAvailable,
+		},
+		"allow list checks every action": {
+			recorder:   profilerecordingapi.ProfileRecorderLogs,
+			spods:      []client.Object{allowListSPOD([]string{"read"})},
+			wantReason: profilerecordingapi.ReasonEnricherProfileNotAllowed,
+		},
+		"allow list checks the log action": {
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			spods: []client.Object{
+				allowListSPOD([]string{"read"}, seccompprofileapi.ActLog),
+			},
+			wantReason: profilerecordingapi.ReasonEnricherProfileNotAllowed,
+		},
+		"allow list does not check the log action": {
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			spods: []client.Object{
+				allowListSPOD([]string{"read"}, seccompprofileapi.ActAllow),
+			},
+			wantReason: common.ReasonAvailable,
+		},
+		// The daemons reject every profile, the manager deletes none.
+		"allow list with an action which cannot be checked": {
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			spods: []client.Object{
+				allowListSPOD([]string{"read"}, seccompprofileapi.ActErrno),
+			},
+			wantReason: profilerecordingapi.ReasonEnricherProfileNotAllowed,
+		},
+		"no allow list": {
+			recorder:   profilerecordingapi.ProfileRecorderLogs,
+			spods:      []client.Object{allowListSPOD(nil)},
+			wantReason: common.ReasonAvailable,
+		},
+		"bpf recorder": {
+			recorder:   profilerecordingapi.ProfileRecorderBpf,
+			spods:      []client.Object{allowListSPOD([]string{"read"})},
+			wantReason: common.ReasonAvailable,
+		},
+		"selinux recording": {
+			recorder:   profilerecordingapi.ProfileRecorderLogs,
+			kind:       profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			spods:      []client.Object{allowListSPOD([]string{"read"})},
+			wantReason: common.ReasonAvailable,
+		},
+		"no spod": {
+			recorder:   profilerecordingapi.ProfileRecorderLogs,
+			wantReason: common.ReasonAvailable,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := statusRecording(tc.recorder)
+			if tc.kind != "" {
+				recording.Spec.Kind = tc.kind
+			}
+
+			objs := append(slices.Clone(tc.spods), recording)
+
+			switch {
+			case tc.profile != nil:
+				objs = append(objs, tc.profile)
+			case !tc.noProfile:
+				objs = append(objs, enricherProfile())
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(recording).
+				WithObjects(objs...).
+				Build()
+
+			r := &recordingStatusReconciler{
+				client:            c,
+				reader:            c,
+				log:               logr.Discard(),
+				operatorNamespace: testOperatorNamespace,
+				// SELinux counts as enabled on OpenShift without a SPOD
+				// setting.
+				isOpenShift: true,
+				env:         recorderEnv{logEnricher: true, bpfRecorder: true},
 			}
 
 			_, err := r.Reconcile(t.Context(), reconcile.Request{
@@ -666,16 +838,20 @@ func TestStatusMapFunctions(t *testing.T) {
 			t.Context(), seccompProfile("unrelated", nil)))
 }
 
-func TestLabelsChanged(t *testing.T) {
+func TestEnricherProfileEvents(t *testing.T) {
 	t.Parallel()
 
-	pred := labelsChanged()
-	old := namespaceObject("ns", nil)
-	labeled := namespaceObject("ns", map[string]string{bindata.EnableRecordingLabel: ""})
+	pred := enricherProfileEvents()
+	other := seccompProfile("other", nil)
+	profile := enricherProfile()
+	deleting := enricherProfile()
+	deleting.DeletionTimestamp = new(metav1.Now())
 
-	require.False(t, pred.Create(event.CreateEvent{Object: old}))
-	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: old}))
-	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: labeled}))
+	require.True(t, pred.Create(event.CreateEvent{Object: profile}))
+	require.False(t, pred.Create(event.CreateEvent{Object: other}))
+	require.True(t, pred.Delete(event.DeleteEvent{Object: profile}))
+	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: profile, ObjectNew: profile}))
+	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: profile, ObjectNew: deleting}))
 }
 
 // Profiles which are created, deleted or relabeled can change the conflicts of

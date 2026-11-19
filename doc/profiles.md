@@ -1005,7 +1005,11 @@ The reason `ProfileNotInstalled` tells that the profile exists, but is not
 installed, along with its status, `ProfileKindDisabled` that the profile has
 no status because its kind is disabled in the SPOD, and `InvalidPodSelector`
 that the `podSelector` cannot be parsed, so that the binding is not applied to
-any pod.
+any pod. `ProfileDeleting` tells that the profile is being deleted and no pod
+uses it anymore, so that the binding webhook rejects the pods matching the
+binding, and `BindingNotEnabled` that the binding webhook does not select the
+namespace of the binding, by default because it lacks the
+`spo.x-k8s.io/enable-binding` label, so that the binding is not applied.
 
 ## Profile reference
 

@@ -124,6 +124,18 @@ const (
 	// enable SELinux, so that the SELinux type which the recording webhook
 	// sets on the containers is not installed on the nodes.
 	ReasonSelinuxDisabled common.ConditionReason = "SelinuxDisabled"
+	// ReasonEnricherProfileNotAllowed is the reason of the Ready condition of
+	// a SeccompProfile recording with the Logs recorder if the allow lists of
+	// the SecurityProfilesOperatorDaemon reject the log enricher profile,
+	// which the recording webhook would set on the containers, so that the
+	// webhook does not record the pods.
+	ReasonEnricherProfileNotAllowed common.ConditionReason = "EnricherProfileNotAllowed"
+	// ReasonEnricherProfileMissing is the reason of the Ready condition of a
+	// SeccompProfile recording with the Logs recorder if the log enricher
+	// profile, which the recording webhook would set on the containers, does
+	// not exist, has no status yet or is being deleted, so that the webhook
+	// does not record the pods.
+	ReasonEnricherProfileMissing common.ConditionReason = "EnricherProfileMissing"
 	// ReasonProfileOwnedByOther is the reason of the ProfileConflict
 	// condition if it is true.
 	ReasonProfileOwnedByOther common.ConditionReason = "ProfileOwnedByOther"
@@ -241,15 +253,26 @@ type ProfileRecording struct {
 }
 
 func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, err error) {
+	key, err = pr.CtrAnnotationKey(ctrName)
+	if err != nil {
+		return "", "", err
+	}
+
+	return key, pr.ctrAnnotationValue(ctrName), nil
+}
+
+// CtrAnnotationKey returns the key of the recording annotation of the
+// container for the kind and recorder of the recording.
+func (pr *ProfileRecording) CtrAnnotationKey(ctrName string) (string, error) {
 	switch pr.Spec.Kind {
 	case ProfileRecordingKindSeccompProfile:
-		return pr.ctrAnnotationSeccomp(ctrName)
+		return pr.ctrAnnotationKeySeccomp(ctrName)
 	case ProfileRecordingKindSelinuxProfile:
-		return pr.ctrAnnotationSelinux(ctrName)
+		return pr.ctrAnnotationKeySelinux(ctrName)
 	case ProfileRecordingKindAppArmorProfile:
-		return pr.ctrAnnotationApparmor(ctrName)
+		return pr.ctrAnnotationKeyApparmor(ctrName)
 	default:
-		return "", "", fmt.Errorf(
+		return "", fmt.Errorf(
 			"invalid kind: %s", pr.Spec.Kind,
 		)
 	}
@@ -303,48 +326,37 @@ func (pr *ProfileRecording) ctrAnnotationValue(ctrName string) string {
 	)
 }
 
-func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrName string) (key, value string, err error) {
-	var annotationPrefix string
-
+func (pr *ProfileRecording) ctrAnnotationKeySeccomp(ctrName string) (string, error) {
 	switch pr.Spec.Recorder {
 	case ProfileRecorderLogs:
-		annotationPrefix = SeccompProfileRecordLogsAnnotationKey
+		return SeccompProfileRecordLogsAnnotationKey + ctrName, nil
 	case ProfileRecorderBpf:
-		annotationPrefix = SeccompProfileRecordBpfAnnotationKey
+		return SeccompProfileRecordBpfAnnotationKey + ctrName, nil
 	default:
-		return "", "", fmt.Errorf(
+		return "", fmt.Errorf(
 			"invalid recorder: %s", pr.Spec.Recorder,
 		)
 	}
-
-	key = annotationPrefix + ctrName
-	value = pr.ctrAnnotationValue(ctrName)
-
-	return key, value, err
 }
 
-func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value string, err error) {
+func (pr *ProfileRecording) ctrAnnotationKeySelinux(ctrName string) (string, error) {
 	if pr.Spec.Recorder != ProfileRecorderLogs {
-		return "", "", fmt.Errorf(
+		return "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
 		)
 	}
 
-	return SelinuxProfileRecordLogsAnnotationKey + ctrName, pr.ctrAnnotationValue(
-		ctrName,
-	), nil
+	return SelinuxProfileRecordLogsAnnotationKey + ctrName, nil
 }
 
-func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value string, err error) {
+func (pr *ProfileRecording) ctrAnnotationKeyApparmor(ctrName string) (string, error) {
 	if pr.Spec.Recorder != ProfileRecorderBpf {
-		return "", "", fmt.Errorf(
+		return "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
 		)
 	}
 
-	return ApparmorProfileRecordBpfAnnotationKey + ctrName, pr.ctrAnnotationValue(
-		ctrName,
-	), nil
+	return ApparmorProfileRecordBpfAnnotationKey + ctrName, nil
 }
 
 // +kubebuilder:object:root=true

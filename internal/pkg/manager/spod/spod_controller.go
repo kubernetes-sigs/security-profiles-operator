@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -34,6 +35,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,6 +50,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/seccompcheck"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -83,6 +86,10 @@ const (
 
 	reasonCannotApplyAdmissionPolicies string = "CannotApplyAdmissionPolicies"
 	reasonWeakenedBindingWebhook       string = "WeakenedBindingWebhook"
+
+	// reasonJsonEnricherLogVolumeTooSmall is the reason of the event of a
+	// SPOD whose JSON enricher log volume cannot hold two audit log files.
+	reasonJsonEnricherLogVolumeTooSmall string = "JsonEnricherLogVolumeTooSmall"
 
 	// legacyAppArmorAnnotation got set on the DaemonSet by previous versions.
 	// It never had an effect, because it is the removed seccomp annotation and
@@ -160,6 +167,12 @@ type ReconcileSPOd struct {
 	typeTagWarningMu sync.Mutex
 	typeTagWarned    spodGeneration
 
+	// logVolumeWarningMu guards logVolumeWarned, the configuration for which
+	// the too small JSON enricher log volume got reported last, see
+	// jsonEnricherLogVolumeTooSmall.
+	logVolumeWarningMu sync.Mutex
+	logVolumeWarned    logVolumeWarning
+
 	// env holds the features which the environment of the operator enables.
 	env envFlags
 }
@@ -168,6 +181,15 @@ type ReconcileSPOd struct {
 type spodGeneration struct {
 	uid        types.UID
 	generation int64
+}
+
+// logVolumeWarning is the configuration for which the too small JSON enricher
+// log volume got reported.
+type logVolumeWarning struct {
+	spodGeneration
+
+	sizeLimit int64
+	maxSizeMB int64
 }
 
 // Name returns the name of the controller.
@@ -558,7 +580,20 @@ func (r *ReconcileSPOd) reconcileOperands(
 		return err
 	}
 
-	if daemonSetRolledOut(foundSPOd) {
+	rolledOut := daemonSetRolledOut(foundSPOd)
+
+	// The managed webhook fails closed, so the SPOD is only Running once it
+	// runs as well. A static webhook configuration is not managed here.
+	if rolledOut && !ptr.Deref(spod.Spec.Webhook.StaticConfig, false) {
+		var err error
+
+		rolledOut, err = r.webhookRolledOut(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	if rolledOut {
 		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
 		if condready.Status != metav1.ConditionTrue {
@@ -594,6 +629,32 @@ func daemonSetRolledOut(ds *appsv1.DaemonSet) bool {
 		status.UpdatedNumberScheduled == status.DesiredNumberScheduled &&
 		status.NumberAvailable == status.DesiredNumberScheduled &&
 		status.NumberReady == status.DesiredNumberScheduled
+}
+
+// webhookRolledOut returns true if the Deployment of the managed webhook
+// observed its current spec, runs no replica of an earlier spec anymore and
+// has a replica available, which serves the admission requests. It does not
+// wait for every replica, so that a node drain, which the disruption budget
+// of the webhook lets evict all replicas but one, and a cluster which cannot
+// schedule every replica keep the SPOD Running. A missing Deployment is not
+// rolled out, the next update creates it again.
+func (r *ReconcileSPOd) webhookRolledOut(ctx context.Context) (bool, error) {
+	deployment := &appsv1.Deployment{}
+	if err := r.client.Get(
+		ctx, types.NamespacedName{Name: bindata.WebhookName, Namespace: r.namespace}, deployment,
+	); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("getting webhook deployment: %w", err)
+	}
+
+	status := &deployment.Status
+
+	return status.ObservedGeneration >= deployment.Generation &&
+		status.Replicas == status.UpdatedReplicas &&
+		status.AvailableReplicas >= 1, nil
 }
 
 // ensureServiceMonitor patches the ServiceMonitor once per operator process,
@@ -644,7 +705,7 @@ func (r *ReconcileSPOd) syncDefaultProfiles(
 	updateSpec bool,
 ) error {
 	for _, profile := range r.defaultProfiles(cfg) {
-		if rejectedByAllowLists(profile, &cfg.Spec.Security) {
+		if seccompcheck.RejectedByAllowLists(profile, &cfg.Spec.Security) {
 			r.log.V(config.VerboseLevel).Info(
 				"Not deploying operator default profile, the allow lists reject it",
 				"profile", profile.Name,
@@ -1403,8 +1464,10 @@ func (r *ReconcileSPOd) configureRecording(
 
 		addContainer(bindata.ContainerIDJsonEnricher, "",
 			func(ctr *corev1.Container) {
-				volumeErr = r.addJsonEnricherLogVolume(ctx, templateSpec, ctr)
-				r.configureJsonEnricher(cfg, ctr)
+				var logVolume jsonEnricherLogVolume
+
+				logVolume, volumeErr = r.addJsonEnricherLogVolume(ctx, templateSpec, ctr)
+				r.configureJsonEnricher(cfg, ctr, &logVolume)
 			})
 
 		if volumeErr != nil {
@@ -1422,23 +1485,129 @@ func (r *ReconcileSPOd) configureRecording(
 // which does not configure the volume is fine, while a failed read is an
 // error: rendering the template without the volume would roll the SPOd, and
 // the next successful read would roll it back.
+//
+// An emptyDir counts towards the ephemeral storage of the pod, whose limit is
+// the sum of the limits of its containers. The size limit of the emptyDir
+// gets added to the limit of the container, so that a volume which stays
+// within its size limit does not get the pod evicted. Without a configured
+// volume, the returned one has no source.
 func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 	ctx context.Context,
 	templateSpec *corev1.PodSpec,
 	ctr *corev1.Container,
-) error {
+) (jsonEnricherLogVolume, error) {
 	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
 	if isJsonEnricherVolumeNotConfigured(err) {
-		return nil
+		return jsonEnricherLogVolume{}, nil
 	} else if err != nil {
-		return fmt.Errorf("getting the JSON enricher log volume: %w", err)
+		return jsonEnricherLogVolume{}, fmt.Errorf("getting the JSON enricher log volume: %w", err)
 	}
 
 	logVolume, logMount := bindata.CustomLogVolume(logVolumeMountPath, logVolumeSource)
 	templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
 	ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
 
-	return nil
+	if sizeLimit := emptyDirSizeLimit(logVolumeSource); sizeLimit != nil {
+		if limit, ok := ctr.Resources.Limits[corev1.ResourceEphemeralStorage]; ok {
+			limit.Add(*sizeLimit)
+			ctr.Resources.Limits[corev1.ResourceEphemeralStorage] = limit
+		}
+	}
+
+	return jsonEnricherLogVolume{source: logVolumeSource, mountPath: logVolumeMountPath}, nil
+}
+
+// jsonEnricherLogVolume is the log volume of the JSON enricher.
+type jsonEnricherLogVolume struct {
+	source    *corev1.VolumeSource
+	mountPath string
+}
+
+// emptyDirSizeLimit returns the size limit of an emptyDir volume on disk, or
+// nil for other volumes and an emptyDir without a size limit.
+func emptyDirSizeLimit(source *corev1.VolumeSource) *resource.Quantity {
+	// A memory backed emptyDir counts towards the memory of the pod, not
+	// towards its ephemeral storage.
+	if source == nil || source.EmptyDir == nil || source.EmptyDir.SizeLimit == nil ||
+		source.EmptyDir.SizeLimit.Sign() <= 0 ||
+		source.EmptyDir.Medium == corev1.StorageMediumMemory {
+		return nil
+	}
+
+	return source.EmptyDir.SizeLimit
+}
+
+// defaultAuditLogMaxSizeMB is the size in megabytes at which the JSON
+// enricher rotates the audit log file by default. The rotation counts
+// megabytes of 1024*1024 bytes.
+const defaultAuditLogMaxSizeMB = 100
+
+// jsonEnricherLogBackups returns the number of rotated audit log files which
+// fit into four fifths of the log volume together with the current one, if
+// the volume is an emptyDir on disk with a size limit. The JSON enricher
+// otherwise keeps 10 of them, which exceed the size limit of the default
+// volume and get the pod evicted, or fill the disk of the node when the pod is
+// critical and does not get evicted. At least one rotated file is kept, a
+// smaller number means the default of the JSON enricher. fits is false if
+// not even the current and one rotated file fit.
+func jsonEnricherLogBackups(
+	logVolume *jsonEnricherLogVolume, auditLogPath string, maxSizeMB int64,
+) (backups int64, fits, ok bool) {
+	if logVolume == nil || maxSizeMB <= 0 {
+		return 0, false, false
+	}
+
+	sizeLimit := emptyDirSizeLimit(logVolume.source)
+	if sizeLimit == nil {
+		return 0, false, false
+	}
+
+	rel, err := filepath.Rel(logVolume.mountPath, filepath.Clean(auditLogPath))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return 0, false, false
+	}
+
+	const megabyte = 1024 * 1024
+
+	files := sizeLimit.Value() * 4 / 5 / megabyte / maxSizeMB
+
+	return max(files-1, 1), files >= 2, true
+}
+
+// jsonEnricherLogVolumeTooSmall reports that the emptyDir log volume of the
+// JSON enricher cannot hold the audit log file and one rotated file, which
+// gets the SPOd pod evicted once the files exceed the size limit. It reports
+// every generation of the SPOD, volume size limit and maximum file size once.
+func (r *ReconcileSPOd) jsonEnricherLogVolumeTooSmall(
+	cfg *spodapi.SecurityProfilesOperatorDaemon, logVolume *jsonEnricherLogVolume, maxSizeMB int64,
+) {
+	const msg = "The JSON enricher log volume cannot hold the audit log file and one rotated " +
+		"file of %d MiB, which gets the spod pods evicted once they exceed its size limit: " +
+		"set spec.enricher.jsonEnricherOptions.auditLogMaxSize below half of the volume"
+
+	current := logVolumeWarning{
+		spodGeneration: spodGeneration{uid: cfg.GetUID(), generation: cfg.GetGeneration()},
+		maxSizeMB:      maxSizeMB,
+	}
+
+	if sizeLimit := emptyDirSizeLimit(logVolume.source); sizeLimit != nil {
+		current.sizeLimit = sizeLimit.Value()
+	}
+
+	r.logVolumeWarningMu.Lock()
+	defer r.logVolumeWarningMu.Unlock()
+
+	if r.logVolumeWarned == current {
+		return
+	}
+
+	r.logVolumeWarned = current
+
+	r.log.Info(fmt.Sprintf(msg, maxSizeMB))
+	r.record.Eventf(
+		cfg, nil, corev1.EventTypeWarning, reasonJsonEnricherLogVolumeTooSmall,
+		util.EventActionReconcile, msg, maxSizeMB,
+	)
 }
 
 // configureAppArmor configures the daemon and the non root enabler to manage
@@ -1620,9 +1789,18 @@ func (r *ReconcileSPOd) configureLogEnricher(
 	}
 
 	// The BPF source reads the audit events from the kernel instead of the
-	// host log files, so it needs the BPF capabilities but not the logs.
+	// host log files, so it needs the BPF capabilities but not the logs. It
+	// attaches a kprobe to the AppArmor audit function, which Debian and
+	// Ubuntu kernels only allow with CAP_SYS_ADMIN by default, see
+	// perf_event_paranoid. Like for the bpf recorder, it gets it with
+	// AppArmor enabled.
 	if cfg.Spec.Enricher.LogEnricherSource == spodapi.LogEnricherSourceBpf {
 		addCapabilities(ctr.SecurityContext, bpfCapabilities...)
+
+		if cfg.AppArmorEnabled() {
+			addCapabilities(ctr.SecurityContext, "SYS_ADMIN")
+		}
+
 		ctr.VolumeMounts = slices.DeleteFunc(ctr.VolumeMounts, func(m corev1.VolumeMount) bool {
 			return slices.Contains(hostLogVolumes, m.Name)
 		})
@@ -1631,7 +1809,9 @@ func (r *ReconcileSPOd) configureLogEnricher(
 
 // configureJsonEnricher applies the JSON enricher configuration to ctr.
 func (r *ReconcileSPOd) configureJsonEnricher(
-	cfg *spodapi.SecurityProfilesOperatorDaemon, ctr *corev1.Container,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
+	ctr *corev1.Container,
+	logVolume *jsonEnricherLogVolume,
 ) {
 	if cfg.Spec.Enricher.JsonEnricherFilters != "" {
 		r.log.V(config.VerboseLevel).Info("Setting JsonEnricherFilters",
@@ -1679,6 +1859,22 @@ func (r *ReconcileSPOd) configureJsonEnricher(
 
 	if opts.AuditLogPath != nil {
 		ctr.Args = addArgsConfig(ctr.Args, "--audit-log-path="+*opts.AuditLogPath)
+
+		// The number of rotated files only gets set if nothing limits it,
+		// 0 means the default of the JSON enricher like unset. The API
+		// defaults the maximum size.
+		if ptr.Deref(opts.AuditLogMaxAge, 0) == 0 && ptr.Deref(opts.AuditLogMaxBackups, 0) == 0 {
+			maxSize := int64(ptr.Deref(opts.AuditLogMaxSize, defaultAuditLogMaxSizeMB))
+			if backups, fits, ok := jsonEnricherLogBackups(
+				logVolume, *opts.AuditLogPath, maxSize,
+			); ok {
+				ctr.Args = addArgsConfig(ctr.Args, fmt.Sprintf("--audit-log-maxbackup=%d", backups))
+
+				if !fits {
+					r.jsonEnricherLogVolumeTooSmall(cfg, logVolume, maxSize)
+				}
+			}
+		}
 	}
 }
 

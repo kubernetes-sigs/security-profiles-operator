@@ -20,11 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +37,7 @@ import (
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
@@ -58,10 +61,50 @@ func recordingIndexFunc(obj client.Object) []string {
 func TestPodMatchesRecording(t *testing.T) {
 	t.Parallel()
 
+	recorded := map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+	}
+	requireLabel := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key:      bindata.EnableRecordingLabel,
+			Operator: metav1.LabelSelectorOpExists,
+		}},
+	}
+
 	for name, tc := range map[string]struct {
 		annotations map[string]string
+		objs        []client.Object
 		wantTracked bool
 	}{
+		// The daemon does not record pods in namespaces which the recording
+		// webhook does not select, so their annotations did not come from it.
+		"namespace not selected by the recording webhook": {
+			annotations: recorded,
+			objs: []client.Object{
+				webhookConfig(requireLabel), namespaceObject("default", nil),
+			},
+		},
+		"namespace selected by the recording webhook": {
+			annotations: recorded,
+			objs: []client.Object{
+				webhookConfig(requireLabel),
+				namespaceObject("default", map[string]string{bindata.EnableRecordingLabel: ""}),
+			},
+			wantTracked: true,
+		},
+		"pod not selected by the object selector of the recording webhook": {
+			annotations: recorded,
+			objs: []client.Object{objectSelectorWebhookConfig(&metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "other"},
+			})},
+		},
+		"pod selected by the object selector of the recording webhook": {
+			annotations: recorded,
+			objs: []client.Object{objectSelectorWebhookConfig(&metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "test"},
+			})},
+			wantTracked: true,
+		},
 		"recorded by the webhook": {
 			annotations: map[string]string{
 				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
@@ -91,12 +134,25 @@ func TestPodMatchesRecording(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			testPodMatchesRecording(t, tc.annotations, tc.wantTracked)
+			testPodMatchesRecording(t, tc.annotations, tc.wantTracked, tc.objs...)
 		})
 	}
 }
 
-func testPodMatchesRecording(t *testing.T, annotations map[string]string, wantTracked bool) {
+// objectSelectorWebhookConfig returns the webhook configuration whose
+// recording webhook has the object selector.
+func objectSelectorWebhookConfig(
+	selector *metav1.LabelSelector,
+) *admissionregv1.MutatingWebhookConfiguration {
+	webhook := webhookConfig(nil)
+	webhook.Webhooks[1].ObjectSelector = selector
+
+	return webhook
+}
+
+func testPodMatchesRecording(
+	t *testing.T, annotations map[string]string, wantTracked bool, objs ...client.Object,
+) {
 	t.Helper()
 
 	scheme := utiltest.NewScheme(t)
@@ -128,7 +184,7 @@ func testPodMatchesRecording(t *testing.T, annotations map[string]string, wantTr
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(recording).
-		WithObjects(recording, pod).
+		WithObjects(append(objs, recording, pod)...).
 		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
 		Build()
 
@@ -462,9 +518,7 @@ func TestPodMatchesRecordingBeingDeleted(t *testing.T) {
 func TestPodRecordedByObject(t *testing.T) {
 	t.Parallel()
 
-	recording := &profilerecordingapi.ProfileRecording{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-recording", Namespace: "default"},
-	}
+	recording := testRecording()
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
 		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
 	}}}
@@ -472,6 +526,24 @@ func TestPodRecordedByObject(t *testing.T) {
 	require.True(t, podRecordedByObject(recording, pod))
 	require.False(t, podRecordedByObject(recording, &corev1.Pod{}))
 	require.False(t, podRecordedByObject(&corev1.Pod{}, pod))
+
+	// A tracked pod stays tracked when the recording changes its recorder,
+	// the daemon keeps recording the running containers. A pod tracked anew
+	// needs the annotation of the kind and recorder of the recording.
+	logs := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		CreationTimestamp: metav1.NewTime(time.Unix(500, 0)),
+		Annotations: map[string]string{
+			config.SeccompProfileRecordLogsAnnotationKey + "ctr": "test-recording_ctr_123_456",
+		},
+	}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}}}
+	require.True(t, podRecordedByObject(recording, logs))
+	require.False(t, podRecordedBy(logs, recording, false))
+
+	bpf := logs.DeepCopy()
+	bpf.Annotations = map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+	}
+	require.True(t, podRecordedBy(bpf, recording, false))
 }
 
 func TestActiveWorkloadRequestsReleasesStalePods(t *testing.T) {
@@ -781,6 +853,115 @@ func TestEmptiedRecordingGetsFilledUp(t *testing.T) {
 	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
 
+// An emptied recording only gets filled up with the pods which the recording
+// webhook selects, otherwise a stray annotated pod in a namespace without
+// recording enabled would keep the recording from being deleted.
+func TestEmptiedRecordingRefillNeedsWebhookSelection(t *testing.T) {
+	t.Parallel()
+
+	requireLabel := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key:      bindata.EnableRecordingLabel,
+			Operator: metav1.LabelSelectorOpExists,
+		}},
+	}
+
+	for name, tc := range map[string]struct {
+		objs        []client.Object
+		wantTracked []string
+	}{
+		"namespace not selected by the recording webhook": {
+			objs: []client.Object{
+				webhookConfig(requireLabel), namespaceObject("default", nil),
+			},
+		},
+		"pod not selected by the object selector of the recording webhook": {
+			objs: []client.Object{objectSelectorWebhookConfig(&metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "other"},
+			})},
+		},
+		"namespace selected by the recording webhook": {
+			objs: []client.Object{
+				webhookConfig(requireLabel),
+				namespaceObject("default", map[string]string{bindata.EnableRecordingLabel: ""}),
+			},
+			wantTracked: []string{"test-pod"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := testRecording()
+			recording.Finalizers = []string{finalizer}
+			recording.Status.ActiveWorkloads = []string{"listed"}
+
+			stray := recordedPod()
+			stray.Labels = map[string]string{"app": "test"}
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(recording).
+				WithObjects(append(tc.objs, recording, stray)...).
+				WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+				Build()
+
+			// The last listed workload goes away.
+			_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKey{Namespace: "default", Name: "listed"},
+			})
+			require.NoError(t, err)
+
+			updated := &profilerecordingapi.ProfileRecording{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+			require.Equal(t, tc.wantTracked, updated.Status.ActiveWorkloads)
+			require.Equal(
+				t,
+				tc.wantTracked != nil,
+				slices.Contains(updated.GetFinalizers(), finalizer),
+			)
+		})
+	}
+}
+
+// A refill takes the pods which the webhook annotated at their admission for
+// an earlier recorder of the recording, like the tracked pods, which the
+// daemon keeps recording.
+func TestEmptiedRecordingRefillKeepsPodsOfEarlierRecorder(t *testing.T) {
+	t.Parallel()
+
+	recording := testRecording()
+	recording.Finalizers = []string{finalizer}
+	recording.Status.ActiveWorkloads = []string{"listed"}
+
+	// The recording does not select the pod anymore either.
+	recording.Spec.PodSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"app": "other"},
+	}
+
+	logs := recordedPod()
+	logs.CreationTimestamp = metav1.Unix(456, 0)
+	logs.Annotations = map[string]string{
+		config.SeccompProfileRecordLogsAnnotationKey + "ctr": "test-recording_ctr_123_456",
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(recording).
+		WithObjects(recording, logs).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		Build()
+
+	_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "listed"},
+	})
+	require.NoError(t, err)
+
+	updated := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+	require.Equal(t, []string{"test-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
+}
+
 // A tracked pod stays tracked while it carries an annotation of the recording,
 // like the daemon keeps recording it, while a pod gets tracked anew only if
 // the recording selects it. Otherwise an edited recording would lose its
@@ -879,7 +1060,7 @@ func TestPodAnnotatedAtAdmissionIsTracked(t *testing.T) {
 			pod := recordedPod()
 			pod.CreationTimestamp = metav1.NewTime(tc.created)
 			pod.Annotations = map[string]string{
-				config.SeccompProfileRecordLogsAnnotationKey + tc.key: tc.value,
+				config.SeccompProfileRecordBpfAnnotationKey + tc.key: tc.value,
 			}
 
 			require.Equal(t, tc.wantTracked, podRecordedBy(pod, recording, false))

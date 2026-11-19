@@ -84,8 +84,8 @@ spec:
               cpu: 500m
           env:
             # The selinuxd images run privileged on every node, so they are
-            # pinned by digest like the operator image. hack/update-selinuxd.sh
-            # bumps them, dependencies.yaml tracks the digests.
+            # pinned by digest. hack/update-selinuxd.sh bumps them,
+            # dependencies.yaml tracks the digests.
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/security-profiles-operator/selinuxd@sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460
             - name: RELATED_IMAGE_SELINUXD_EL8

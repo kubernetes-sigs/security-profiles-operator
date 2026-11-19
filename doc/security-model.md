@@ -190,7 +190,9 @@ Each recorder and enricher runs in a container of its own:
 1. The log enricher drops all capabilities except `SYS_PTRACE` and `DAC_READ_SEARCH`, which
    it needs to resolve the processes of other containers through `/proc`, and `CHOWN`, which it
    needs to hand its GRPC socket over to the non-root daemon. With the `Bpf` log source it adds `BPF`,
-   `PERFMON` and `SYS_RESOURCE`, and does not mount the host log directories.
+   `PERFMON` and `SYS_RESOURCE`, and does not mount the host log directories. With AppArmor enabled
+   it also keeps `SYS_ADMIN`, which Debian and Ubuntu kernels require for attaching its kprobe on the
+   AppArmor audit function by default.
 2. The JSON enricher drops all capabilities except `SYS_PTRACE`, `SYS_RESOURCE`, `BPF`,
    `PERFMON` and `DAC_READ_SEARCH`.
 3. The bpf recorder drops all capabilities except `BPF`, `PERFMON`, `SYS_RESOURCE`,
