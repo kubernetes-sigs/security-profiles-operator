@@ -15,7 +15,7 @@
 # Pinned by digest: a mutable tag here means the toolchain that compiles every
 # released binary can be replaced remotely without any change in this repo, and
 # the provenance would still verify. Bump together with the build image.
-ARG BUILD_IMAGE=quay.io/security-profiles-operator/build@sha256:dc669ccf589a45079e01d3b7d0ed58a68e60492f62a2caf7acb25a7ca5cf412f
+ARG BUILD_IMAGE=quay.io/security-profiles-operator/build@sha256:a6893b5de090464449454f6e317719e7bfa0098a2c235ebaedf2d4b6a2c9b544
 
 # The build stages run on the build platform, nix cross compiles for the target.
 FROM --platform=$BUILDPLATFORM $BUILD_IMAGE AS build
