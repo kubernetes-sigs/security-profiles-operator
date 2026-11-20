@@ -153,6 +153,11 @@
       "type": "object",
       "additionalProperties": { "type": "string" }
     },
+    "podLabels": {
+      "description": "Labels for the operator pods.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
     "priorityClassName": {
       "description": "The priority class of the operator pods, none when empty.",
       "type": "string"
