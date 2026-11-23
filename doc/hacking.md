@@ -189,8 +189,9 @@ them when changing what they check:
 
 - `make verify-actions` lints the GitHub workflows with actionlint and
   shellcheck.
-- [zizmor](https://docs.zizmor.sh) checks the GitHub workflows for security
-  issues like template injection, see the zizmor job of the lint workflow.
+- `make verify-zizmor` checks the GitHub workflows for security issues like
+  template injection with [zizmor](https://docs.zizmor.sh). Its online audits
+  need a GitHub token in `GH_TOKEN`.
 - [markdownlint-cli2](https://github.com/DavidAnson/markdownlint-cli2) lints
   the Markdown files with
   [`.markdownlint-cli2.yaml`](../.markdownlint-cli2.yaml), and
@@ -214,8 +215,8 @@ them when changing what they check:
   The e2e tests run in GitHub Actions and Prow, see
   [running e2e tests](#running-e2e-tests).
 
-The [pre-commit hooks](#pre-commit-hooks) run typos and markdownlint as well,
-but not lychee and zizmor.
+The [pre-commit hooks](#pre-commit-hooks) run typos, markdownlint and zizmor as
+well, but not lychee.
 
 ### Pre-commit hooks
 
@@ -223,10 +224,10 @@ but not lychee and zizmor.
 [pre-commit](https://pre-commit.com), install them with `pre-commit install`.
 They check YAML, JSON, whitespace, typos and Markdown, and run the Makefile
 targets of the changed files, like `make verify-shellcheck`,
-`make verify-dockerfiles`, `make verify-manifests` and `make verify-actions`,
-so that the hooks and the CI use the same pinned linters. `make verify-go-lint`
-takes a while and only runs on `git push`. `pre-commit run --all-files` runs
-all hooks once.
+`make verify-dockerfiles`, `make verify-manifests`, `make verify-actions` and
+`make verify-zizmor`, so that the hooks and the CI use the same pinned linters.
+`make verify-go-lint` takes a while and only runs on `git push`.
+`pre-commit run --all-files` runs all hooks once.
 
 ### Dependencies
 

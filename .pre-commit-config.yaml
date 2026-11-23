@@ -53,6 +53,12 @@ repos:
         language: system
         files: ^\.github/(workflows|actions)/
         pass_filenames: false
+      - id: zizmor
+        name: zizmor
+        entry: make verify-zizmor
+        language: system
+        files: ^\.github/(workflows/|actions/|dependabot\.yml$)
+        pass_filenames: false
       - id: manifests
         name: kubeconform and kube-linter
         entry: make verify-manifests

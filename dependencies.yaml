@@ -478,7 +478,7 @@ dependencies:
       match: "^ARG BUILD_IMAGE="
 
   - name: nix
-    version: 2.35.6
+    version: 2.36.0
     upstream:
       flavour: github
       url: NixOS/nix
@@ -494,7 +494,7 @@ dependencies:
 
   # Must be bumped together with nix above.
   - name: nix-sha256
-    version: b12ab64a291e41846b9da37b7f56eafa7683deaa267bafb2ed43440ab2f45f13
+    version: c4d1aed088f62aa729823cffa3269e880de6ce6102fecb8909f2821eedb2f2eb
     refPaths:
     - path: Dockerfile.build-image
       match: "^ARG NIX_SHA256"
@@ -515,7 +515,7 @@ dependencies:
   # The BuildKit of the reproducible image builds, on Cloud Build and in the
   # image-reproducible workflow alike.
   - name: buildkit
-    version: v0.35.0
+    version: v0.35.1
     upstream:
       flavour: github
       url: moby/buildkit
@@ -525,7 +525,7 @@ dependencies:
 
   # Must be bumped together with buildkit above.
   - name: buildkit-digest
-    version: sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb
+    version: sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
     refPaths:
     - path: hack/image-cross.sh
       match: "^BUILDKIT_DIGEST="
@@ -1108,16 +1108,40 @@ dependencies:
       - path: Makefile
         match: "^ACTIONLINT_VERSION"
 
-  # zizmor-action installs only the zizmor versions it ships a lockfile for,
-  # a new zizmor can need a newer zizmor-action in .github/workflows/lint.yml.
   - name: zizmor
-    version: 1.32.0
+    version: 1.33.1
     upstream:
       flavour: github
       url: zizmorcore/zizmor
     refPaths:
-      - path: .github/workflows/lint.yml
-        match: "version: 1\\."
+      - path: Makefile
+        match: "^ZIZMOR_VERSION"
+
+  # Must be bumped together with zizmor above, see the digests of the release
+  # assets.
+  - name: zizmor-sha256-linux-amd64
+    version: 3e6a301c7a820a2501915f5a9de8c0486da82bdec7965f068477538a98743d43
+    refPaths:
+      - path: Makefile
+        match: "^ZIZMOR_SHA256_linux_amd64"
+
+  - name: zizmor-sha256-linux-arm64
+    version: aa487c792a7cbbe86e4f8dccd3b66de33b3b51813c090aaa0842d7ea08a3fc35
+    refPaths:
+      - path: Makefile
+        match: "^ZIZMOR_SHA256_linux_arm64"
+
+  - name: zizmor-sha256-darwin-amd64
+    version: 8b609d38243c6dd6ddd29bf93d02d886eb507383fe4735b1cde73e66e4de4f29
+    refPaths:
+      - path: Makefile
+        match: "^ZIZMOR_SHA256_darwin_amd64"
+
+  - name: zizmor-sha256-darwin-arm64
+    version: 68516d45723aac36e9c87c47d56e8418009fcb919c6ceb44514d85b9d0c1c011
+    refPaths:
+      - path: Makefile
+        match: "^ZIZMOR_SHA256_darwin_arm64"
 
   # No upstream: zeitgeist cannot parse the release tags of
   # lycheeverse/lychee, which carry a lychee- prefix, see kustomize.
