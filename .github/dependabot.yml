@@ -30,6 +30,10 @@ updates:
   directory: "/hack/tools"
   schedule:
     interval: daily
+  # Security updates ignore the cooldown, it only satisfies the
+  # dependabot-cooldown audit of zizmor.
+  cooldown:
+    default-days: 7
   labels:
     - "release-note-none"
     - "ok-to-test"

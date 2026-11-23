@@ -69,6 +69,13 @@ HADOLINT_SHA256_linux_arm64 = f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd35
 HADOLINT_SHA256_darwin_amd64 = ffe9bb18b23d5ed1eae50237aecdbb523d016e96da0bd4e7aa432040acfc3fde
 HADOLINT_SHA256_darwin_arm64 = 5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2
 ACTIONLINT_VERSION = v1.7.12
+ZIZMOR_VERSION = 1.33.1
+# Checksums of the zizmor release archives per GOOS_GOARCH, see the digests of
+# the release assets. Bump them together with the version above.
+ZIZMOR_SHA256_linux_amd64 = 3e6a301c7a820a2501915f5a9de8c0486da82bdec7965f068477538a98743d43
+ZIZMOR_SHA256_linux_arm64 = aa487c792a7cbbe86e4f8dccd3b66de33b3b51813c090aaa0842d7ea08a3fc35
+ZIZMOR_SHA256_darwin_amd64 = 8b609d38243c6dd6ddd29bf93d02d886eb507383fe4735b1cde73e66e4de4f29
+ZIZMOR_SHA256_darwin_arm64 = 68516d45723aac36e9c87c47d56e8418009fcb919c6ceb44514d85b9d0c1c011
 KUBECONFORM_VERSION = v0.8.0
 KUBE_LINTER_VERSION = v0.8.3
 YQ_VERSION = 4.54.3
@@ -743,8 +750,8 @@ verify-format: ## Verify the code format
 	$(CLANG_FORMAT) -i $$(git ls-files '*.c' '*.proto' ':!:vendor')
 	hack/tree-status
 
-# Architecture names of the shellcheck and hadolint release assets. shellcheck
-# names arm64 aarch64, hadolint keeps arm64.
+# Architecture names of the shellcheck, zizmor and hadolint release assets.
+# shellcheck and zizmor name arm64 aarch64, hadolint keeps arm64.
 TOOLS_ASSET_ARCH = $(subst arm64,aarch64,$(subst amd64,x86_64,$(shell $(GO) env GOARCH)))
 HADOLINT_ARCH = $(subst amd64,x86_64,$(shell $(GO) env GOARCH))
 HADOLINT_OS = $(subst darwin,macos,$(shell $(GO) env GOOS))
@@ -783,6 +790,25 @@ verify-dockerfiles: $(HADOLINT) ## Lint the Dockerfiles and verify that the imag
 .PHONY: verify-actions
 verify-actions: $(SHELLCHECK) ## Lint the GitHub workflows with actionlint
 	$(GO_RUN_TOOL) github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck=$(abspath $(SHELLCHECK))
+
+ZIZMOR := $(BUILD_DIR)/zizmor-$(ZIZMOR_VERSION)
+ZIZMOR_TARGET = $(TOOLS_ASSET_ARCH)-$(subst darwin,apple-darwin,$(subst linux,unknown-linux-gnu,$(shell $(GO) env GOOS)))
+
+$(ZIZMOR): | $(BUILD_DIR)
+	rm -rf $@.install
+	mkdir -p $@.install
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.install/archive.tar.gz \
+		https://github.com/zizmorcore/zizmor/releases/download/v$(ZIZMOR_VERSION)/zizmor-$(ZIZMOR_TARGET).tar.gz
+	echo "$(ZIZMOR_SHA256_$(TOOLS_PLATFORM))  $@.install/archive.tar.gz" | $(SHA256SUM) -c -
+	tar -xzf $@.install/archive.tar.gz -C $@.install zizmor
+	mv $@.install/zizmor $@
+	rm -rf $@.install
+
+# The online audits, like the ones of the pinned actions, need a GitHub token
+# in GH_TOKEN, zizmor skips them without one.
+.PHONY: verify-zizmor
+verify-zizmor: $(ZIZMOR) ## Check the GitHub workflows for security issues with zizmor
+	$(ZIZMOR) --min-severity medium .
 
 # The committed manifests and the examples are validated against the schemas
 # of the oldest supported Kubernetes and of the CRDs in this tree, and the
