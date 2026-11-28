@@ -98,6 +98,9 @@ fullnameOverride: ""
 # Annotations for the operator pods.
 podAnnotations: {}
 
+# Labels for the operator pods.
+podLabels: {}
+
 # The priority class of the operator pods. The operator manages the daemon and
 # the webhooks, so it is critical for the cluster. Set to "" for none.
 priorityClassName: system-cluster-critical
